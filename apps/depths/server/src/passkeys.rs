@@ -82,10 +82,7 @@ pub fn write_atomic(path: &Path, body: &[u8]) -> std::io::Result<()> {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let tmp = dir.join(format!(
-        ".{name}.{}.tmp",
-        web_auth::session::random_token()
-    ));
+    let tmp = dir.join(format!(".{name}.{}.tmp", web_auth::session::random_token()));
     let write = || -> std::io::Result<()> {
         let mut f = std::fs::OpenOptions::new()
             .write(true)
@@ -122,10 +119,8 @@ impl FileStore {
                         Ok(f) => format!("unknown version {}", f.version),
                         Err(e) => e.to_string(),
                     };
-                    let aside = data_dir.join(format!(
-                        "passkeys.json.corrupt-{}",
-                        Utc::now().timestamp()
-                    ));
+                    let aside =
+                        data_dir.join(format!("passkeys.json.corrupt-{}", Utc::now().timestamp()));
                     std::fs::rename(&path, &aside).map_err(|e| {
                         format!(
                             "{} is not a valid passkey store ({why}) and could not be moved \
@@ -400,7 +395,9 @@ pub enum BeginError {
 pub enum Finished {
     Registered(PasskeyInfo),
     /// The name of the passkey that answered.
-    Verified { name: String },
+    Verified {
+        name: String,
+    },
 }
 
 /// The refusal a failed ceremony maps to, or `None` for a server-side failure.
@@ -613,12 +610,13 @@ impl Passkeys {
             name: display.to_owned(),
             display_name: display.to_owned(),
         };
-        let (challenge, state) = ceremonies
-            .start_registration(&person, &existing)
-            .map_err(|e| {
-                tracing::error!(error = %e, "start passkey registration failed");
-                BeginError::Internal
-            })?;
+        let (challenge, state) =
+            ceremonies
+                .start_registration(&person, &existing)
+                .map_err(|e| {
+                    tracing::error!(error = %e, "start passkey registration failed");
+                    BeginError::Internal
+                })?;
         let options = public_key(&challenge).ok_or(BeginError::Internal)?;
         let ceremony = self.open_ceremony(Pending {
             session: session.to_owned(),
@@ -960,7 +958,10 @@ mod tests {
         let (store, _) = FileStore::open(dir.path()).unwrap();
         run(store.add_passkey("u", passkey("a", "One"))).unwrap();
         run(store.add_passkey("u", passkey("b", "Two"))).unwrap();
-        assert!(matches!(store.remove_one("u", "x"), Err(RemoveError::Unknown)));
+        assert!(matches!(
+            store.remove_one("u", "x"),
+            Err(RemoveError::Unknown)
+        ));
         assert_eq!(store.remove_one("u", "a").unwrap().name, "One");
         assert!(matches!(store.remove_one("u", "b"), Err(RemoveError::Last)));
         // Recovery removes them all.

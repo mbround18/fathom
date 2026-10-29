@@ -299,11 +299,19 @@ mod tests {
         assert_eq!(t.verification("a"), (None, false));
         t.set_verified("a", now);
         assert_eq!(t.verification("a"), (Some(now), false));
-        assert_eq!(t.verification("b"), (None, false), "another browser is unverified");
+        assert_eq!(
+            t.verification("b"),
+            (None, false),
+            "another browser is unverified"
+        );
         t.set_recovering("a");
         assert_eq!(t.verification("a"), (None, true));
         t.set_verified("a", now);
-        assert_eq!(t.verification("a"), (Some(now), false), "registering ends recovery");
+        assert_eq!(
+            t.verification("a"),
+            (Some(now), false),
+            "registering ends recovery"
+        );
         t.remove("a");
         assert_eq!(t.verification("a"), (None, false));
         t.set_verified("gone", now);
