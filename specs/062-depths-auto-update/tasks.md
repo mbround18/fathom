@@ -164,7 +164,7 @@ audited, holds applied. Needs 054's passkey step-up.
   - the journal "holds the open runs and the last 50 finished runs".
 - [X] T048 [P] [US2] Add gate tests to `apps/depths/server/tests/updates_ws.rs`: `PreviewUpdateBatch` and its `Confirm` need admin, a trusted network and 054's step-up; a user's `PreviewOp { Update }` on an assigned stack gets the image-update plan (FR-026); `ApplyHeld` needs a passkey and is audited `image_hold_apply`; `Retry` removes the rejected entry, audited `update_retry`.
 - [x] T049 [US2] Write the opt-in Docker test `apps/depths/server/tests/updates_docker.rs`, gated on `DEPTHS_IT_DOCKER=1` and skipped otherwise, per quickstart §2: a local `distribution` registry and `depths-it-upd-<random>` stacks, removed by name at the end. Cases for this story: unchanged tag is HEAD only (registry access log and `RequestCounts`) through `Client::with_base_url`; a pushed image gives one resolution and `Available`; multi-arch re-push, no update; update recreates only the changed service with the compose file byte-identical; an image that turns root is held with tag and container unchanged (SC-005); compose creates the replacement before stopping the old container (research R3); the same run on the containerd image store when `docker info` reports `driver-type io.containerd.snapshotter.v1`, skipped with a note otherwise. Run by the main session only.
-- [ ] T050 [P] [US2] Write the Playwright spec `apps/depths/web/tests/e2e/us10-update-batch/update-batch.spec.ts`: select stacks, preview (services, old and new digest, version labels, order, "only services with a newer image are recreated", 051 findings to acknowledge), step-up, per-stack live progress, a failed middle stack with the summary naming it, a hold with its reason and Apply anyway, a busy stack skipped.
+- [X] T050 [P] [US2] Write the Playwright spec `apps/depths/web/tests/e2e/us10-update-batch/update-batch.spec.ts`: select stacks, preview (services, old and new digest, version labels, order, "only services with a newer image are recreated", 051 findings to acknowledge), step-up, per-stack live progress, a failed middle stack with the summary naming it, a hold with its reason and Apply anyway, a busy stack skipped.
 
 ### Implementation
 
@@ -174,7 +174,7 @@ audited, holds applied. Needs 054's passkey step-up.
 - [x] T054 [US2] Implement the batch runner in `apps/depths/server/src/updates/run.rs` over the `Ops` lock: pull by digest, hold checks, keep tag `…-previous`, tag, `up`, health wait, rollback, rejected digests, journal and the start-up interruption pass, outcomes and audit. Record each keep tag set in `update-state.json → keep` with the image ID. T047 passes.
 - [x] T055 [US2] Handle `PreviewUpdateBatch`, its `Confirm`, `Cancel`, `PreviewUpdateChange(Retry | ApplyHeld)` and the user `PreviewOp { Update }` path in `apps/depths/server/src/ws.rs` and `apps/depths/server/src/ops.rs`, emitting `UpdateRunStarted`, `OpStarted`/`OpOutput`/`OpFinished`, `UpdateStackDone` and `UpdateRunFinished`. T048 passes.
 - [x] T056 [P] [US2] Amend 054's guard allowlist: add `POST /images/{name}/tag` to `specs/054-depths-root-boundary/contracts/guard.md`, and to the guard's allowlist code if 054's guard is in the tree (contracts/protocol.md "054 contract amendment").
-- [ ] T057 [US2] Write the batch preview, progress and summary, held review with Apply anyway, and Retry in `apps/depths/web/src/features/updates/`, with the batch scripts in `apps/depths/web/tests/support/fake-backend.ts`. T050 passes.
+- [X] T057 [US2] Write the batch preview, progress and summary, held review with Apply anyway, and Retry in `apps/depths/web/src/features/updates/`, with the batch scripts in `apps/depths/web/tests/support/fake-backend.ts`. T050 passes.
 - [x] T058 [P] [US2] Add "Updating stacks", holds, rollback, and the shared-tag exposure (spec Edge Cases) to `docs/guides/depths/updates.md`.
 
 **Checkpoint**: US1 and US2 work together; manual updates are safe without any Auto policy.
@@ -200,7 +200,7 @@ US4's Watchtower detection.
   - FR-025: before each stack the policy's `set_by` must still be an administrator in `users.json`; otherwise the stack is skipped and listed in `paused_policies`, "author no longer an administrator", until another admin saves it.
 - [x] T060 [P] [US3] Write scheduled-run tests in `apps/depths/server/src/updates/run.rs`: the actor is `Actor { provider: depths, subject: "scheduled", username: "Depths (scheduled)" }` with `on_behalf_of` the policy's `set_by` (FR-016); a busy refusal names "Depths (scheduled)"; a held Auto stack is never applied (SC-005); `RollbackFailed` waits for a person; an interrupted scheduled run is audited with the run's actor.
 - [x] T061 [P] [US3] Add gate tests to `apps/depths/server/tests/updates_ws.rs`: `PreviewUpdateChange(Policy)` and the window and `health_timeout_secs` settings need admin, a trusted network and a passkey always, and are audited `update_policy` / `update_settings` with before and after (FR-017).
-- [ ] T062 [P] [US3] Write the Playwright spec `apps/depths/web/tests/e2e/us11-update-auto/update-auto.spec.ts`: policy sheet (Off, Notify, Auto) with step-up; host window editor and per-stack override; the zone shown, with "windows are in UTC: mount /etc/localtime to use host time" when it is UTC; recent runs; rolled back, rollback failed in red with output, interrupted; a paused policy with "author no longer an administrator".
+- [X] T062 [P] [US3] Write the Playwright spec `apps/depths/web/tests/e2e/us11-update-auto/update-auto.spec.ts`: policy sheet (Off, Notify, Auto) with step-up; host window editor and per-stack override; the zone shown, with "windows are in UTC: mount /etc/localtime to use host time" when it is UTC; recent runs; rolled back, rollback failed in red with output, interrupted; a paused policy with "author no longer an administrator".
 - [x] T063 [US3] Add the rollback case to `apps/depths/server/tests/updates_docker.rs`: an image whose healthcheck fails is rolled back within timeout + 1 min (SC-004), the tag points to the old image, `depths-keep/<stack>:<svc>-held` is present, the digest is rejected, and the next scheduled pass skips it. Run by the main session only.
 
 ### Implementation
@@ -208,7 +208,7 @@ US4's Watchtower detection.
 - [x] T064 [US3] Add the window and Auto queue to `apps/depths/server/src/updates/scheduler.rs` (sleep until the next window opening, occurrence keys, `chrono::Local` as the `LocalZone`, paused policies computed each pass) so T059 passes.
 - [x] T065 [US3] Run scheduled stacks through the US2 runner in `apps/depths/server/src/updates/run.rs` with the "Depths (scheduled)" actor and `on_behalf_of`, so T060 passes.
 - [x] T066 [US3] Handle `PreviewUpdateChange(Policy)` and the window and health-timeout settings in `apps/depths/server/src/ws.rs`. Saving a policy makes the saver `set_by`, which lifts a pause. T061 passes.
-- [ ] T067 [US3] Write the policy sheet, window editor, zone note, paused-policy and recent-runs views in `apps/depths/web/src/features/updates/`, with the scripts in `apps/depths/web/tests/support/fake-backend.ts`. T062 passes.
+- [X] T067 [US3] Write the policy sheet, window editor, zone note, paused-policy and recent-runs views in `apps/depths/web/src/features/updates/`, with the scripts in `apps/depths/web/tests/support/fake-backend.ts`. T062 passes.
 - [x] T068 [P] [US3] Add policies, windows, rollback limits (migrations aren't undone; keep such stacks on Notify) and scheduled authorisation to `docs/guides/depths/updates.md`.
 
 **Checkpoint**: US3 is complete, but Auto ships only once US4's Watchtower detection is merged.
@@ -226,13 +226,13 @@ Watchtower pauses Auto. The label rules themselves are in Phase 2 (T015–T018).
 
 - [x] T069 [P] [US4] Write detection tests in `apps/depths/server/src/updates/watchtower.rs` over the runtime snapshot: label `com.centurylinklabs.watchtower=true`; image `containrrr/watchtower` with any registry prefix, including `ghcr.io/containrrr/watchtower`, and the forks in research R6; an acknowledgement matches container ID plus image ID, so a recreated Watchtower raises the banner again; "Auto stays paused while any running Watchtower container has no matching acknowledgement"; Depths never stops or changes it (FR-021).
 - [x] T070 [P] [US4] Write label-source tests in `apps/depths/server/src/updates/mod.rs`: labels read from the running container, and from `compose config --format json` when there is none; `label_only` and `scope` settings change the effective policy; changing them needs a passkey and is audited (FR-017).
-- [ ] T071 [P] [US4] Write the Playwright spec `apps/depths/web/tests/e2e/us12-watchtower/watchtower.spec.ts`: `enable=false`, `monitor-only=true`, `scope=media` and `no-pull=true` shown with their effective policy and source; hook and `depends-on` labels shown "not run" with the reason; the banner naming the container; acknowledging "stopped" or "monitor-only" with step-up lifts the pause.
+- [X] T071 [P] [US4] Write the Playwright spec `apps/depths/web/tests/e2e/us12-watchtower/watchtower.spec.ts`: `enable=false`, `monitor-only=true`, `scope=media` and `no-pull=true` shown with their effective policy and source; hook and `depends-on` labels shown "not run" with the reason; the banner naming the container; acknowledging "stopped" or "monitor-only" with step-up lifts the pause.
 
 ### Implementation
 
 - [x] T072 [US4] Implement `apps/depths/server/src/updates/watchtower.rs` (detection and acks, `PreviewUpdateChange(AckWatchtower)` audited `watchtower_ack`) so T069 passes.
 - [x] T073 [US4] Feed labels into the effective policy in `apps/depths/server/src/updates/mod.rs`, and handle the `label_only` and `scope` settings in `apps/depths/server/src/ws.rs`, so T070 passes.
-- [ ] T074 [US4] Write the label reasons, policy source and Watchtower banner in `apps/depths/web/src/features/updates/` and `apps/depths/web/src/features/stacks/`, with the scripts in `apps/depths/web/tests/support/fake-backend.ts`. T071 passes.
+- [X] T074 [US4] Write the label reasons, policy source and Watchtower banner in `apps/depths/web/src/features/updates/` and `apps/depths/web/src/features/stacks/`, with the scripts in `apps/depths/web/tests/support/fake-backend.ts`. T071 passes.
 - [x] T075 [P] [US4] Write `docs/guides/depths/migrating-from-watchtower.md`: the label table, what is not run, stopping Watchtower or setting it to monitor-only. Link it from `docs/guides/depths/README.md`.
 
 ---
@@ -246,20 +246,20 @@ Watchtower pauses Auto. The label rules themselves are in Phase 2 (T015–T018).
 ### Tests
 
 - [x] T076 [P] [US5] Write cleanup tests in `apps/depths/server/src/updates/run.rs`: cleanup off removes nothing (FR-023); cleanup on runs `docker image rm <old previous image id>` without `-f` after the stack is healthy; a daemon refusal is a "kept: in use" note, not a failure; each removal is audited `image_remove` with the image ID and repo digests; Depths "never removes an image it did not record as a service's previous image. No `prune`" (FR-027); an image a keep tag records as a stack's current rollback target is never removed, including after a rollback (the image rolled back to, and the `held` image).
-- [ ] T077 [P] [US5] Write the Playwright spec `apps/depths/web/tests/e2e/us13-image-cleanup/image-cleanup.spec.ts`: the cleanup setting with step-up, removal entries in recent runs and the audit view, "kept: in use" notes.
+- [X] T077 [P] [US5] Write the Playwright spec `apps/depths/web/tests/e2e/us13-image-cleanup/image-cleanup.spec.ts`: the cleanup setting with step-up, removal entries in recent runs and the audit view, "kept: in use" notes.
 - [x] T078 [US5] Add the cleanup case to `apps/depths/server/tests/updates_docker.rs`: two updates with cleanup on remove only the image from two updates ago; an image used by another container is kept. Run by the main session only.
 
 ### Implementation
 
 - [x] T079 [US5] Add the cleanup step to `apps/depths/server/src/updates/run.rs` and the `cleanup` setting to `PreviewUpdateChange(Settings)` in `apps/depths/server/src/ws.rs`, so T076 passes.
-- [ ] T080 [US5] Write the cleanup setting and removal entries in `apps/depths/web/src/features/updates/`, with the scripts in `apps/depths/web/tests/support/fake-backend.ts`. T077 passes.
+- [X] T080 [US5] Write the cleanup setting and removal entries in `apps/depths/web/src/features/updates/`, with the scripts in `apps/depths/web/tests/support/fake-backend.ts`. T077 passes.
 - [x] T081 [P] [US5] Document keep tags (visible in `docker images`, what they protect, when they move; FR-028) and cleanup in `docs/guides/depths/updates.md` and `docs/guides/depths/security.md`.
 
 ---
 
 ## Phase 8: Polish and cross-cutting
 
-- [ ] T082 Run the `impeccable` skill over `apps/depths/web/src/features/updates/` and the stack page and nav it touches (critique, then polish, then harden), and apply its findings. Re-run the five update Playwright projects one at a time.
+- [X] T082 Run the `impeccable` skill over `apps/depths/web/src/features/updates/` and the stack page and nav it touches (critique, then polish, then harden), and apply its findings. Re-run the five update Playwright projects one at a time.
 - [ ] T083 Merge the agent branches into `main`, then remove their worktrees and branches.
 - [ ] T084 In the main session, run quickstart §2 (`DEPTHS_IT_DOCKER=1 cargo test -p depths-server --test updates_docker`) and walk quickstart §3 on the dev compose.
 - [ ] T085 Run the full gate once, with `scripts/ci.sh`, in the main session. Report the wall time, the slowest steps, the delta and one speed-up idea.
