@@ -261,7 +261,7 @@ them, in the rollout order in quickstart.md.
 - [ ] T085 Run the `impeccable` skill over the UI changes and their surroundings (critique, then polish, then harden): `apps/keel/web/src/features/settings/{SystemTab,BuildPanel,UpdateCard,UpdateLine}.tsx`, the nav dot in `apps/keel/web/src/app/{nav.ts,Shell.tsx}`, and the params display in `apps/keel/web/src/features/runs/`. Apply its findings and rerun the `s061` project.
 - [ ] T086 Walk through quickstart.md scenarios 1 to 10 and 14 against the dev stack and the fake registry; scenarios 11 to 13 and 15 on the test instance after the rollout steps.
 - [ ] T087 Merge the agent branches into `main`, then remove their worktrees and branches.
-- [ ] T088 Run `make keel bindings` once more on the combined branch and confirm no diff.
+- [X] T088 Run `make keel bindings` once more on the combined branch and confirm no diff.
 - [ ] T089 Run the full gate once, with `scripts/ci.sh`, in the main session only. Report the wall time, the slowest steps, the delta and one speed-up idea.
 - [ ] T090 Run `scripts/hygiene.sh`, then `docker builder prune --filter until=24h` if any images were built.
 - [ ] T091 Update `specs/061-keel-update-notice/spec.md` status to Implemented, and tick this file.
