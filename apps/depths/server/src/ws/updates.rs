@@ -14,7 +14,7 @@ use std::time::Duration;
 use depths_core::role::{self, Access, Action, CommandKind};
 use depths_protocol::{
     AuditAction, AuditChange, AuditOutcome, DenyReason, Event, EventEnvelope, OperationKind,
-    Preview, PreviewId, Reach, RequestId, StackName, UpdateChange,
+    PasskeyAssertion, Preview, PreviewId, Reach, RequestId, StackName, UpdateChange,
 };
 use tokio::sync::broadcast;
 use tokio::time::Instant;
@@ -245,7 +245,13 @@ pub fn preview_change(
             expires_at: expires.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             warnings: Vec::new(),
             ack_required: false,
-            step_up: None,
+            // Spec 054: a settings change always needs a fresh passkey check.
+            step_up: crate::step_up::preview_request(
+                &conn.app,
+                conn.caller(access.role),
+                CommandKind::ManageUpdates,
+                false,
+            ),
         }),
     )
 }
@@ -260,17 +266,34 @@ pub fn owns(conn: &Conn, preview_id: PreviewId) -> bool {
 
 /// `Confirm` of a settings change: applied, audited `update_settings` with before and after, the
 /// scheduler woken, and `UpdatesChanged`.
-pub fn confirm(
+///
+/// Spec 054: `ManageUpdates` always steps up. The check runs after the role and network gate and
+/// before the change is claimed, so a refused check changes nothing.
+pub async fn confirm(
     conn: &Conn,
     access: &Access,
     id: Option<RequestId>,
     preview_id: PreviewId,
+    assertion: Option<&PasskeyAssertion>,
 ) -> EventEnvelope {
     let Some(u) = conn.app.updates.clone() else {
         return off(conn, id);
     };
     // Authorised when previewed; the role or the network may have changed since.
     if let Some(refused) = gate(conn, access, id, CommandKind::ManageUpdates, "Confirm") {
+        return refused;
+    }
+    if let Some(refused) = conn
+        .step_up(
+            id,
+            access.role,
+            CommandKind::ManageUpdates,
+            false,
+            assertion,
+            "Confirm",
+        )
+        .await
+    {
         return refused;
     }
     let pending = match u.take_change(&conn.session, preview_id) {

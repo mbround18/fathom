@@ -369,3 +369,93 @@ async fn a_settings_change_needs_a_trusted_network() {
     assert_eq!(r["event"]["data"]["reason"], "untrusted_network", "{r}");
     server.abort();
 }
+
+/// Spec 054: `ManageUpdates` always steps up. A stale session's preview carries the check, a
+/// confirm without (or with a bad) answer changes nothing, and the answered confirm applies.
+#[tokio::test]
+async fn a_settings_change_steps_up_on_a_stale_session() {
+    use support::ORIGIN;
+    use support::passkey::*;
+
+    let a = updates_app();
+    let (mut ws, server, cookie) = open_unverified(&a, OWNER).await;
+    let mut auth = authenticator();
+    enrol(&mut ws, &mut auth, "Laptop").await;
+    stale(&a, &cookie);
+
+    let mut settings = serde_json::to_value(updates(&a).store().settings()).unwrap();
+    settings["checks_enabled"] = json!(true);
+    let r = ask(
+        &mut ws,
+        1,
+        cmd(
+            "PreviewUpdateChange",
+            json!({ "kind": "settings", "data": settings }),
+        ),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Preview", "{r}");
+    let preview_id = r["event"]["data"]["preview_id"].clone();
+    let request = r["event"]["data"]["step_up"].clone();
+    assert!(request.is_object(), "the preview carries the check: {r}");
+
+    // No answer: the check is asked for and nothing is claimed or changed.
+    let r = ask(
+        &mut ws,
+        2,
+        cmd("Confirm", json!({ "preview_id": preview_id })),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "StepUpRequired", "{r}");
+    assert!(!updates(&a).checks_enabled());
+
+    // An answer made elsewhere is refused, and still nothing changes.
+    let bad = answer(&mut auth, ELSEWHERE, &request_of(&r));
+    let r = ask(
+        &mut ws,
+        3,
+        cmd(
+            "Confirm",
+            json!({ "preview_id": preview_id, "assertion": bad }),
+        ),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "PasskeyRefused", "{r}");
+    assert!(!updates(&a).checks_enabled());
+
+    // The preview's own check, answered, applies the change.
+    let good = answer(&mut auth, ORIGIN, &request);
+    let r = ask(
+        &mut ws,
+        4,
+        cmd(
+            "Confirm",
+            json!({ "preview_id": preview_id, "assertion": good }),
+        ),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "UpdatesChanged", "{r}");
+    assert!(updates(&a).checks_enabled());
+    server.abort();
+}
+
+/// A fresh session's settings preview asks for no check.
+#[tokio::test]
+async fn a_fresh_session_previews_a_settings_change_without_a_check() {
+    let a = updates_app();
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    let mut settings = serde_json::to_value(updates(&a).store().settings()).unwrap();
+    settings["checks_enabled"] = json!(true);
+    let r = ask(
+        &mut ws,
+        1,
+        cmd(
+            "PreviewUpdateChange",
+            json!({ "kind": "settings", "data": settings }),
+        ),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Preview", "{r}");
+    assert!(r["event"]["data"]["step_up"].is_null(), "{r}");
+    server.abort();
+}

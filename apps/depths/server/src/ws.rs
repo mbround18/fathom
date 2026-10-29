@@ -1027,7 +1027,9 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             }
             // Spec 062: an update settings change.
             if updates::owns(conn, preview_id) {
-                return vec![updates::confirm(conn, &access, id, preview_id)];
+                return vec![
+                    updates::confirm(conn, &access, id, preview_id, assertion.as_ref()).await,
+                ];
             }
             // The preview was authorised when made; the network may have changed since.
             if let Some(k) = app.ops.preview_kind(&conn.session, preview_id)
