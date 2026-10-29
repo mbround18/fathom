@@ -5,6 +5,8 @@
  */
 import type { Actor, DenyReason, OperationKind, OpOutcome, PreviewVoidReason } from '@/protocol/generated'
 
+import { stepUpText } from '@/features/passkeys/messages'
+
 import type { Refusal } from './ops-store'
 
 const SAFE = /^[A-Za-z0-9_@%+=:,./-]+$/
@@ -75,8 +77,12 @@ export function refusalText(r: Refusal): string {
     case 'busy':
       return `${actorLabel(r.actor)} is already running ${r.running ? KIND_LABEL[r.running].toLowerCase() : 'an operation'} on ${r.stack} (operation ${r.operationId}). Wait for it to finish.`
     case 'denied':
-      // The compose policy names the findings that blocked it (051 FR-018).
-      return r.reason === 'compose_blocked' && r.detail ? `${DENY_TEXT[r.reason]} ${r.detail}` : DENY_TEXT[r.reason]
+      // The compose policy names the blocking findings; the 054 passkey gate says what to do.
+      return (r.reason === 'compose_blocked' || r.reason === 'not_permitted') && r.detail
+        ? r.reason === 'compose_blocked'
+          ? `${DENY_TEXT[r.reason]} ${r.detail}`
+          : r.detail
+        : DENY_TEXT[r.reason]
     case 'invalid':
       return r.reason
     case 'void':
@@ -87,5 +93,10 @@ export function refusalText(r: Refusal): string {
       return 'The files changed on disk since you opened them. Nothing was written.'
     case 'lost':
       return 'The connection dropped before the server answered. Check the stack before trying again.'
+    case 'not_confirmed':
+    case 'step_up':
+    case 'passkey':
+    case 'enrol':
+      return stepUpText(r)
   }
 }

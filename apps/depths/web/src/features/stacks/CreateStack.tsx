@@ -61,7 +61,7 @@ function Form() {
   const dirty = created === null && (name !== '' || compose !== TEMPLATE || env !== '')
   useUnsavedGuard(dirty)
 
-  const asking = flow?.request.kind === 'save' && (flow.phase === 'previewing' || flow.phase === 'confirming')
+  const asking = flow?.request.kind === 'save' && (flow.phase === 'previewing' || flow.phase === 'verifying' || flow.phase === 'confirming')
   const canCreate = name !== '' && badName === null && yamlErrors.length === 0 && !asking && created === null && blocked === null
 
   const create = (deploy: boolean): void => {

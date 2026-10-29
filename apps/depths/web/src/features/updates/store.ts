@@ -6,14 +6,18 @@
  * - `checkNow()` sends `CheckUpdatesNow`: `CheckStarted`, `CheckBusy{retry_after_secs}`, or
  *   `Invalid` while checks are off.
  * - `previewSettings(s)` sends `PreviewUpdateChange(settings)`; the reply is a `Preview` whose
- *   `file_diff` is the before/after summary. `confirm()` sends its `preview_id`.
+ *   `file_diff` is the before/after summary. `confirm()` sends its `preview_id`, with a passkey
+ *   assertion when the preview carries `step_up` (054). A cancelled prompt, `StepUpRequired` or
+ *   `PasskeyRefused` keep the preview open with `note`; the next Confirm asks again.
  * - US1 is read-only otherwise: no batch, no policy, no Auto.
  */
 import { create } from 'zustand'
 
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
 import { useSession } from '@/app/session-store'
-import type { Preview, RequestId, UpdateSettings, UpdatesView } from '@/protocol/generated'
+import { stepUpAssertion } from '@/features/passkeys/api'
+import { stepUpText } from '@/features/passkeys/messages'
+import type { PasskeyAssertion, PasskeyRequest, Preview, RequestId, UpdateSettings, UpdatesView } from '@/protocol/generated'
 
 import { DENY_TEXT } from '@/features/stacks/argv'
 
@@ -29,9 +33,14 @@ export type CheckStatus =
 export type SettingsFlow =
   | { kind: 'idle' }
   | { kind: 'previewing'; after: UpdateSettings }
-  | { kind: 'preview'; after: UpdateSettings; preview: Preview }
-  | { kind: 'confirming'; after: UpdateSettings; preview: Preview }
+  | ({ kind: 'preview' | 'verifying' | 'confirming'; after: UpdateSettings; preview: Preview } & StepUp)
   | { kind: 'refused'; reason: string }
+
+/** 054: the passkey request the next Confirm answers (`null` once spent), and why it asks again. */
+interface StepUp {
+  stepUp: PasskeyRequest | null
+  note: string | null
+}
 
 export interface UpdatesState {
   view: UpdatesView | null
@@ -94,10 +103,31 @@ export const useUpdates = create<UpdatesState>()((set, get) => ({
   },
 
   confirm: () => {
-    const flow = get().settings
-    if (flow.kind !== 'preview') return
-    const ok = send('confirm', { type: 'Confirm', data: { preview_id: flow.preview.preview_id } })
-    set({ settings: ok ? { ...flow, kind: 'confirming' } : { kind: 'refused', reason: 'Not connected.' } })
+    const start = get().settings
+    if (start.kind !== 'preview') return
+    const go = (assertion?: PasskeyAssertion): void => {
+      const flow = get().settings
+      if (flow.kind === 'idle' || flow.kind === 'previewing' || flow.kind === 'refused' || flow.preview !== start.preview) return
+      const ok = send('confirm', {
+        type: 'Confirm',
+        data: { preview_id: start.preview.preview_id, ...(assertion ? { assertion } : {}) },
+      })
+      set({
+        settings: ok ? { ...flow, kind: 'confirming', stepUp: null, note: null } : { kind: 'refused', reason: 'Not connected.' },
+      })
+    }
+    const request = start.stepUp
+    if (!request) {
+      go()
+      return
+    }
+    set({ settings: { ...start, kind: 'verifying', note: null } })
+    void stepUpAssertion(request).then((r) => {
+      const flow = get().settings
+      if (flow.kind !== 'verifying' || flow.preview !== start.preview) return
+      if (r.ok) go(r.assertion)
+      else set({ settings: { ...flow, kind: 'preview', note: stepUpText(r.refusal) } })
+    })
   },
 
   cancel: () => set({ settings: { kind: 'idle' } }),
@@ -142,7 +172,9 @@ onServerEvent(({ reply_to, event }) => {
     case 'preview':
       if (s.settings.kind !== 'previewing') return
       if (event.type === 'Preview')
-        useUpdates.setState({ settings: { kind: 'preview', after: s.settings.after, preview: event.data } })
+        useUpdates.setState({
+          settings: { kind: 'preview', after: s.settings.after, preview: event.data, stepUp: event.data.step_up ?? null, note: null },
+        })
       else if (event.type === 'Invalid') useUpdates.setState({ settings: { kind: 'refused', reason: event.data.reason } })
       else if (event.type === 'Denied')
         useUpdates.setState({
@@ -151,6 +183,15 @@ onServerEvent(({ reply_to, event }) => {
       return
     case 'confirm':
       if (event.type === 'UpdatesChanged') useUpdates.setState({ settings: { kind: 'idle' } })
+      else if (s.settings.kind === 'confirming' && (event.type === 'StepUpRequired' || event.type === 'PasskeyRefused'))
+        useUpdates.setState({
+          settings:
+            event.type === 'StepUpRequired'
+              ? { ...s.settings, kind: 'preview', stepUp: event.data.request, note: stepUpText({ kind: 'step_up' }) }
+              : { ...s.settings, kind: 'preview', stepUp: null, note: stepUpText({ kind: 'passkey', reason: event.data.reason }) },
+        })
+      else if (event.type === 'PasskeyEnrolmentRequired')
+        useUpdates.setState({ settings: { kind: 'refused', reason: stepUpText({ kind: 'enrol' }) } })
       else if (event.type === 'PreviewVoid')
         useUpdates.setState({ settings: { kind: 'refused', reason: voidText(event.data.reason) } })
       else if (event.type === 'Invalid') useUpdates.setState({ settings: { kind: 'refused', reason: event.data.reason } })

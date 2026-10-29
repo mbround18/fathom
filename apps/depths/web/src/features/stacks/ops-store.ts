@@ -7,6 +7,11 @@
  *   option switched on) makes every reply to the older one stale.
  * - `confirm()` sends `Confirm{preview_id}`. `OpStarted` closes the flow and opens an operation
  *   for that stack; `PreviewVoid` or `Busy` keeps the flow open with the refusal.
+ * - Step-up (054 T073): when the preview carries `step_up`, `confirm()` asks the authenticator
+ *   first and sends `Confirm{assertion}`. A cancelled prompt leaves the flow ready with "Not
+ *   confirmed, nothing changed". `StepUpRequired` (that check went stale) keeps the flow ready
+ *   with the fresh request for the next Confirm; `PasskeyRefused` keeps it ready too, and the next
+ *   Confirm goes without an assertion to get a fresh request.
  * - `OpOutput` and `OpFinished` are matched by `operation_id`, so output keeps streaming whether
  *   or not the reply carries `reply_to`. `cancelOp(stack)` sends `Cancel{operation_id}`.
  *
@@ -23,13 +28,17 @@ import type {
   EnvText,
   OperationKind,
   OpOutcome,
+  PasskeyAssertion,
   Preview,
   PreviewVoidReason,
   RequestId,
   StackDraft,
+  PasskeyRequest,
   StackOp,
   ValidationError,
 } from '@/protocol/generated'
+import { stepUpAssertion } from '@/features/passkeys/api'
+import type { StepUpRefusal } from '@/features/passkeys/messages'
 
 export type PreviewRequest =
   | { kind: 'op'; stack: string; op: StackOp }
@@ -43,8 +52,10 @@ export type Refusal =
   | { kind: 'validation'; errors: ValidationError[] }
   | { kind: 'conflict'; currentText: string; currentEnv: EnvText | null; currentHash: string }
   | { kind: 'lost' }
+  | StepUpRefusal
 
-export type FlowPhase = 'previewing' | 'ready' | 'confirming' | 'refused'
+/** `verifying`: the browser's passkey prompt is open, nothing has been sent yet. */
+export type FlowPhase = 'previewing' | 'ready' | 'verifying' | 'confirming' | 'refused'
 
 export interface Flow {
   request: PreviewRequest
@@ -52,6 +63,11 @@ export interface Flow {
   /** The last preview the server built for this flow; kept while a newer one is on its way. */
   preview: Preview | null
   refusal: Refusal | null
+  /**
+   * The passkey request the next Confirm answers: the preview's `step_up`, or the fresh one a
+   * `StepUpRequired` carried. `null` once spent (or never asked for).
+   */
+  stepUp?: PasskeyRequest | null
 }
 
 export interface OpRun {
@@ -135,19 +151,42 @@ export const useOps = create<OpsState>()((set, get) => {
     },
 
     confirm: (acknowledge = false) => {
-      const flow = get().flow
-      if (flow?.phase !== 'ready' || !flow.preview) return
-      const preview_id = flow.preview.preview_id
-      const id = sendCmd({
-        type: 'Confirm',
-        data: acknowledge ? { preview_id, acknowledge_findings: true } : { preview_id },
-      })
-      if (id === null) {
-        set({ flow: { ...flow, phase: 'refused', refusal: { kind: 'lost' } } })
+      const start = get().flow
+      if (start?.phase !== 'ready' || !start.preview) return
+      const preview = start.preview
+      const t = token
+      const send = (assertion?: PasskeyAssertion): void => {
+        const flow = get().flow
+        if (!flow || t !== token || flow.preview !== preview) return
+        const preview_id = preview.preview_id
+        const id = sendCmd({
+          type: 'Confirm',
+          data: {
+            preview_id,
+            ...(acknowledge ? { acknowledge_findings: true } : {}),
+            ...(assertion ? { assertion } : {}),
+          },
+        })
+        if (id === null) {
+          set({ flow: { ...flow, phase: 'refused', refusal: { kind: 'lost' } } })
+          return
+        }
+        pending.set(id, { kind: 'confirm', token, stack: preview.stack, opKind: preview.kind })
+        // The request is spent once an answer to it is sent.
+        set({ flow: { ...flow, phase: 'confirming', refusal: null, stepUp: null } })
+      }
+      const request = start.stepUp === undefined ? (preview.step_up ?? null) : start.stepUp
+      if (!request) {
+        send()
         return
       }
-      pending.set(id, { kind: 'confirm', token, stack: flow.preview.stack, opKind: flow.preview.kind })
-      set({ flow: { ...flow, phase: 'confirming' } })
+      set({ flow: { ...start, phase: 'verifying', refusal: null } })
+      void stepUpAssertion(request).then((r) => {
+        const flow = get().flow
+        if (!flow || t !== token || flow.preview !== preview || flow.phase !== 'verifying') return
+        if (r.ok) send(r.assertion)
+        else set({ flow: { ...flow, phase: 'ready', refusal: r.refusal, stepUp: request } })
+      })
     },
 
     dismiss: () => {
@@ -197,7 +236,7 @@ onServerEvent(({ reply_to, event }) => {
       pending.delete(reply_to)
       const { flow } = useOps.getState()
       if (!flow || asked.token !== token) return
-      useOps.setState({ flow: { ...flow, phase: 'ready', preview: event.data, refusal: null } })
+      useOps.setState({ flow: { ...flow, phase: 'ready', preview: event.data, refusal: null, stepUp: event.data.step_up ?? null } })
       return
     }
     case 'OpStarted': {
@@ -247,6 +286,26 @@ onServerEvent(({ reply_to, event }) => {
       if (asked?.kind !== 'confirm' || reply_to === undefined) return
       pending.delete(reply_to)
       refuse(asked.token, { kind: 'void', reason: event.data.reason })
+      return
+    case 'StepUpRequired':
+    case 'PasskeyRefused': {
+      if (asked?.kind !== 'confirm' || reply_to === undefined) return
+      pending.delete(reply_to)
+      const { flow } = useOps.getState()
+      if (!flow || asked.token !== token) return
+      // Nothing ran and the preview survives: the next Confirm asks again.
+      useOps.setState({
+        flow:
+          event.type === 'StepUpRequired'
+            ? { ...flow, phase: 'ready', refusal: { kind: 'step_up' }, stepUp: event.data.request }
+            : { ...flow, phase: 'ready', refusal: { kind: 'passkey', reason: event.data.reason }, stepUp: null },
+      })
+      return
+    }
+    case 'PasskeyEnrolmentRequired':
+      if (!asked || asked.kind === 'cancel' || reply_to === undefined) return
+      pending.delete(reply_to)
+      refuse(asked.token, { kind: 'enrol' })
       return
     case 'Denied':
     case 'Invalid':

@@ -5,6 +5,9 @@
  * - `put` and `remove` send `PutUser` / `RemoveUser`. The server answers with the new list, or
  *   `Denied` (the owner, a role that cannot be assigned), which is kept as `error` until the next
  *   change succeeds.
+ * - A change that needs a fresh passkey check (054: `StepUpRequired`) opens the passkey dialog
+ *   (`requestFreshCheck`) and, once the session is fresh, sends the same change again. Cancelled,
+ *   or without a passkey, it is kept as `stepUp` the way `error` is.
  * - A reconnect re-issues `GetUsers` if the view asked for it. Leaving the signed-in state clears
  *   everything.
  */
@@ -12,7 +15,8 @@ import { create } from 'zustand'
 
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
 import { useSession } from '@/app/session-store'
-import type { DenyReason, RequestId, Role, UserList } from '@/protocol/generated'
+import type { StepUpRefusal } from '@/features/passkeys/messages'
+import type { Cmd, DenyReason, RequestId, Role, UserList } from '@/protocol/generated'
 
 export interface UsersState {
   list: UserList | null
@@ -20,6 +24,8 @@ export interface UsersState {
   denied: boolean
   /** The last change was refused, and why. */
   error: DenyReason | null
+  /** The last change needed a passkey check that did not happen. */
+  stepUp: StepUpRefusal | null
   /** Ids with a change in flight. */
   saving: string[]
   load: () => void
@@ -28,13 +34,13 @@ export interface UsersState {
   clearError: () => void
 }
 
-type Asked = { kind: 'list' } | { kind: 'change'; id: string }
+type Asked = { kind: 'list' } | { kind: 'change'; id: string; cmd: Cmd }
 
 const pending = new Map<RequestId, Asked>()
 let wanted = false
 let sent = false
 
-const INITIAL = { list: null, denied: false, error: null, saving: [] }
+const INITIAL = { list: null, denied: false, error: null, stepUp: null, saving: [] }
 
 export const useUsers = create<UsersState>()((set) => ({
   ...INITIAL,
@@ -45,14 +51,14 @@ export const useUsers = create<UsersState>()((set) => ({
   },
 
   put: (id, role, stacks) => {
-    change(id, sendCmd({ type: 'PutUser', data: { id, role, stacks } }))
+    change(id, { type: 'PutUser', data: { id, role, stacks } })
   },
 
   remove: (id) => {
-    change(id, sendCmd({ type: 'RemoveUser', data: { id } }))
+    change(id, { type: 'RemoveUser', data: { id } })
   },
 
-  clearError: () => set({ error: null }),
+  clearError: () => set({ error: null, stepUp: null }),
 }))
 
 function sendList(): void {
@@ -62,10 +68,11 @@ function sendList(): void {
   pending.set(id, { kind: 'list' })
 }
 
-function change(userId: string, req: RequestId | null): void {
+function change(userId: string, cmd: Cmd): void {
+  const req = sendCmd(cmd)
   if (req === null) return
-  pending.set(req, { kind: 'change', id: userId })
-  useUsers.setState((s) => ({ error: null, saving: [...s.saving, userId] }))
+  pending.set(req, { kind: 'change', id: userId, cmd })
+  useUsers.setState((s) => ({ error: null, stepUp: null, saving: [...s.saving, userId] }))
 }
 
 function settle(asked: Asked | undefined): void {
@@ -89,6 +96,22 @@ onServerEvent(({ reply_to, event }) => {
       if (asked.kind === 'list') useUsers.setState({ denied: true })
       else useUsers.setState({ error: event.data.reason })
       return
+    case 'PasskeyEnrolmentRequired':
+      if (asked?.kind !== 'change') return
+      settle(asked)
+      useUsers.setState({ stepUp: { kind: 'enrol' } })
+      return
+    case 'StepUpRequired': {
+      if (asked?.kind !== 'change') return
+      const request = event.data.request
+      void import('@/features/passkeys/store').then(async ({ usePasskeys }) => {
+        const fresh = await usePasskeys.getState().requestFreshCheck('Changing a user', request)
+        settle(asked)
+        if (fresh) change(asked.id, asked.cmd)
+        else useUsers.setState({ stepUp: { kind: 'not_confirmed' } })
+      })
+      return
+    }
     default:
       return
   }

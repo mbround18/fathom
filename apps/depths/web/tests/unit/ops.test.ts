@@ -28,6 +28,7 @@ vi.mock('@/app/connection', () => ({
 
 const { useOps, resetOpsStore } = await import('@/features/stacks/ops-store')
 const { argvLine, quoteArg, refusalText } = await import('@/features/stacks/argv')
+const { setAuthenticator } = await import('@/features/passkeys/api')
 
 function emit(event: Event, reply_to?: number): void {
   for (const l of bus.listeners) l(reply_to === undefined ? { event } : { reply_to, event })
@@ -167,5 +168,84 @@ describe('051 compose findings', () => {
     expect(refusal).toEqual({ kind: 'denied', reason: 'compose_blocked', detail: 'app: privileged' })
     if (!refusal) throw new Error('refused')
     expect(refusalText(refusal)).toMatch(/acknowledging the findings\. app: privileged$/)
+  })
+})
+
+describe('054 step-up inside the confirm', () => {
+  const request = { ceremony: 'c-1', options: { challenge: 'AQ' } }
+  const credential = {
+    rawId: new Uint8Array([1]).buffer,
+    response: {
+      authenticatorData: new Uint8Array([4]).buffer,
+      clientDataJSON: new Uint8Array([5]).buffer,
+      signature: new Uint8Array([6]).buffer,
+      userHandle: null,
+    },
+  }
+  const signed = {
+    ceremony: 'c-1',
+    credential: { id: 'AQ', rawId: 'AQ', response: { authenticatorData: 'BA', clientDataJSON: 'BQ', signature: 'Bg' }, type: 'public-key' },
+  }
+  const tick = () => new Promise((r) => setTimeout(r, 0))
+
+  function ready(stepUp = true): void {
+    useOps.getState().requestPreview(up)
+    emit({ type: 'Preview', data: preview(stepUp ? { step_up: request } : {}) }, bus.sent.length)
+  }
+
+  it('asks the authenticator, then sends Confirm with the assertion', async () => {
+    setAuthenticator({ create: () => Promise.resolve(null), get: () => Promise.resolve(credential) })
+    ready()
+    useOps.getState().confirm()
+    expect(useOps.getState().flow?.phase).toBe('verifying')
+    await tick()
+    expect(bus.sent.at(-1)).toEqual({ type: 'Confirm', data: { preview_id: 'pv-1', assertion: signed } })
+    expect(useOps.getState().flow?.phase).toBe('confirming')
+    setAuthenticator(undefined)
+  })
+
+  it('a cancelled prompt sends nothing and keeps the dialog: not confirmed, nothing changed', async () => {
+    setAuthenticator({ create: () => Promise.resolve(null), get: () => Promise.resolve(null) })
+    ready()
+    const before = bus.sent.length
+    useOps.getState().confirm()
+    await tick()
+    expect(bus.sent.length).toBe(before)
+    const flow = useOps.getState().flow
+    expect(flow).toMatchObject({ phase: 'ready', refusal: { kind: 'not_confirmed' } })
+    expect(refusalText({ kind: 'not_confirmed' })).toBe('Not confirmed, nothing changed.')
+    setAuthenticator(undefined)
+  })
+
+  it('StepUpRequired keeps the preview and the next Confirm answers the fresh request', async () => {
+    setAuthenticator({ create: () => Promise.resolve(null), get: () => Promise.resolve(credential) })
+    ready(false)
+    useOps.getState().confirm()
+    expect(bus.sent.at(-1)).toEqual({ type: 'Confirm', data: { preview_id: 'pv-1' } })
+    emit({ type: 'StepUpRequired', data: { request } }, bus.sent.length)
+    expect(useOps.getState().flow).toMatchObject({ phase: 'ready', refusal: { kind: 'step_up' }, stepUp: request })
+    useOps.getState().confirm()
+    await tick()
+    expect(bus.sent.at(-1)).toEqual({ type: 'Confirm', data: { preview_id: 'pv-1', assertion: signed } })
+    setAuthenticator(undefined)
+  })
+
+  it('PasskeyRefused keeps the preview; the request is spent, so the next Confirm goes bare', async () => {
+    setAuthenticator({ create: () => Promise.resolve(null), get: () => Promise.resolve(credential) })
+    ready()
+    useOps.getState().confirm()
+    await tick()
+    emit({ type: 'PasskeyRefused', data: { reason: 'unknown_credential' } }, bus.sent.length)
+    expect(useOps.getState().flow).toMatchObject({ phase: 'ready', refusal: { kind: 'passkey', reason: 'unknown_credential' }, stepUp: null })
+    useOps.getState().confirm()
+    expect(bus.sent.at(-1)).toEqual({ type: 'Confirm', data: { preview_id: 'pv-1' } })
+    setAuthenticator(undefined)
+  })
+
+  it('PasskeyEnrolmentRequired refuses with the enrol message', () => {
+    ready(false)
+    useOps.getState().confirm()
+    emit({ type: 'PasskeyEnrolmentRequired' }, bus.sent.length)
+    expect(useOps.getState().flow).toMatchObject({ phase: 'refused', refusal: { kind: 'enrol' } })
   })
 })

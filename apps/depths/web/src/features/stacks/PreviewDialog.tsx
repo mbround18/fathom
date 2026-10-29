@@ -10,7 +10,7 @@
  * - Confirm sends the `preview_id`. Radix traps focus; Escape and Cancel dismiss without sending
  *   anything, so nothing runs.
  */
-import { CopyIcon, WarningIcon } from '@phosphor-icons/react'
+import { CopyIcon, FingerprintIcon, WarningIcon } from '@phosphor-icons/react'
 import {
   Button,
   Dialog,
@@ -290,8 +290,18 @@ function Body({ flow, admin }: { flow: Flow; admin: boolean }) {
   } else main = null
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      <Options request={request} admin={admin} busy={phase === 'previewing' || phase === 'confirming'} />
+      <Options request={request} admin={admin} busy={phase === 'previewing' || phase === 'verifying' || phase === 'confirming'} />
       {main}
+      {preview && flow.stepUp && phase !== 'refused' && (
+        <p data-step-up className="flex items-start gap-1 text-xs text-muted-foreground">
+          <FingerprintIcon aria-hidden className="mt-0.5 size-3 shrink-0" />
+          <span>
+            {phase === 'verifying'
+              ? 'Follow your browser’s passkey prompt…'
+              : 'Confirming asks for your passkey: this needs a fresh check that it’s you.'}
+          </span>
+        </p>
+      )}
       {refusal && (
         <p data-refusal={refusal.kind} role="alert" className="border border-status-warn/60 bg-status-warn/10 p-1.5 text-xs break-words text-status-warn">
           {refusalText(refusal)}
@@ -403,7 +413,11 @@ export function PreviewDialog() {
               onClick={() => confirm(ackRequired && acked)}
               data-confirm
             >
-              {flow.phase === 'confirming' ? 'Starting…' : `Confirm ${KIND_LABEL[kind].toLowerCase()}`}
+              {flow.phase === 'confirming'
+                ? 'Starting…'
+                : flow.phase === 'verifying'
+                  ? 'Waiting for passkey…'
+                  : `Confirm ${KIND_LABEL[kind].toLowerCase()}`}
             </Button>
           )}
         </DialogFooter>

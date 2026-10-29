@@ -9,7 +9,7 @@
  *
  * Nothing here updates a container: batch updates and Auto come with later user stories.
  */
-import { ArrowClockwiseIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
+import { ArrowClockwiseIcon, FingerprintIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
 import {
   Button,
   Dialog,
@@ -450,18 +450,35 @@ function SettingsDialog() {
           <p role="alert" className="text-xs text-status-err">
             {flow.reason}
           </p>
-        ) : flow.kind === 'preview' || flow.kind === 'confirming' ? (
-          <pre data-field="summary" className="border border-border p-2 font-mono text-xs whitespace-pre-wrap">
-            {flow.preview.file_diff ?? ''}
-          </pre>
+        ) : flow.kind === 'preview' || flow.kind === 'verifying' || flow.kind === 'confirming' ? (
+          <>
+            <pre data-field="summary" className="border border-border p-2 font-mono text-xs whitespace-pre-wrap">
+              {flow.preview.file_diff ?? ''}
+            </pre>
+            {flow.stepUp && (
+              <p data-step-up className="flex items-start gap-1 text-xs text-muted-foreground">
+                <FingerprintIcon aria-hidden className="mt-0.5 size-3 shrink-0" />
+                <span>
+                  {flow.kind === 'verifying'
+                    ? 'Follow your browser’s passkey prompt…'
+                    : 'Confirming asks for your passkey: this needs a fresh check that it’s you.'}
+                </span>
+              </p>
+            )}
+            {flow.note && (
+              <p role="alert" data-refusal className="border border-status-warn/60 bg-status-warn/10 p-1.5 text-xs text-status-warn">
+                {flow.note}
+              </p>
+            )}
+          </>
         ) : null}
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={cancel}>
             {flow.kind === 'refused' ? 'Close' : 'Cancel'}
           </Button>
-          {(flow.kind === 'preview' || flow.kind === 'confirming') && (
-            <Button size="sm" data-action="confirm" disabled={flow.kind === 'confirming'} onClick={confirm}>
-              Confirm
+          {(flow.kind === 'preview' || flow.kind === 'verifying' || flow.kind === 'confirming') && (
+            <Button size="sm" data-action="confirm" disabled={flow.kind !== 'preview'} onClick={confirm}>
+              {flow.kind === 'verifying' ? 'Waiting for passkey…' : 'Confirm'}
             </Button>
           )}
         </DialogFooter>

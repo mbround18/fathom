@@ -17,6 +17,7 @@ import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogH
 import { useEffect, useRef } from 'react'
 
 import { useSession } from '@/app/session-store'
+import { stepUpText } from '@/features/passkeys/messages'
 import { formatBytes } from '@/features/stacks/metrics'
 import { useOps } from '@/features/stacks/ops-store'
 import { DiffText } from '@/features/stacks/PreviewDialog'
@@ -55,6 +56,7 @@ const VOID: Record<string, string> = {
 function fileOpRefusalText(r: FileOpRefusal): string {
   if (r.kind === 'void') return VOID[r.reason] ?? 'This preview is void. Preview it again.'
   if (r.kind === 'lost') return 'The connection dropped before the server answered; the change may or may not have landed. Check the folder, then try again.'
+  if (r.kind === 'not_confirmed' || r.kind === 'step_up' || r.kind === 'passkey' || r.kind === 'enrol') return stepUpText(r)
   return refusalText(r)
 }
 

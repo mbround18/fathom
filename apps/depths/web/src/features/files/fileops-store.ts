@@ -9,12 +9,17 @@
  *   chains what comes next. `FileRefused`, `PreviewVoid` and `Denied` keep the flow open with the
  *   refusal; a save's `changed_on_disk` is shown by the editor, not the dialog.
  * - Nothing is written by the preview; nothing here writes the file list. Callers re-list.
+ * - Step-up (054 T073): a file write needs a fresh passkey check. `StepUpRequired`, to the preview
+ *   or the confirm, opens the passkey dialog (`requestFreshCheck`); once the session is fresh the
+ *   same command goes again. Cancelling it ends the flow with "Not confirmed, nothing changed".
  */
 import { create } from 'zustand'
 
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
 import { useSession } from '@/app/session-store'
 import type { Event, FileOp, FilePreview, PreviewVoidReason, RequestId } from '@/protocol/generated'
+
+import type { StepUpRefusal } from '@/features/passkeys/messages'
 
 import type { FilesRefusal } from './store'
 
@@ -23,7 +28,7 @@ export type FileOpDone = Extract<Event, { type: 'FileOpDone' }>['data']
 /** What the person chose when confirming: plain, or followed by a lifecycle op on a service. */
 export type ConfirmChoice = { then: 'none' } | { then: 'restart'; service: string }
 
-export type FileOpRefusal = FilesRefusal | { kind: 'void'; reason: PreviewVoidReason } | { kind: 'lost' }
+export type FileOpRefusal = FilesRefusal | { kind: 'void'; reason: PreviewVoidReason } | { kind: 'lost' } | StepUpRefusal
 
 export type FileFlowPhase = 'previewing' | 'ready' | 'confirming' | 'refused'
 
@@ -134,6 +139,30 @@ onServerEvent(({ reply_to, event }) => {
     case 'PreviewVoid':
       refuse(asked.token, { kind: 'void', reason: event.data.reason })
       return
+    case 'PasskeyEnrolmentRequired':
+      refuse(asked.token, { kind: 'enrol' })
+      return
+    case 'PasskeyRefused':
+      refuse(asked.token, { kind: 'passkey', reason: event.data.reason })
+      return
+    case 'StepUpRequired': {
+      const request = event.data.request
+      void import('@/features/passkeys/store').then(async ({ usePasskeys }) => {
+        const fresh = await usePasskeys.getState().requestFreshCheck('Changing files', request)
+        const { flow } = useFileOps.getState()
+        if (!flow || asked.token !== token) return
+        if (!fresh) {
+          refuse(asked.token, { kind: 'not_confirmed' })
+          return
+        }
+        if (asked.kind === 'preview') useFileOps.getState().retry()
+        else {
+          useFileOps.setState({ flow: { ...flow, phase: 'ready' } })
+          useFileOps.getState().confirm(asked.choice)
+        }
+      })
+      return
+    }
     default:
       // Not a reply this flow understands: keep waiting for one.
       pending.set(reply_to, asked)

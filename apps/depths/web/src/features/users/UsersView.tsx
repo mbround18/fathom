@@ -9,6 +9,7 @@ import { Button } from '@companion/ui'
 import { lazy, Suspense, useEffect, useId, useMemo, useState, type SyntheticEvent, type ReactNode } from 'react'
 
 import { useUntrusted } from '@/features/network/model'
+import { stepUpText } from '@/features/passkeys/messages'
 import { DENY_TEXT } from '@/features/stacks/argv'
 import { formatTime } from '@/features/stacks/model'
 import { useStacks } from '@/features/stacks/store'
@@ -24,6 +25,7 @@ export default function UsersView() {
   const list = useUsers((s) => s.list)
   const denied = useUsers((s) => s.denied)
   const error = useUsers((s) => s.error)
+  const stepUp = useUsers((s) => s.stepUp)
   const clearError = useUsers((s) => s.clearError)
   const load = useUsers((s) => s.load)
   const loadStacks = useStacks((s) => s.load)
@@ -52,6 +54,15 @@ export default function UsersView() {
         )}
       </div>
 
+      {stepUp !== null && (
+        <div role="alert" data-banner="step-up" className="flex items-start gap-1.5 border-b border-status-warn/50 px-2 py-1.5 text-xs text-status-warn">
+          <WarningIcon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+          <p className="min-w-0 flex-1">{stepUpText(stepUp)}</p>
+          <Button variant="ghost" size="xs" onClick={clearError}>
+            Dismiss
+          </Button>
+        </div>
+      )}
       {error !== null && (
         <div role="alert" data-banner="denied" className="flex items-start gap-1.5 border-b border-status-warn/50 px-2 py-1.5 text-xs text-status-warn">
           <WarningIcon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
