@@ -1,4 +1,4 @@
-# Contract: Watchtower label compatibility (062, FR-019–FR-022, SC-006)
+# Contract: Watchtower label compatibility (062, FR-019–FR-022, SC-006, US4 scenario 8 for `no-pull`)
 
 Implemented as a pure function in `depths-core` (`updates::labels::effective`), table-tested with
 the vectors below. Every vector is one unit test; SC-006's "100% of the compatibility test cases"

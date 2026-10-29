@@ -32,7 +32,8 @@ pub struct UpdatesView {
     pub policies: BTreeMap<String, StackUpdatePolicy>,
     pub recent_runs: Vec<UpdateRun>,
     pub watchtower: Vec<WatchtowerContainer>,
-    pub registries: Vec<RegistryStatus>,      // host, auth = anonymous|config|helper_missing, backoff_until
+    pub paused_policies: Vec<String>,         // Auto stacks whose author is no longer an admin (FR-025)
+    pub registries: Vec<RegistryStatus>,      // host, auth = anonymous|config|unsupported { reason }, backoff_until
 }
 pub struct WatchtowerContainer { pub id: String, pub name: String, pub image: String,
                                  pub acknowledged: Option<WatchtowerAnswer> }
@@ -72,7 +73,7 @@ pub enum UpdateChange {
 | `Confirm { preview_id, acknowledge_findings, assertion }` | Batch: `UpdateRunStarted { run_id }`, then per stack `OpStarted` / `OpOutput`* / `OpFinished`, `UpdateStackDone`, and `UpdateRunFinished`. Change: `UpdatesChanged`. | The existing `Confirm`; preview IDs are unique across kinds. `acknowledge_findings` covers 051 warnings in the batch. |
 | `Cancel { operation_id }` | existing | Cancels the stack in progress; the batch stops there and the rest are `Skipped { reason: "cancelled" }`. |
 
-User path (US2 scenario 5): users keep 050's `PreviewOp { op: Update }` on assigned stacks. Its
+User path (US2 scenario 5, FR-026): users keep 050's `PreviewOp { op: Update }` on assigned stacks. Its
 plan becomes the same per-stack image-update plan (pull by digest, hold check, tag, `up --no-deps`)
 when checks are on and the stack has update states; with checks off it stays 050's pull-then-up.
 
@@ -102,10 +103,11 @@ verification → role/stack access → step-up → handler.
 | `PreviewUpdateChange` / its `Confirm` | `ManageUpdates` (new) | admin | required | yes, always (FR-017) |
 | `PreviewOp { Update }` (user) | `Update` | user on assigned stack | required | as 054 |
 
-Scheduled runs have no session. They are authorised by the policy itself: setting a stack to Auto
-needed a trusted network and a passkey, and the run names that administrator (`on_behalf_of`). An
-admin who is removed or demoted: their Auto policies are paused (shown "author no longer an
-administrator") until another admin re-confirms them.
+Scheduled runs have no session, so 052's network trust can't be checked when they run. They are
+authorised by the policy itself (FR-025): setting a stack to Auto needed a trusted network and a
+passkey, and the run names that administrator (`on_behalf_of`). An admin who is removed or demoted:
+their Auto policies are paused (listed in `paused_policies`, shown "author no longer an
+administrator") until another admin saves them again, which makes that admin `set_by`.
 
 ## Refusals and holds
 

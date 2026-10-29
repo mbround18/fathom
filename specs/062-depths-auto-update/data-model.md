@@ -16,6 +16,10 @@ pub struct ImageRef {
 
 - Parsed from the compose `image:` with Docker's normalisation: no registry → `docker.io`;
   single-component Docker Hub repo → `library/<name>`; no tag and no digest → `latest`.
+- depths-core's own, pure type: it decides exclusions and keep-tag names without I/O. The server
+  converts it to `oci_registry::ImageRef` for requests (contracts/registry.md §3); a test runs the
+  table below through both parsers and requires the same repository and reference, and the same
+  registry once `docker.io` is read as the API host `registry-1.docker.io`.
 - `digest.is_some()` → excluded `pinned_by_digest` (FR-004).
 - Table tests cover: `nginx`, `nginx:1.27`, `library/nginx`, `docker.io/nginx`,
   `index.docker.io/library/nginx`, `ghcr.io/a/b:c`, `localhost:5000/x`, `host:5000/a/b@sha256:…`,
@@ -78,6 +82,10 @@ pub struct StackUpdatePolicy {
 - A stack with no entry is `Notify` (FR-012). Only stacks an admin changed are stored.
 - Kept by stack name; a stack whose directory is gone keeps its entry, shown "missing".
 - `set_by` is the actor named as `on_behalf_of` in scheduled audit entries (FR-016).
+- An `auto` policy whose `set_by` is no longer an administrator in `users.json` is paused:
+  computed at each scheduler pass, not stored, sent as `UpdatesView.paused_policies`, shown
+  "author no longer an administrator". Another admin saving the policy makes them `set_by` and
+  lifts the pause (FR-025).
 
 ## Effective policy (computed, not stored)
 
@@ -112,7 +120,7 @@ pub struct ServiceUpdate {
     pub running: Option<RunningImage>,   // None when no container
     pub available: Option<AvailableImage>,
     pub state: UpdateState,
-    pub reason: Option<String>,          // human text for held / excluded / failed / check_failed
+    pub reason: Option<String>,          // human text for held / excluded / failed / check_failed ("can't check: …")
     pub effective: EffectivePolicy,
     pub last_checked: Option<String>,
     pub last_outcome: Option<StackOutcome>,
@@ -144,6 +152,9 @@ Updating ─Depths restarts─▶ Interrupted ─next check─▶ UpToDate | Ava
 CheckFailed ─check ok─▶ (normal); CheckFailed keeps last known running/available fields (FR-005)
 RolledBack ─same digest─▶ Rejected ; ─newer digest─▶ Available (FR-015)
 ```
+
+`CheckFailed` covers both a passing failure (rate limit, unreachable) and a "can't check" one
+(no digest on HEAD, unsupported credentials); the reason says which. Neither ever pulls.
 
 `Failed` = the update did not reach the health wait (pull or `up` failed) and nothing was
 recreated, or `up` failed before rollback was needed.
@@ -218,6 +229,9 @@ pub enum StackOutcome { Updated, Held, Skipped { reason: String }, Failed, Rolle
 `depths-keep/<stack>:<service>-previous` and `depths-keep/<stack>:<service>-held`, names sanitised
 as in research R7. Depths records each tag it set in `update-state.json → keep` with the image ID,
 so cleanup only ever touches what it recorded.
+
+- Visible in `docker images`; documented in the guides (FR-028).
+- Cleanup never removes an image a keep tag records as a stack's current rollback target (FR-027).
 
 ## Audit additions
 

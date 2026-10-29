@@ -36,3 +36,11 @@
 - Native vs. driving a Watchtower container was settled with the user on 2026-10-28 (Clarifications).
 - Decided by default, without asking: external notifications, tag-to-tag upgrades and Depths
   updating itself are out of scope; root-escalating updates are held; hooks are not run.
+- Owner review of the plan, 2026-10-28, folded into the spec: SC-007 and FR-003 reworded (unchanged
+  tags zero pulls, a new image at most one, once); private registries need a mounted plain
+  `config.json`, credential helpers unsupported (Assumptions); FR-025 (scheduled authorisation),
+  FR-026 (050's Update uses the 062 steps), FR-027 and FR-028 (keep tags), `no-pull` in FR-019,
+  `rollback_failed` in FR-014, shared tags in Edge Cases. Re-validated: all items still pass.
+- The `depths-keep/…` tag names and `DOCKER_CONFIG`/`config.json` are named in the spec because the
+  owner wants them visible to operators (`docker images`, the mount they must add), not as an
+  implementation choice.

@@ -10,14 +10,20 @@ cargo test -p depths-core updates::      # references, label vectors (38, SC-006
                                          # windows with fake clock + DST zone, check/resolve over the
                                          # fake registry incl. the 7-day request budget (SC-007),
                                          # holds (root escalation), keep-tag names, state transitions
-cargo test -p depths-registry-oci        # media types, platform pick, auth retry, error mapping, against an in-process hyper server with canned responses
+cargo test -p oci-registry               # shared with 061: reference parsing, token flow (anonymous, basic),
+                                         # HEAD-only head_digest (NoDigestHeader, no GET sent), resolve
+                                         # (index, platform pick, attestations skipped, digest mismatch),
+                                         # request counts, redacted secrets; against the in-process axum
+                                         # fake registry (`test-util`) via with_base_url, no real network
 cargo test -p depths-protocol            # round trips for new variants; ts-rs bindings regenerated
 cargo test -p depths-server updates      # store (corrupt files), creds (helpers refused, no secret in
                                          # captured logs), scheduler (slots, window close mid-batch,
                                          # Watchtower pause), runner (busy/stale skip, failure doesn't
                                          # stop the batch, health: healthy / unhealthy / restart loop /
                                          # missing replica, rollback, rollback_failed, interrupted),
-                                         # audit (Depths (scheduled) + on_behalf_of), gates
+                                         # audit (Depths (scheduled) + on_behalf_of), paused policy
+                                         # when the author is no longer admin, gates, port adapter
+                                         # error mapping and reference-parser agreement
 pnpm --filter @companion/depths-web test
 pnpm --filter @companion/depths-web e2e --project us9-update-check     # states, filters, badge, user sees only own stacks, checks-off empty state
 pnpm --filter @companion/depths-web e2e --project us10-update-batch    # batch preview, step-up, per-stack progress, failure summary, hold
@@ -40,7 +46,8 @@ The test starts a `distribution` registry and scratch stacks named `depths-it-up
 removes everything it created, by name (containers, its own images and tags, the registry). It
 never touches other containers, volumes or images. It checks:
 
-- unchanged tag: HEAD only (registry access log), state up to date;
+- unchanged tag: HEAD only (registry access log), state up to date; the check reaches the registry
+  through `Client::with_base_url`, the pull through Docker as usual;
 - pushed new image: one resolution, state available with version label;
 - multi-arch re-push with the same host image: no update;
 - update: only the changed service recreated; compose file byte-identical (hash before/after);
@@ -70,8 +77,13 @@ never touches other containers, volumes or images. It checks:
 ## 4. Steam (production) upgrade notes
 
 - Nothing changes on upgrade: checks are off until an admin turns them on (SC-001).
-- To use host time for windows, add the `/etc/localtime` mount. For private registries, mount a
-  plain `config.json` and set `DOCKER_CONFIG` (contracts/config.md).
+- To use host time for windows, add the `/etc/localtime` mount.
+- **Private registries:** mount a plain `config.json` and set `DOCKER_CONFIG`
+  (contracts/config.md, "Private registries"). Credential helpers (`credsStore`/`credHelpers`) are
+  not supported; those registries show "can't check". 050's Pull of private images has the same
+  gap today, and the same mount fixes both.
+- `docker images` will list `depths-keep/<stack>` tags after the first update. They are the way
+  back for rollback; don't remove them by hand.
 - If Watchtower runs on the host, set it to monitor-only or stop it before switching stacks to
   Auto; see docs/guides/depths/migrating-from-watchtower.md.
 - Brochure screenshots of the Updates page are the last step of the batch.

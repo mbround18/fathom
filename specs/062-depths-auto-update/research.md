@@ -31,19 +31,22 @@ guard refusal at create time is caught as a hold (R4). See the plan's sequencing
    (`docker image inspect`), one inspect per distinct image ID per check.
 3. `HEAD /v2/<repo>/manifests/<tag>` with the four manifest media types in `Accept` (OCI index,
    OCI manifest, Docker manifest list, Docker v2 manifest). Take `Docker-Content-Digest` as `D`.
-   HEAD requests do not count against Docker Hub's pull limit.
+   HEAD requests do not count against Docker Hub's pull limit. A response without the header is
+   `NoDigestHeader`: the service shows `check_failed` "can't check: the registry doesn't say which
+   image the tag points to without a download". There is **no GET fallback** (FR-003).
 4. If `<repo>@D` is in the running image's `RepoDigests`: **up to date**. No further request. This
    is the path every unchanged service takes on every check, so a week of checks on an unchanged
    host makes HEAD requests only (SC-007).
-5. Otherwise resolve `D` once (the "resolution"), and cache it by digest forever (content
-   addressed, so it never goes stale):
+5. Otherwise resolve `D` once (the "resolution", `oci_registry::Client::resolve`), and cache it by
+   digest forever (content addressed, so it never goes stale):
    - `GET` the manifest at `D`. If it is an index, pick the entry for the host platform (`os`,
      `architecture`, `variant` from `docker info`, or the service's `platform:` when set) and `GET`
      that platform manifest. Docker Hub counts up to two manifest GETs as one pull.
    - `GET` the config blob (blob GETs are not counted). Read `config.User`,
-     `config.Labels["org.opencontainers.image.version"]` and `["…revision"]`, falling back to the
-     index/manifest annotations of the same keys.
-   - Result: `{ index_digest?, manifest_digest, config_digest, user, version, revision, created }`.
+     `config.Labels["org.opencontainers.image.version"]` and `["…revision"]`, and `created`.
+     Annotations are not read: images that set the version only as an annotation show no version.
+   - Result: `{ index_digest?, manifest_digest, config_digest, labels, user, created }`; Depths
+     derives `version` and `revision` from `labels`.
 6. Compare by the image the host would run (edge case "same image, new digest"):
    - Classic image store (graphdriver): the image ID **is** the config digest. Same config digest
      → no update (record `D` as an alias so the next HEAD short-circuits).
@@ -55,10 +58,11 @@ guard refusal at create time is caught as a hold (R4). See the plan's sequencing
 7. Tag moved back: `D` equal to a digest this service ran before (kept in the service's history,
    R5) or to a rejected digest → state `moved_back`, never applied automatically.
 
-**Cost:** an unchanged tag costs one HEAD per check. A newly published image costs at most one
-counted pull per registry, **once**, shared by every service and stack that uses it. SC-007 holds
-for unchanged tags; the spec's wording ("zero pulls") is stricter than any design that also reads
-version labels (FR-003) can meet. See the plan's "Spec notes".
+**Cost:** an unchanged tag costs one HEAD per check (plus a token request where the registry
+uses bearer tokens; token requests are not pulls). A newly published image costs at most one
+counted pull, **once**, shared by every service and stack that uses it. That is SC-007 as resolved
+with the owner on 2026-10-28. One caveat for the containerd image store: the running image's own
+index is resolved once too (step 6), which is one more counted pull per running image, once.
 
 **Why:** this is what Watchtower does (HEAD, compare with `RepoDigests`) plus a cached resolution
 so the host-architecture comparison and the version labels are correct without pulling layers.
@@ -74,26 +78,33 @@ so the host-architecture comparison and the version labels are correct without p
 
 ### Registry client
 
-**Decision (needs owner approval):** reuse `oci-client` 0.18, already in the workspace lock (Fathom
-spec 010, `src/backend/images.rs`), behind a `Registry` port in `depths-core`. The adapter is a new
-crate `crates/depths-registry-oci`. It brings the bearer-token challenge flow, Docker Hub's
-`index.docker.io` mapping and redacting `RegistryAuth` for free.
+**Decision (owner, 2026-10-28):** a new shared crate, `crates/oci-registry`, used by Keel (061)
+and Depths (062). It is a HEAD-first OCI distribution client written on the `reqwest` 0.13 that
+`web-auth` already compiles into both servers, so it adds no new dependency edge. It holds no Keel
+or Depths types. Its API is the crate contract in 061's
+[contracts/registry.md](../061-keel-update-notice/contracts/registry.md), summarised in
+[contracts/registry.md](contracts/registry.md) §1:
+`ImageRef` with Docker Hub defaults, `Credentials` (`Anonymous` or `Basic` with a secret password),
+the bearer-token challenge flow, `head_digest` (HEAD only, never a GET fallback, `NoDigestHeader`
+when the header is missing), `resolve` (index → platform manifest → config), `Counted<T>` results
+carrying `RequestCounts { head, get, manifest_get }` for the apps' own OpenTelemetry counters, and
+a `test-util` feature with `FakeRegistry` and `Client::with_base_url` for tests.
 
-One behaviour to guard: `Client::fetch_manifest_digest` falls back to a `GET` when a registry
-omits `Docker-Content-Digest` on HEAD. Docker Hub, GHCR, Quay, ECR, GAR and `distribution` all send
-it, but the adapter must not count a silent GET as a "HEAD". The adapter uses
-`fetch_manifest_digest` and records `depths.updates.registry_requests{method}` from what was asked;
-the integration test against `distribution` asserts HEAD-only for unchanged tags. If a registry
-without the header turns up, the adapter is the one place to change.
+The `Registry` port stays in `depths-core`. depths-server implements it over the crate in
+`updates/registry.rs`, the way it already implements `HistorySink` and `OutputSink` itself.
+Reading `config.json` stays in Depths (below).
 
-**Alternative (no new dependency):** hand-written client on `reqwest` 0.13, already in Depths'
-tree through `web-auth`: HEAD/GET with `Accept`, the `WWW-Authenticate: Bearer realm=…,service=…,
-scope=…` token dance, basic auth, Docker Hub mapping. About 400 lines plus tests; full control over
-HEAD-only. Rejected as the default only because token flows differ subtly between registries and
-`oci-client` already handles them in this workspace. The port makes swapping either way cheap.
+Whichever of 061 and 062 is implemented first builds the crate.
 
-**Rejected:** `bollard` (not in the tree, and the daemon cannot do HEAD-only checks anyway);
-`docker_credential` crate (not needed, see below).
+**Rejected:**
+- `oci-client` 0.18 (in the lock through Fathom's `src/backend/images.rs`):
+  `Client::fetch_manifest_digest` falls back to a `GET` when a registry omits
+  `Docker-Content-Digest` on HEAD, which is a silent counted pull; Keel's review (061) found its
+  convenience calls count pulls too. Guarding that in two apps costs more than owning the client.
+  It would also be a new dependency edge for Depths and Keel.
+- One hand-written client per app: two copies of the token flow to keep right.
+- `bollard` (not in the tree, and the daemon cannot do HEAD-only checks anyway);
+  `docker_credential` crate (not needed, see below).
 
 ### Credentials
 
@@ -102,18 +113,24 @@ inside the Depths container already reads `$DOCKER_CONFIG/config.json` (default
 `$HOME/.docker`, i.e. `/var/lib/depths/.docker` in the data volume today). The check reads the same
 file, so a check and the pull that follows always use the same credentials:
 
-- `auths.<host>.auth` (base64 `user:pass`), `username`/`password`, `identitytoken` (sent as the
-  refresh token in the token request). Docker Hub's key is `https://index.docker.io/v1/`.
-- `credsStore` / `credHelpers`: helper binaries are not in the image. The service shows
-  `check_failed: credential helper "<name>" not available in the Depths container`, and the guide
-  explains how to mount a plain `config.json` instead.
+- `auths.<host>.auth` (base64 `user:pass`) or `username`/`password` → `Credentials::Basic`.
+  Docker Hub's key is `https://index.docker.io/v1/`.
+- `identitytoken` (OAuth refresh tokens, as `az acr login` writes): the shared crate has no
+  identity-token flow, so the service shows `check_failed` "can't check: identity tokens are not
+  supported; log in with a username and password".
+- `credsStore` / `credHelpers`: helper binaries are not in the image, and helpers are not
+  supported. The service shows `check_failed` "can't check: credential helper `<name>` is not
+  supported in the Depths container", and the guide explains how to mount a plain `config.json`
+  instead. Spec 050's pulls of private images have the same gap: the `docker` CLI in the container
+  can't run the helper either.
 - Documented setup: mount a read-only `config.json` at `/run/depths/docker/config.json` and set
   `DOCKER_CONFIG=/run/depths/docker`.
 - Values are read per check, held as `secrecy::SecretString`, never logged, audited, put in a span,
   sent over the protocol or written to Depths' state. The only thing shown is the registry host and
   "credentials: from docker config" or "anonymous".
-- Anonymous first, credentials on 401, as Fathom's `images.rs` does, so public images on a
-  configured registry don't spend authenticated quota.
+- Credentials are used when `config.json` has an entry for the registry host, otherwise the
+  request is anonymous. That is the choice the `docker` CLI makes, so a check and the pull after it
+  authenticate the same way.
 
 ## R2. The update itself
 
@@ -215,9 +232,10 @@ with its labels, networks and name, so 050, Dockge and `docker compose ps` all s
 - **Shared tags across stacks:** tags are host-wide. Rolling back stack A retags `app:1` to the
   old image. Stack B, already updated to the new `app:1` image in the same window and healthy,
   keeps running it, but would get the old image on its next recreate. The Updates page shows B as
-  "update available" again. This is the same exposure `docker compose pull` has today; documented.
+  "update available" again. This is the same exposure `docker compose pull` has today; documented
+  (spec Edge Cases).
 - **Rollback itself fails** (old image now fails too, e.g. after a migration): `rollback_failed`,
-  stop, show output; no third attempt.
+  stop, show output; no third attempt. It waits for a person (FR-014).
 - **containerd image store tagging:** `docker image tag <index digest id> ref` is expected to work
   the same way; the opt-in Docker integration test runs both stores (quickstart §2).
 - **Compose create-before-stop:** compose v2 creates the replacement container under a temporary
@@ -289,13 +307,19 @@ holding every service without `user:` (would hold almost every stack on the firs
   `hash(stack) mod interval`, so 30 stacks every 6 h are ~12 min apart, never a burst. Check now
   runs everything once, rate-limited to one per minute host-wide (FR-002).
 - **Backoff** per registry host: after a 429 or 5xx, exponential from 1 min up to the check
-  interval, honouring `Retry-After`. Services on that registry show `check_failed` with "rate
+  interval (the shared client does not report `Retry-After`). Services on that registry show `check_failed` with "rate
   limited until …" and keep their state (FR-005).
 - **Auto runs** in an open window: candidates are Auto stacks with an update available, not held,
   not rejected, not busy; ordered by stack name (stable, documented). One at a time through the
   same `Ops` lock. Before starting each stack, if the window has closed, stop (FR-013); the stack
   in progress finishes.
 - Auto is paused while an unacknowledged Watchtower container runs (R6) or `DEPTHS_UPDATES_AUTO=off`.
+- **Authorisation (FR-025):** a scheduled run has no session, so 052's network trust cannot be
+  checked when it runs. The policy change that set the stack to Auto is the authorisation: it
+  needed a trusted network and a passkey. Before each stack, the scheduler checks that the policy's
+  `set_by` is still an administrator in `users.json`; if not, the stack is skipped and its policy
+  shown paused, "author no longer an administrator", until another admin saves it again (which
+  makes them `set_by`).
 
 ### State
 
@@ -332,7 +356,7 @@ include labels inherited from the image); for a service with no container, from
 | `com.centurylinklabs.watchtower.enable` | `false` excludes. With "only labelled services" on, anything but `true` excludes. |
 | `…monitor-only` | `true` caps the effective policy at Notify. |
 | `…scope` | With a Depths scope set, include only equal scopes; scope `none` matches unlabelled and `none`. With no Depths scope, include all and show the scope. |
-| `…no-pull` | `true` excludes ("no-pull by label"): Depths only updates by pulling. Beyond the spec, restrictive. |
+| `…no-pull` | `true` excludes ("no-pull by label"): Depths only updates by pulling (FR-019). |
 | `…lifecycle.{pre-check,pre-update,post-update,post-check}` and `…-timeout` | Shown "not run": hooks are commands inside the container (051 guarded shell). |
 | `…depends-on` | Shown "not run: order comes from the compose file". |
 | `…stop-signal` | Shown "not used: compose's `stop_signal` applies". |
@@ -360,7 +384,7 @@ label-only mode explicitly.
 **Decision:** Depths names the images it is keeping, with local tags in a repository nobody pushes
 to: `depths-keep/<stack>:<service>-previous` and `…:<service>-held`. Stack and service names are
 lowercased and any character outside `[a-z0-9._-]` becomes `-`, with an 8-hex hash suffix when that
-changed the name (collisions). Tags are visible in `docker images` and documented.
+changed the name (collisions). Tags are visible in `docker images` and documented (FR-028).
 
 - On a successful update, `previous` moves to the image just replaced. That protects the way back
   from `docker image prune` (which only removes dangling images) until the next successful update.
@@ -371,6 +395,9 @@ changed the name (collisions). Tags are visible in `docker images` and documente
   stacks directory) uses it, or when another tag references it; a refusal is a "kept: in use"
   note, not a failure. Each removal is audited with the image ID and repo digests (US5).
 - Depths never removes an image it did not record as a service's previous image. No `prune`.
+- Cleanup never removes an image a keep tag records as a stack's current rollback target: the
+  `previous` image of the last successful update, or after a rollback the image the service rolled
+  back to and its `held` image (FR-027).
 - A rolled-back service keeps `previous` (the image it rolled back to) and `held` (the bad one).
 
 **Rejected:** relying on dangling images (any `docker image prune`, including this dev box's
@@ -405,7 +432,8 @@ export format); writing the policy author as the actor (says a person did someth
   (`stack`, `outcome`), `updates.health_wait` (`stack`, `service`, `outcome`, `waited_ms`).
   Never credentials, never paths, never full `auths` keys.
 - Metrics (meter `depths`): `depths.updates.registry_requests` counter
-  {`registry`, `method` = head|get_manifest|get_blob, `status`}; `depths.updates.check_ms`
+  {`registry`, `kind` = head|get|manifest_get}, fed from the `RequestCounts` each
+  `oci-registry` call returns; `depths.updates.check_ms`
   histogram; `depths.updates.outcomes` counter {`outcome`, `trigger`};
   `depths.updates.health_wait_ms` histogram. The GET counter is how an operator verifies SC-007.
 
