@@ -28,6 +28,7 @@ use web_auth::provider::{
 };
 use web_auth::session::{Identity, Provider, Session, Tokens};
 
+pub mod docker;
 pub mod passkey;
 pub mod volumes;
 pub mod ws;
@@ -403,7 +404,8 @@ pub fn container(project: &str, service: &str, state: &str, status: &str) -> ser
 }
 
 pub struct App {
-    _dir: tempfile::TempDir,
+    /// Shared so a restarted app ([`app_in`]) can reopen the same data dir.
+    dir: Arc<tempfile::TempDir>,
     pub router: axum::Router,
     pub state: AppState,
     pub stacks: PathBuf,
@@ -420,10 +422,19 @@ pub fn app_with(tweak: impl FnOnce(&mut AppState)) -> App {
 
 /// [`app_with`], with extra (or overriding) environment settings.
 pub fn app_with_env(extra: &[(&str, &str)], tweak: impl FnOnce(&mut AppState)) -> App {
-    let dir = tempfile::tempdir().unwrap();
+    app_in(Arc::new(tempfile::tempdir().unwrap()), extra, tweak)
+}
+
+/// [`app_with_env`] over `dir`: another app's [`App::dir`] starts Depths again on the same stacks
+/// and data, as a restart would.
+pub fn app_in(
+    dir: Arc<tempfile::TempDir>,
+    extra: &[(&str, &str)],
+    tweak: impl FnOnce(&mut AppState),
+) -> App {
     let stacks = dir.path().join("stacks");
     let web = dir.path().join("web");
-    std::fs::create_dir(&stacks).unwrap();
+    std::fs::create_dir_all(&stacks).unwrap();
     std::fs::create_dir_all(web.join("assets")).unwrap();
     std::fs::write(
         web.join("index.html"),
@@ -478,7 +489,7 @@ pub fn app_with_env(extra: &[(&str, &str)], tweak: impl FnOnce(&mut AppState)) -
     state.trust.sessions.set_verified(TEST_SESSION, far);
     tweak(&mut state);
     App {
-        _dir: dir,
+        dir,
         router: router(state.clone()),
         state,
         stacks,
@@ -487,6 +498,11 @@ pub fn app_with_env(extra: &[(&str, &str)], tweak: impl FnOnce(&mut AppState)) -
 }
 
 impl App {
+    /// The temp dir holding the stacks and the data dir.
+    pub fn dir(&self) -> Arc<tempfile::TempDir> {
+        self.dir.clone()
+    }
+
     /// Writes `<stacks>/<name>/compose.yaml` (and `.env`).
     pub fn add_stack(&self, name: &str, compose: &str, env: Option<&str>) {
         let d = self.stacks.join(name);
