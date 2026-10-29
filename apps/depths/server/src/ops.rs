@@ -1075,6 +1075,64 @@ impl Ops {
     pub fn is_busy(&self, stack: &str) -> bool {
         self.running.lock().unwrap().contains_key(stack)
     }
+
+    /// Spec 062: takes `stack`'s lock for one stack of an update run, as `Update` by `actor`.
+    /// `cancel` is the run's token, so `Cancel{operation_id}` of any of its stacks stops the run.
+    pub fn claim_update(
+        &self,
+        stack: &str,
+        actor: Actor,
+        user: String,
+        cancel: CancelToken,
+    ) -> Result<OperationId, Refusal> {
+        let mut running = self.running.lock().unwrap();
+        if let Some(r) = running.get(stack) {
+            return Err(Refusal::Busy {
+                stack: stack.to_owned(),
+                operation_id: r.operation_id,
+                kind: r.kind,
+                actor: r.actor.clone(),
+            });
+        }
+        let operation_id = OperationId(uuid::Uuid::new_v4());
+        running.insert(
+            stack.to_owned(),
+            RunningOp {
+                operation_id,
+                kind: OperationKind::Update,
+                actor,
+                user,
+                cancel,
+            },
+        );
+        Ok(operation_id)
+    }
+
+    /// Spec 062: gives back a lock [`Ops::claim_update`] took, and refreshes the inventory.
+    pub fn release_update(&self, stack: &str) {
+        self.running.lock().unwrap().remove(stack);
+        self.watch.kick();
+    }
+
+    pub fn runtime(&self) -> &Arc<dyn ContainerRuntime> {
+        &self.runtime
+    }
+
+    pub fn stack_store(&self) -> &Arc<dyn StackStore> {
+        &self.store
+    }
+
+    pub fn audit_log(&self) -> &Arc<Audit> {
+        &self.audit
+    }
+
+    pub fn compose_policy(&self) -> ComposePolicy {
+        if self.enforce.load(Ordering::SeqCst) {
+            ComposePolicy::Enforce
+        } else {
+            ComposePolicy::Warn
+        }
+    }
 }
 
 struct Sink {

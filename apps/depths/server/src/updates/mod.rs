@@ -12,6 +12,7 @@ pub mod change;
 pub mod creds;
 pub mod inputs;
 pub mod registry;
+pub mod run;
 pub mod scheduler;
 pub mod store;
 pub mod view;
@@ -121,7 +122,7 @@ pub(crate) mod tests {
     use depths_core::updates::reference::ImageRef;
     use depths_core::updates::registry::{Platform, RegistryError, RegistryFuture, Resolution};
 
-    struct NoNetwork;
+    pub(crate) struct NoNetwork;
 
     impl Registry for NoNetwork {
         fn head_digest<'a>(&'a self, _: &'a ImageRef) -> RegistryFuture<'a, String> {
