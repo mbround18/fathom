@@ -8,6 +8,8 @@ ui/src-tauri/target
 ui/test-results
 ui/playwright-report
 specs
+# The Keel web build typechecks tests/unit, and template.test.ts imports this shared contract.
+!specs/060-keel-enroll-settings/contracts/template-vectors.json
 docs
 apps/depths/web/dist
 apps/depths/web/test-results
