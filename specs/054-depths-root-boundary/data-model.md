@@ -48,7 +48,7 @@ Validation at load (any failure: the guard does not start):
 A request's kind is `Endpoint::{Ping, Version, Info, Events, ContainerList, ContainerInspect,
 ContainerCreate, ContainerStart, ContainerUpdate, ContainerAction(Stop|Restart|Kill|Pause|Unpause|Wait|Resize|Remove),
 ContainerLogs, ContainerStats, ContainerTop, ContainerAttach, ExecCreate, ExecStart, ExecInspect,
-ExecResize, ImageList, ImageInspect, ImagePull, ImageRemove, DistributionInspect, NetworkList,
+ExecResize, ImageList, ImageInspect, ImagePull, ImageTag, ImageRemove, DistributionInspect, NetworkList,
 NetworkInspect, NetworkCreate, NetworkRemove, NetworkConnect, NetworkDisconnect, VolumeList,
 VolumeInspect, VolumeCreate, VolumeRemove, Build, GuardExceptions, GuardHealth, Unknown}`.
 

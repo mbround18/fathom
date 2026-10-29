@@ -35,6 +35,15 @@ depths ──(depths-guard, internal)── guard ──(docker-api, internal)�
   request.
 - Bodies over 1 MiB are refused, except image pulls, which have no body.
 
+## Image endpoints
+
+- Image endpoints carry no container config, so the guard allows them without judging a body:
+  `GET /images/json`, `GET /images/{name}/json`, `POST /images/create`, `DELETE /images/{name}`,
+  `GET /distribution/{name}/json`.
+- `POST /images/{name}/tag` (`Endpoint::ImageTag`) is allowed too. Spec 062 uses it to point a tag
+  at a pinned digest and back again on rollback, and to set its `depths-keep/…` tags (062
+  contracts/protocol.md, "054 contract amendment").
+
 ## Refusal response
 
 ```
