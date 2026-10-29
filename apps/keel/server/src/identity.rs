@@ -657,6 +657,9 @@ pub async fn me(
         instance_role: caller.user.instance_role.into(),
         grants,
         verification: verification(pool, caller, window, now).await?,
+        // Filled by the update notice (spec 061 US1); empty until then.
+        keel_version: None,
+        update_dot_dismissed: None,
     })
 }
 

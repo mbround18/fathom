@@ -69,3 +69,10 @@ pub use review::{
     RepoPath, ReviewComment, ReviewCommit, ReviewDecision, ReviewFlag, ReviewFlagKind, ReviewInfo,
     ReviewReason, ReviewState, SignatureStatus, SignerInfo, SignerKey, SignerKind,
 };
+
+// Build identity, the update notice and self-update (spec 061)
+pub mod update;
+pub use update::{
+    AvailableImage, KeelBuild, UpdateCheckState, UpdateError, UpdateOutcome, UpdatePath,
+    UpdateStatus, UpdateStatusLine,
+};

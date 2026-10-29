@@ -1,6 +1,7 @@
 //! Runs, jobs and approval policies (spec 055 US2, contracts/protocol.md "Runs", "Jobs and
 //! policies").
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use keel_core::uuid::Uuid;
@@ -157,6 +158,8 @@ pub struct RunInfo {
     pub started_at: Option<String>,
     pub ended_at: Option<String>,
     pub summary: Option<RunSummary>,
+    /// The job params the run was queued with; empty when there are none (spec 061).
+    pub params: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

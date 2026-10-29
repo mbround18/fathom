@@ -29,6 +29,8 @@ use crate::review::{
 use crate::run::{
     JobInfo, LogStream, PolicyCheck, PolicyInfo, RunHostInfo, RunInfo, RunPhase, RunReason,
 };
+// Build identity and the update notice (spec 061)
+use crate::update::{KeelBuild, UpdateStatus, UpdateStatusLine};
 
 /// Every frame the server sends, and each element of `POST /api/v1/cmd`'s reply array.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -316,6 +318,15 @@ pub enum Event {
         #[ts(type = "Array<string>")]
         hosts: Vec<Uuid>,
     },
+
+    // Build identity and the update notice (spec 061)
+    /// Reply to `GetKeelBuild`, shaped by role.
+    KeelBuild(KeelBuild),
+    /// Reply to `GetUpdateStatus` and `CheckForUpdates` for owners, and pushed to owners whenever
+    /// the status changes.
+    UpdateStatus(UpdateStatus),
+    /// Reply to `GetUpdateStatus` for admins who aren't owners, and pushed to them.
+    UpdateStatusLine(UpdateStatusLine),
 }
 
 impl EventEnvelope {

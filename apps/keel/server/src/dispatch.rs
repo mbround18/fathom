@@ -188,7 +188,14 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::ListAllApiTokens { .. }
         | Cmd::GetSystem
         | Cmd::PreviewSystemConfigure { .. }
-        | Cmd::PreviewSystemRemove => {
+        | Cmd::PreviewSystemRemove
+        // Build identity, the update notice and self-update (spec 061): the same; the handlers
+        // shape the reply by role.
+        | Cmd::GetKeelBuild
+        | Cmd::GetUpdateStatus
+        | Cmd::CheckForUpdates
+        | Cmd::DismissUpdateDot { .. }
+        | Cmd::PreviewKeelUpdate { .. } => {
             if caller.token.is_some() {
                 Err(Refused {
                     code: "session_required",
@@ -451,6 +458,15 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         @ (Cmd::GetSystem | Cmd::PreviewSystemConfigure { .. } | Cmd::PreviewSystemRemove) => {
             crate::system::handle(app, req, other).await
         }
+        // Build identity, the update notice and self-update (spec 061). Stubs until US1 to US4.
+        Cmd::GetKeelBuild
+        | Cmd::GetUpdateStatus
+        | Cmd::CheckForUpdates
+        | Cmd::DismissUpdateDot { .. }
+        | Cmd::PreviewKeelUpdate { .. } => vec![Event::op_error(
+            "not_implemented",
+            "This Keel does not support updates yet.",
+        )],
     };
     events
         .into_iter()

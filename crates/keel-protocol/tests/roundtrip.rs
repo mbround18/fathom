@@ -56,6 +56,8 @@ fn me() -> Me {
             required: true,
             recovering: false,
         },
+        keel_version: None,
+        update_dot_dismissed: None,
     }
 }
 

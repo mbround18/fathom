@@ -622,6 +622,23 @@ pub enum Cmd {
     /// `Preview` (step-up); `Confirm` revokes the System workspace's hosts, disables its bindings,
     /// archives it and replies `System`. Instance owners.
     PreviewSystemRemove,
+
+    // Build identity, update notice and self-update (spec 061). Sessions only.
+    /// `KeelBuild`, shaped by role. Anyone signed in.
+    GetKeelBuild,
+    /// `UpdateStatus` (owners) or `UpdateStatusLine` (admins). Users get
+    /// `Denied { reason: "admin_only" }`.
+    GetUpdateStatus,
+    /// `UpdateStatus` with `state: checking`, then pushes the result. `OpError { code:
+    /// "update_check_off" }` when checks are off, `"update_check_too_soon"` within a minute of the
+    /// last manual check. Instance owners.
+    CheckForUpdates,
+    /// `Me`. `OpError { code: "invalid_digest" }` unless `digest` is `sha256:` and 64 lowercase hex
+    /// characters. Instance owners.
+    DismissUpdateDot { digest: String },
+    /// `Preview` (step-up); `Confirm` replies `Run`, for the new update run or the one already in
+    /// progress. Every refusal is audited as `keel_update_refused`. Instance owners.
+    PreviewKeelUpdate { digest: String },
 }
 
 /// The commands an API token may be scoped to, by [`Cmd::name`]: reads only, for now. Anything
@@ -765,6 +782,12 @@ impl Cmd {
             Cmd::GetSystem => "get_system",
             Cmd::PreviewSystemConfigure { .. } => "preview_system_configure",
             Cmd::PreviewSystemRemove => "preview_system_remove",
+            // Build identity, update notice and self-update (spec 061)
+            Cmd::GetKeelBuild => "get_keel_build",
+            Cmd::GetUpdateStatus => "get_update_status",
+            Cmd::CheckForUpdates => "check_for_updates",
+            Cmd::DismissUpdateDot { .. } => "dismiss_update_dot",
+            Cmd::PreviewKeelUpdate { .. } => "preview_keel_update",
         }
     }
 
@@ -871,6 +894,12 @@ impl Cmd {
             | Cmd::GetSystem
             | Cmd::PreviewSystemConfigure { .. }
             | Cmd::PreviewSystemRemove => false,
+            // Build identity, update notice and self-update (spec 061)
+            Cmd::GetKeelBuild
+            | Cmd::GetUpdateStatus
+            | Cmd::CheckForUpdates
+            | Cmd::DismissUpdateDot { .. }
+            | Cmd::PreviewKeelUpdate { .. } => false,
         }
     }
 }

@@ -178,6 +178,11 @@ pub struct Me {
     pub instance_role: InstanceRole,
     pub grants: Vec<MeGrant>,
     pub verification: crate::passkey::Verification,
+    /// The running build's display string (`0.2.0`, `untagged build abc1234`, ...), for everyone
+    /// (spec 061).
+    pub keel_version: Option<String>,
+    /// The available digest whose dot the owner dismissed; `None` for everyone else (spec 061).
+    pub update_dot_dismissed: Option<String>,
 }
 
 /// A two-step mutation awaiting `Confirm`.

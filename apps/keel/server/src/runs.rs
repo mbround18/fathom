@@ -988,6 +988,8 @@ impl RunRow {
             started_at: self.started_at.map(ts),
             ended_at: self.ended_at.map(ts),
             summary: self.summary.and_then(|s| serde_json::from_value(s).ok()),
+            // Read from `runs.params` once update runs carry them (spec 061 US4).
+            params: std::collections::BTreeMap::new(),
         }
     }
 }
