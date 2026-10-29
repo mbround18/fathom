@@ -22,6 +22,7 @@ import { filesHref, filesReason, parseFilesRest, showFilesTab, type FilesLocatio
 import { useUntrusted } from '@/features/network/model'
 import { OpenLogs, OpenShell, OpenStats } from '@/features/tabs/OpenTab'
 import { availableText, exclusionText, reasonOf } from '@/features/updates/model'
+import { LabelList, PolicyLine } from '@/features/updates/ServicePolicy'
 import { UpdateStateChip } from '@/features/updates/UpdateStateChip'
 import type {
   StackContainer as Container,
@@ -268,7 +269,7 @@ function ServiceCard({
   )
 }
 
-/** The image update state under a service's header (spec 062 T042). */
+/** The image update state under a service's header (spec 062 T042), its policy and Watchtower labels (T074). */
 function ServiceUpdateLine({ update }: { update: ServiceUpdate }) {
   const available = update.state === 'available' ? availableText(update) : null
   const why = reasonOf(update) ?? (update.effective.excluded ? exclusionText(update.effective.excluded) : null)
@@ -281,6 +282,8 @@ function ServiceUpdateLine({ update }: { update: ServiceUpdate }) {
           {why}
         </span>
       )}
+      <PolicyLine s={update} />
+      <LabelList s={update} />
     </div>
   )
 }

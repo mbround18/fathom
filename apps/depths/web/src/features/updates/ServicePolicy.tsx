@@ -20,7 +20,7 @@ export function LabelList({ s }: { s: ServiceUpdate }) {
   const labels = s.effective.labels
   if (labels.length === 0) return null
   return (
-    <ul data-field="labels" aria-label="Watchtower labels" className="col-span-full flex min-w-0 flex-col gap-0.5">
+    <ul data-field="labels" aria-label="Watchtower labels" className="col-span-full flex min-w-0 basis-full flex-col gap-0.5">
       {labels.map((l) => (
         <li key={l.key} data-label={labelName(l.key)} data-effect={l.effect.kind} className="min-w-0 break-words">
           <code className="font-mono text-foreground">
