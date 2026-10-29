@@ -289,11 +289,12 @@ pub async fn pass(u: &Updates, inputs: Arc<dyn Inputs>, stacks: Vec<String>) {
                     (s, v)
                 })
                 .collect();
-            (all, host, services)
+            let watchtower = inputs.watchtower();
+            (all, host, services, watchtower)
         })
         .await
     };
-    let Ok((all, host, services)) = gathered else {
+    let Ok((all, host, services, watchtower)) = gathered else {
         tracing::warn!("update check: gathering inputs panicked");
         return;
     };
@@ -301,6 +302,8 @@ pub async fn pass(u: &Updates, inputs: Arc<dyn Inputs>, stacks: Vec<String>) {
         tracing::warn!("update check skipped: docker did not report the host platform");
         return;
     };
+    // US4: what Auto pauses on. Read every pass; nothing here touches it (FR-021).
+    u.set_watchtower(watchtower);
 
     let now = u.clock.now();
     let now_s = rfc3339(now);

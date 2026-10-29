@@ -20,6 +20,10 @@ pub struct ServiceInput {
     pub image: Option<String>,
     pub has_build: bool,
     pub labels: BTreeMap<String, String>,
+    /// The compose `user:`, when set (a service with one is never held for root, research R4).
+    pub user: Option<String>,
+    /// The compose `platform:`, when set (the pull passes it).
+    pub platform: Option<String>,
     /// The container Depths runs in.
     pub is_depths: bool,
     /// Containers of the service.
@@ -35,6 +39,10 @@ pub trait Inputs: Send + Sync {
     fn host(&self) -> Option<HostPlatform>;
     /// A stack's services; empty when its compose file cannot be read.
     fn services(&self, stack: &str) -> Vec<ServiceInput>;
+    /// The Watchtower containers running on the host (US4).
+    fn watchtower(&self) -> Vec<super::watchtower::Seen> {
+        Vec::new()
+    }
 }
 
 /// The production inputs: the stacks directory and the docker CLI.
@@ -108,6 +116,7 @@ impl Inputs for RuntimeInputs {
             self.runtime.inspect_security(&ids).unwrap_or_default()
         };
         let mut image_of: BTreeMap<String, String> = BTreeMap::new();
+        let mut labels_from_container = std::collections::BTreeSet::new();
         for c in &containers {
             let Some(service) = &c.service else { continue };
             if let Some(svc) = services.iter_mut().find(|s| &s.service == service) {
@@ -120,11 +129,21 @@ impl Inputs for RuntimeInputs {
                     svc.is_depths = true;
                 }
             }
-            if let Some(i) = inspected
+            let Some(i) = inspected
                 .iter()
                 .find(|i| !i.id.is_empty() && (i.id.starts_with(&c.id) || c.id.starts_with(&i.id)))
-                && !i.image.is_empty()
+            else {
+                continue;
+            };
+            // The running container's labels are what Watchtower reads; the compose file's
+            // are the fallback when no container runs (T073).
+            if !labels_from_container.contains(service)
+                && let Some(svc) = services.iter_mut().find(|s| &s.service == service)
             {
+                svc.labels = i.config.labels.clone();
+                labels_from_container.insert(service.clone());
+            }
+            if !i.image.is_empty() {
                 image_of.entry(service.clone()).or_insert(i.image.clone());
             }
         }
@@ -146,6 +165,10 @@ impl Inputs for RuntimeInputs {
         }
         services
     }
+
+    fn watchtower(&self) -> Vec<super::watchtower::Seen> {
+        super::watchtower::running(&*self.runtime)
+    }
 }
 
 /// The services of `compose config --format json`.
@@ -163,9 +186,21 @@ pub fn parse_compose(json: &str) -> Vec<ServiceInput> {
             image: s.get("image").and_then(|i| i.as_str()).map(str::to_owned),
             has_build: s.get("build").is_some_and(|b| !b.is_null()),
             labels: labels(s.get("labels")),
+            user: text(s.get("user")),
+            platform: text(s.get("platform")),
             ..ServiceInput::default()
         })
         .collect()
+}
+
+/// A non-empty string field; a numeric `user:` is read too.
+fn text(v: Option<&serde_json::Value>) -> Option<String> {
+    let s = match v? {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Number(n) => n.to_string(),
+        _ => return None,
+    };
+    (!s.trim().is_empty()).then_some(s)
 }
 
 /// Compose prints labels as a map; a list (`KEY=value`) is read too.
@@ -200,7 +235,7 @@ mod tests {
             r#"{"name":"web","services":{
                 "app":{"image":"nginx:1.27","labels":{"com.centurylinklabs.watchtower.enable":"false"}},
                 "built":{"build":{"context":"."},"image":"web-built"},
-                "listed":{"image":"redis","labels":["a=b","c"]}
+                "listed":{"image":"redis","labels":["a=b","c"],"user":"1000:1000","platform":"linux/arm64"}
             }}"#,
         );
         assert_eq!(got.len(), 3);
@@ -217,6 +252,9 @@ mod tests {
         let listed = got.iter().find(|s| s.service == "listed").unwrap();
         assert_eq!(listed.labels.get("a").map(String::as_str), Some("b"));
         assert_eq!(listed.labels.get("c").map(String::as_str), Some(""));
+        assert_eq!(listed.user.as_deref(), Some("1000:1000"));
+        assert_eq!(listed.platform.as_deref(), Some("linux/arm64"));
+        assert_eq!(app.user, None);
         assert!(parse_compose("not json").is_empty());
     }
 }

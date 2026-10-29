@@ -8,6 +8,8 @@
 //! Registries are reached only through depths-core's [`Registry`] port; the adapter over the
 //! shared `oci-registry` crate is built by the caller and handed in.
 
+pub mod auto;
+pub mod batch;
 pub mod change;
 pub mod creds;
 pub mod inputs;
@@ -16,13 +18,14 @@ pub mod run;
 pub mod scheduler;
 pub mod store;
 pub mod view;
+pub mod watchtower;
 
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use depths_core::updates::registry::Registry;
 use depths_core::updates::window::Clock;
-use depths_protocol::UpdatesAvailability;
+use depths_protocol::{EventEnvelope, UpdatesAvailability};
 
 use crate::config::{Config, UpdatesConfig};
 use store::Store;
@@ -50,6 +53,12 @@ pub struct Updates {
     changed: tokio::sync::broadcast::Sender<()>,
     /// Settings changes waiting for their `Confirm`.
     pending: Mutex<change::Pending>,
+    /// The Watchtower containers the last check pass saw (US4).
+    watchtower: Mutex<Vec<watchtower::Seen>>,
+    /// The Auto queue's state as the last tick left it (US3).
+    auto: Mutex<auto::Status>,
+    /// A scheduled run's events, for the administrators who are connected (US3).
+    runs: tokio::sync::broadcast::Sender<EventEnvelope>,
 }
 
 impl Updates {
@@ -78,6 +87,9 @@ impl Updates {
             check_now: Mutex::new(scheduler::CheckNow::default()),
             changed: tokio::sync::broadcast::channel(16).0,
             pending: Mutex::new(change::Pending::default()),
+            watchtower: Mutex::new(Vec::new()),
+            auto: Mutex::new(auto::Status::default()),
+            runs: tokio::sync::broadcast::channel(256).0,
         })))
     }
 
@@ -105,6 +117,45 @@ impl Updates {
     pub fn checks_enabled(&self) -> bool {
         self.availability() == UpdatesAvailability::On
     }
+
+    /// The Watchtower containers seen last.
+    pub fn watchtower(&self) -> Vec<watchtower::Seen> {
+        lock(&self.watchtower).clone()
+    }
+
+    /// Records what a check pass saw; `true` when it changed.
+    pub fn set_watchtower(&self, seen: Vec<watchtower::Seen>) -> bool {
+        let mut w = lock(&self.watchtower);
+        let changed = *w != seen;
+        *w = seen;
+        changed
+    }
+
+    /// The Auto queue's state.
+    pub fn auto_status(&self) -> auto::Status {
+        lock(&self.auto).clone()
+    }
+
+    /// Records the Auto queue's state; `true` when it changed.
+    pub fn set_auto_status(&self, status: auto::Status) -> bool {
+        let mut a = lock(&self.auto);
+        let changed = *a != status;
+        *a = status;
+        changed
+    }
+
+    /// Scheduled runs' events.
+    pub fn subscribe_runs(&self) -> tokio::sync::broadcast::Receiver<EventEnvelope> {
+        self.runs.subscribe()
+    }
+
+    pub(crate) fn send_run_event(&self, ev: EventEnvelope) {
+        let _ = self.runs.send(ev);
+    }
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// The start-up line for `cfg`, with the checks setting from the service when it exists.

@@ -165,6 +165,12 @@ pub fn updates_view(u: &Updates) -> UpdatesView {
     let decisions = u.store().decisions().ok();
     let settings = u.store().settings();
     let services = services(u);
+    let auto = u.auto_status();
+    let seen = u.watchtower();
+    let acks = decisions
+        .as_ref()
+        .map(|d| d.watchtower_acks.clone())
+        .unwrap_or_default();
     let observed = u.store().observed();
     let next_check = if u.checks_enabled() {
         super::scheduler::next_check(u)
@@ -179,8 +185,9 @@ pub fn updates_view(u: &Updates) -> UpdatesView {
             std::path::Path::new("/etc/localtime"),
         ),
         next_check: next_check.map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
-        next_window: None,
-        auto_paused: None,
+        next_window: auto.next_window,
+        // The live answer, so an acknowledgement lifts the banner before the next tick.
+        auto_paused: super::auto::paused(u),
         registries: registries(u, &services),
         services,
         policies: decisions
@@ -193,7 +200,7 @@ pub fn updates_view(u: &Updates) -> UpdatesView {
             })
             .unwrap_or_default(),
         recent_runs: observed.journal.iter().rev().take(10).cloned().collect(),
-        watchtower: Vec::new(),
-        paused_policies: Vec::new(),
+        watchtower: super::watchtower::view(&seen, &acks),
+        paused_policies: auto.paused_policies,
     }
 }

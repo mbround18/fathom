@@ -183,13 +183,31 @@ async fn run() -> Result<(), String> {
     let _reaper = depths_server::files::spawn_reaper(state.clone());
     let _sweeper = state.auth.sessions.spawn_sweeper(Duration::from_secs(60));
     let _refresher = Arc::new(depths_server::refresh::Refresher::default()).spawn(state.clone());
-    let _update_checks = state.updates.clone().map(|u| {
-        let inputs = Arc::new(depths_server::updates::inputs::RuntimeInputs {
+    let _update_tasks = state.updates.clone().map(|u| {
+        use depths_server::updates::{auto, inputs, run, scheduler};
+        // A run open at start was cut short: closed as interrupted, never resumed.
+        let closed = run::interrupt_open_runs(&u, &state.ops);
+        if closed > 0 {
+            tracing::warn!(
+                runs = closed,
+                "update runs found open at start, marked interrupted"
+            );
+        }
+        let inputs: Arc<dyn inputs::Inputs> = Arc::new(inputs::RuntimeInputs {
             store: state.store.clone(),
             runtime: state.runtime.clone(),
             hostname: std::env::var("HOSTNAME").ok(),
         });
-        tokio::spawn(depths_server::updates::scheduler::run(u, inputs))
+        let deps = Arc::new(auto::Deps {
+            ops: state.ops.clone(),
+            inputs: inputs.clone(),
+            zone: Arc::new(auto::HostZone),
+            is_admin: auto::admins(state.users.clone()),
+        });
+        (
+            tokio::spawn(scheduler::run(u.clone(), inputs)),
+            tokio::spawn(auto::run(u, deps)),
+        )
     });
 
     let listener = tokio::net::TcpListener::bind(cfg.listen)
