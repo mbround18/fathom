@@ -118,6 +118,15 @@ pub struct Flags {
     /// Volume helpers running at once [env: DEPTHS_FILES_HELPERS] [default: 8]
     #[arg(long)]
     pub files_helpers: Option<String>,
+    /// Image updates (spec 062): on or off [env: DEPTHS_UPDATES] [default: on]
+    #[arg(long)]
+    pub updates: Option<String>,
+    /// Run Auto policies, or pause them all: on or off [env: DEPTHS_UPDATES_AUTO] [default: on]
+    #[arg(long)]
+    pub updates_auto: Option<String>,
+    /// Least time between two Check now runs [env: DEPTHS_UPDATES_CHECK_GAP] [default: 60s]
+    #[arg(long)]
+    pub updates_check_min_gap: Option<String>,
 }
 
 /// Why start-up refused.
@@ -302,8 +311,130 @@ pub struct Config {
     pub compose_policy: ComposePolicy,
     /// The volume explorer (spec 053).
     pub files: FilesSettings,
+    /// Image updates (spec 062 contracts/config.md).
+    pub updates: UpdatesConfig,
     /// `(setting, where it came from)`, for the start-up log. Never a secret value.
     pub sources: Vec<(&'static str, String)>,
+}
+
+/// Image updates (spec 062 contracts/config.md). What administrators change at run time lives in
+/// `updates.json`, not here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdatesConfig {
+    /// `DEPTHS_UPDATES`. Off: no Updates page, no scheduler, no registry client (research R10).
+    pub enabled: bool,
+    /// `DEPTHS_UPDATES_AUTO`. Off pauses every Auto policy without changing it.
+    pub auto: bool,
+    /// `DEPTHS_UPDATES_CHECK_GAP`: least time between two Check now runs (FR-002).
+    pub check_min_gap: Duration,
+    /// `DOCKER_CONFIG`: where registry credentials are read, by the check and the `docker` CLI.
+    pub docker_config: PathBuf,
+}
+
+impl UpdatesConfig {
+    /// The one start-up line (contracts/config.md "Startup log"). Counts the registries in
+    /// `config.json` and never names one, nor any other value from the file.
+    pub fn startup_line(&self, checks_enabled: bool, zone: &str) -> String {
+        if !self.enabled {
+            return "updates: feature=off".to_owned();
+        }
+        let on = |b: bool| if b { "on" } else { "off" };
+        let file = self.docker_config.join("config.json");
+        let registries = match std::fs::read(&file) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => "no config.json".to_owned(),
+            Err(_) => "config.json unreadable".to_owned(),
+            Ok(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
+                Ok(v) => {
+                    let n = v
+                        .get("auths")
+                        .and_then(serde_json::Value::as_object)
+                        .map_or(0, serde_json::Map::len);
+                    format!("{n} {}", if n == 1 { "registry" } else { "registries" })
+                }
+                Err(_) => "config.json unreadable".to_owned(),
+            },
+        };
+        format!(
+            "updates: feature=on auto={} checks={} zone={zone} docker_config={} ({registries})",
+            on(self.auto),
+            on(checks_enabled),
+            self.docker_config.display()
+        )
+    }
+}
+
+/// The host zone's name for display: `TZ`, else the zoneinfo name `/etc/localtime` links to,
+/// `local` when it is a plain file (a bind mount), `UTC` when it is missing.
+pub fn host_zone_name(tz: Option<String>, localtime: &Path) -> String {
+    if let Some(tz) = tz.map(|t| t.trim().trim_start_matches(':').to_owned())
+        && !tz.is_empty()
+    {
+        return tz;
+    }
+    if let Ok(target) = std::fs::read_link(localtime) {
+        let s = target.to_string_lossy();
+        if let Some((_, name)) = s.split_once("zoneinfo/") {
+            return name.to_owned();
+        }
+    }
+    if localtime.exists() {
+        "local".to_owned()
+    } else {
+        "UTC".to_owned()
+    }
+}
+
+/// The 062 settings. A bad value refuses start, naming the variable; with the feature off only
+/// `DEPTHS_UPDATES` itself is checked, so the kill switch always works.
+fn updates_config(
+    r: &mut Resolver<'_>,
+    (updates, auto, gap): (Option<String>, Option<String>, Option<String>),
+) -> Result<UpdatesConfig, ConfigError> {
+    let enabled = match r.pick("updates", updates, &["DEPTHS_UPDATES"]) {
+        Some(v) => parse_bool("DEPTHS_UPDATES", &v)?,
+        None => true,
+    };
+    let auto = r.pick("updates_auto", auto, &["DEPTHS_UPDATES_AUTO"]);
+    let gap = r.pick("updates_check_min_gap", gap, &["DEPTHS_UPDATES_CHECK_GAP"]);
+    let docker_config = r
+        .pick("docker_config", None, &["DOCKER_CONFIG"])
+        .map_or_else(
+            || {
+                r.var("HOME").map_or_else(
+                    || PathBuf::from("/var/lib/depths/.docker"),
+                    |h| PathBuf::from(h).join(".docker"),
+                )
+            },
+            PathBuf::from,
+        );
+    if !enabled {
+        return Ok(UpdatesConfig {
+            enabled,
+            auto: false,
+            check_min_gap: Duration::from_secs(60),
+            docker_config,
+        });
+    }
+    let auto = match auto {
+        Some(v) => parse_bool("DEPTHS_UPDATES_AUTO", &v)?,
+        None => true,
+    };
+    let check_min_gap = match gap {
+        Some(v) => parse_duration("DEPTHS_UPDATES_CHECK_GAP", &v)?,
+        None => Duration::from_secs(60),
+    };
+    if !docker_config.is_absolute() {
+        return refuse(format!(
+            "DOCKER_CONFIG: `{}` must be an absolute path",
+            docker_config.display()
+        ));
+    }
+    Ok(UpdatesConfig {
+        enabled,
+        auto,
+        check_min_gap,
+        docker_config,
+    })
 }
 
 /// Network trust settings (spec 052 contracts/config.md).
@@ -1060,6 +1191,15 @@ impl Config {
             None => ComposePolicy::default(),
         };
 
+        let updates = updates_config(
+            &mut r,
+            (
+                flags.updates,
+                flags.updates_auto,
+                flags.updates_check_min_gap,
+            ),
+        )?;
+
         Ok(Self {
             listen,
             public_url,
@@ -1083,6 +1223,7 @@ impl Config {
             shell_policy,
             compose_policy,
             files,
+            updates,
             sources: r.sources,
         })
     }
@@ -1723,5 +1864,163 @@ mod tests {
         c.prepare_data_dir().unwrap();
         let mode = std::fs::metadata(&c.data_dir).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700);
+    }
+
+    /// 062 contracts/config.md: the defaults.
+    #[test]
+    fn updates_default_on_with_auto_and_a_minute_gap() {
+        let c = Fixture::deploy()
+            .set("HOME", "/var/lib/depths")
+            .resolve()
+            .unwrap();
+        assert_eq!(
+            c.updates,
+            UpdatesConfig {
+                enabled: true,
+                auto: true,
+                check_min_gap: Duration::from_secs(60),
+                docker_config: PathBuf::from("/var/lib/depths/.docker"),
+            }
+        );
+        let src = |k: &str| {
+            c.sources
+                .iter()
+                .find(|(s, _)| *s == k)
+                .map(|(_, v)| v.clone())
+        };
+        assert_eq!(src("updates").as_deref(), Some("default"));
+        assert_eq!(src("docker_config").as_deref(), Some("default"));
+        // No HOME: the image's.
+        let c = Fixture::deploy().unset("HOME").resolve().unwrap();
+        assert_eq!(
+            c.updates.docker_config,
+            PathBuf::from("/var/lib/depths/.docker")
+        );
+    }
+
+    #[test]
+    fn updates_settings_resolve_flag_over_env() {
+        let f = Fixture::deploy()
+            .set("DEPTHS_UPDATES", "on")
+            .set("DEPTHS_UPDATES_AUTO", "off")
+            .set("DEPTHS_UPDATES_CHECK_GAP", "5s")
+            .set("DOCKER_CONFIG", "/run/depths/docker");
+        let c = f.resolve().unwrap();
+        assert!(c.updates.enabled);
+        assert!(!c.updates.auto);
+        assert_eq!(c.updates.check_min_gap, Duration::from_secs(5));
+        assert_eq!(c.updates.docker_config, PathBuf::from("/run/depths/docker"));
+        let src = |k: &str| {
+            c.sources
+                .iter()
+                .find(|(s, _)| *s == k)
+                .map(|(_, v)| v.clone())
+        };
+        assert_eq!(src("updates").as_deref(), Some("DEPTHS_UPDATES"));
+        assert_eq!(src("docker_config").as_deref(), Some("DOCKER_CONFIG"));
+
+        let flags = Flags {
+            updates: Some("on".into()),
+            updates_auto: Some("on".into()),
+            updates_check_min_gap: Some("2m".into()),
+            ..Flags::default()
+        };
+        let c = f.resolve_with(flags).unwrap();
+        assert!(c.updates.enabled && c.updates.auto);
+        assert_eq!(c.updates.check_min_gap, Duration::from_secs(120));
+        let src = |k: &str| {
+            c.sources
+                .iter()
+                .find(|(s, _)| *s == k)
+                .map(|(_, v)| v.clone())
+        };
+        assert_eq!(
+            src("updates_check_min_gap").as_deref(),
+            Some("--updates-check-min-gap")
+        );
+    }
+
+    #[test]
+    fn bad_updates_settings_refuse_naming_the_variable() {
+        for (name, value) in [
+            ("DEPTHS_UPDATES", "maybe"),
+            ("DEPTHS_UPDATES_AUTO", "sometimes"),
+            ("DEPTHS_UPDATES_CHECK_GAP", "0s"),
+            ("DEPTHS_UPDATES_CHECK_GAP", "soon"),
+            ("DOCKER_CONFIG", "relative/docker"),
+        ] {
+            let r = Fixture::deploy().set(name, value).refusal();
+            assert!(r.contains(name), "{name}={value}: {r}");
+        }
+        // The kill switch is never blocked by a setting only the feature reads.
+        let c = Fixture::deploy()
+            .set("DEPTHS_UPDATES", "off")
+            .set("DOCKER_CONFIG", "relative/docker")
+            .resolve()
+            .unwrap();
+        assert!(!c.updates.enabled);
+    }
+
+    #[test]
+    fn the_startup_line_counts_registries_and_never_names_them() {
+        let d = tempfile::tempdir().unwrap();
+        let u = UpdatesConfig {
+            enabled: true,
+            auto: true,
+            check_min_gap: Duration::from_secs(60),
+            docker_config: d.path().to_path_buf(),
+        };
+        let dir = d.path().display();
+        assert_eq!(
+            u.startup_line(false, "UTC"),
+            format!(
+                "updates: feature=on auto=on checks=off zone=UTC docker_config={dir} (no config.json)"
+            )
+        );
+        std::fs::write(
+            d.path().join("config.json"),
+            r#"{"auths":{"ghcr.io":{"auth":"dXNlcjpzM2NyZXQ="},"registry.example":{"auth":"eDp5"}}}"#,
+        )
+        .unwrap();
+        let line = u.startup_line(true, "Europe/Berlin");
+        assert_eq!(
+            line,
+            format!(
+                "updates: feature=on auto=on checks=on zone=Europe/Berlin docker_config={dir} (2 registries)"
+            )
+        );
+        assert!(!line.contains("ghcr") && !line.contains("dXNl"), "{line}");
+        std::fs::write(d.path().join("config.json"), "{nope").unwrap();
+        assert!(
+            u.startup_line(true, "UTC")
+                .ends_with("(config.json unreadable)")
+        );
+        let off = UpdatesConfig {
+            enabled: false,
+            ..u
+        };
+        assert_eq!(off.startup_line(true, "UTC"), "updates: feature=off");
+    }
+
+    #[test]
+    fn the_zone_name_comes_from_tz_or_the_localtime_link() {
+        let d = tempfile::tempdir().unwrap();
+        let link = d.path().join("localtime");
+        assert_eq!(
+            host_zone_name(Some(":Europe/Berlin".into()), &link),
+            "Europe/Berlin"
+        );
+        assert_eq!(
+            host_zone_name(None, &link),
+            "UTC",
+            "no /etc/localtime mounted"
+        );
+        std::os::unix::fs::symlink("/usr/share/zoneinfo/America/New_York", &link).unwrap();
+        assert_eq!(host_zone_name(None, &link), "America/New_York");
+        assert_eq!(host_zone_name(Some("  ".into()), &link), "America/New_York");
+        // A bind-mounted /etc/localtime is a plain file: the zone works, its name is unknown.
+        let file = d.path().join("plain");
+        std::fs::write(&file, b"TZif").unwrap();
+        assert_eq!(host_zone_name(None, &file), "local");
     }
 }
