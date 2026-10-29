@@ -257,4 +257,108 @@ mod tests {
         assert_eq!(app.user, None);
         assert!(parse_compose("not json").is_empty());
     }
+
+    // --- label source (T070) -------------------------------------------------------------------
+
+    use depths_core::plan::RunStep;
+    use depths_core::ports::{
+        CancelToken, OutputSink, ProjectContainers, RuntimeError, RuntimeSnapshot, StepOutcome,
+        Validation,
+    };
+    use depths_core::security::{Inspect, InspectConfig};
+    use depths_protocol::{AdoptionState, Container, RuntimeContainerState};
+
+    const ENABLE: &str = "com.centurylinklabs.watchtower.enable";
+
+    /// `app` has a running container whose labels say `false`; `db` has no container.
+    struct Fake;
+
+    impl ContainerRuntime for Fake {
+        fn compose_config(&self, _: &RunStep) -> Result<String, RuntimeError> {
+            Ok(format!(
+                r#"{{"services":{{
+                    "app":{{"image":"nginx","labels":{{"{ENABLE}":"true"}}}},
+                    "db":{{"image":"postgres","labels":{{"{ENABLE}":"false"}}}}
+                }}}}"#
+            ))
+        }
+        fn containers_by_project(&self) -> Result<RuntimeSnapshot, RuntimeError> {
+            let mut snap = RuntimeSnapshot::default();
+            snap.projects.insert(
+                "web".into(),
+                ProjectContainers {
+                    working_dir: None,
+                    containers: vec![Container {
+                        id: "c-app".into(),
+                        name: "/web-app-1".into(),
+                        image: "nginx".into(),
+                        state: RuntimeContainerState::Running,
+                        health: None,
+                        status: String::new(),
+                        created_at: String::new(),
+                        command: String::new(),
+                        ports: vec![],
+                        project: Some("web".into()),
+                        service: Some("app".into()),
+                        cluster: None,
+                        adoption: AdoptionState::NotAdopted,
+                    }],
+                },
+            );
+            Ok(snap)
+        }
+        fn inspect_security(&self, _: &[String]) -> Result<Vec<Inspect>, RuntimeError> {
+            Ok(vec![Inspect {
+                id: "c-app".into(),
+                image: "sha256:run".into(),
+                config: InspectConfig {
+                    image: "nginx".into(),
+                    labels: [(ENABLE.to_owned(), "false".to_owned())].into(),
+                    ..InspectConfig::default()
+                },
+                ..Inspect::default()
+            }])
+        }
+        fn run_step(
+            &self,
+            _: &RunStep,
+            _: Option<&[u8]>,
+            _: &dyn OutputSink,
+            _: &CancelToken,
+        ) -> Result<StepOutcome, RuntimeError> {
+            Err(RuntimeError::Unsupported)
+        }
+        fn validate(&self, _: &RunStep, _: &[u8]) -> Result<Validation, RuntimeError> {
+            Ok(Validation::Valid)
+        }
+    }
+
+    #[test]
+    fn labels_come_from_the_running_container_and_from_compose_without_one() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("web")).unwrap();
+        std::fs::write(
+            dir.path().join("web/compose.yaml"),
+            "services:\n  app:\n    image: nginx\n",
+        )
+        .unwrap();
+        let inputs = RuntimeInputs {
+            store: Arc::new(depths_stacks_fs::FsStackStore::open(dir.path()).unwrap()),
+            runtime: Arc::new(Fake),
+            hostname: None,
+        };
+        let got = inputs.services("web");
+        let label = |svc: &str| {
+            got.iter()
+                .find(|s| s.service == svc)
+                .and_then(|s| s.labels.get(ENABLE).cloned())
+        };
+        assert_eq!(
+            label("app").as_deref(),
+            Some("false"),
+            "the container's labels win (what Watchtower reads)"
+        );
+        assert_eq!(label("db").as_deref(), Some("false"), "compose, no container");
+        assert_eq!(got.iter().find(|s| s.service == "app").unwrap().replicas, 1);
+    }
 }

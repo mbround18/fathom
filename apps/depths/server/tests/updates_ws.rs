@@ -459,3 +459,246 @@ async fn a_fresh_session_previews_a_settings_change_without_a_check() {
     assert!(r["event"]["data"]["step_up"].is_null(), "{r}");
     server.abort();
 }
+
+// --- US2 to US4 (T048, T061, T070) -------------------------------------------------------------
+
+const DIGEST: &str = "sha256:2222222222222222222222222222222222222222222222222222222222222222";
+
+/// The `PreviewUpdateChange` reply for `change`.
+async fn preview_change(ws: &mut Socket, id: u64, change: Value) -> Value {
+    ask(ws, id, cmd("PreviewUpdateChange", change)).await
+}
+
+async fn confirm(ws: &mut Socket, id: u64, preview: &Value) -> Value {
+    ask(ws, id, cmd("Confirm", json!({ "preview_id": preview }))).await
+}
+
+#[tokio::test]
+async fn a_batch_needs_an_admin_and_a_trusted_network() {
+    let a = updates_app();
+    seed(&a);
+    grant(&a, USER, &["web"]);
+    let batch = cmd("PreviewUpdateBatch", json!({ "stacks": ["web"] }));
+    let (mut ws, server, _) = open(&a, USER).await;
+    let r = ask(&mut ws, 1, batch.clone()).await;
+    assert_eq!(r["event"]["data"]["reason"], "not_permitted", "{r}");
+    server.abort();
+
+    let (mut ws, server, _) = open_untrusted(&a, OWNER, CAFE).await;
+    let r = ask(&mut ws, 1, batch).await;
+    assert_eq!(r["event"]["data"]["reason"], "untrusted_network", "{r}");
+    server.abort();
+}
+
+#[tokio::test]
+async fn a_batch_is_previewed_per_stack_and_refuses_an_empty_or_repeated_list() {
+    let a = updates_app();
+    seed(&a);
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    let r = ask(&mut ws, 1, cmd("PreviewUpdateBatch", json!({ "stacks": [] }))).await;
+    assert_eq!(r["event"]["type"], "Invalid", "{r}");
+    let r = ask(
+        &mut ws,
+        2,
+        cmd("PreviewUpdateBatch", json!({ "stacks": ["web", "web"] })),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Invalid", "{r}");
+
+    let r = ask(
+        &mut ws,
+        3,
+        cmd("PreviewUpdateBatch", json!({ "stacks": ["web", "db"] })),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "UpdatePreview", "{r}");
+    let stacks = r["event"]["data"]["stacks"].as_array().unwrap();
+    assert_eq!(stacks.len(), 2, "{r}");
+    assert_eq!(stacks[0]["stack"], "web", "in the order asked: {r}");
+    // The seeded state has no digest to pin, so nothing would run: Confirm says so.
+    let id = r["event"]["data"]["preview_id"].clone();
+    let r = confirm(&mut ws, 4, &id).await;
+    assert_eq!(r["event"]["type"], "Invalid", "{r}");
+    assert!(
+        a.audit_entries()
+            .iter()
+            .all(|e| e.action != AuditAction::ImageUpdate)
+    );
+    server.abort();
+}
+
+#[tokio::test]
+async fn a_policy_change_is_admin_only_trusted_and_audited_with_before_and_after() {
+    let a = updates_app();
+    grant(&a, USER, &["web"]);
+    let change = json!({ "kind": "policy", "data": { "stack": "web", "policy": "auto" } });
+    let (mut ws, server, _) = open(&a, USER).await;
+    let r = preview_change(&mut ws, 1, change.clone()).await;
+    assert_eq!(r["event"]["data"]["reason"], "not_permitted", "{r}");
+    server.abort();
+    // A fresh app: a sign-in from elsewhere would leave this one untrusted too.
+    let away = updates_app();
+    let (mut ws, server, _) = open_untrusted(&away, OWNER, CAFE).await;
+    let r = preview_change(&mut ws, 1, change.clone()).await;
+    assert_eq!(r["event"]["data"]["reason"], "untrusted_network", "{r}");
+    server.abort();
+
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    let r = preview_change(&mut ws, 1, change).await;
+    assert_eq!(r["event"]["type"], "Preview", "{r}");
+    let diff = r["event"]["data"]["file_diff"].as_str().unwrap();
+    assert!(diff.contains("auto"), "{diff}");
+    let r = confirm(&mut ws, 2, &r["event"]["data"]["preview_id"]).await;
+    assert_eq!(r["event"]["type"], "UpdatesChanged", "{r}");
+    assert_eq!(r["event"]["data"]["policies"]["web"]["policy"], "auto", "{r}");
+    let d = updates(&a).store().decisions().unwrap();
+    assert_eq!(d.policies["web"].policy, UpdatePolicy::Auto);
+    assert_eq!(d.policies["web"].set_by.subject, OWNER, "the saver is set_by");
+
+    let entries = a.audit_entries();
+    let e = entries
+        .iter()
+        .find(|e| e.action == AuditAction::UpdatePolicy)
+        .unwrap_or_else(|| panic!("{entries:?}"));
+    let c = e.change.as_ref().unwrap();
+    assert!(c.before.is_null(), "{c:?}");
+    assert_eq!(c.after["policy"], "auto", "{c:?}");
+    server.abort();
+}
+
+/// Spec 054: a policy change always steps up on a stale session.
+#[tokio::test]
+async fn a_policy_change_steps_up_on_a_stale_session() {
+    use support::passkey::*;
+
+    let a = updates_app();
+    let (mut ws, server, cookie) = open_unverified(&a, OWNER).await;
+    let mut auth = authenticator();
+    enrol(&mut ws, &mut auth, "Laptop").await;
+    stale(&a, &cookie);
+    let r = preview_change(
+        &mut ws,
+        1,
+        json!({ "kind": "policy", "data": { "stack": "web", "policy": "auto" } }),
+    )
+    .await;
+    assert!(r["event"]["data"]["step_up"].is_object(), "{r}");
+    let r = confirm(&mut ws, 2, &r["event"]["data"]["preview_id"]).await;
+    assert_eq!(r["event"]["type"], "StepUpRequired", "{r}");
+    assert!(updates(&a).store().decisions().unwrap().policies.is_empty());
+    server.abort();
+}
+
+#[tokio::test]
+async fn window_label_and_cleanup_settings_are_audited_with_before_and_after() {
+    let a = updates_app();
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    let mut settings = serde_json::to_value(updates(&a).store().settings()).unwrap();
+    settings["window"] = json!({ "days": ["sat"], "start": "22:00", "end": "02:00" });
+    settings["health_timeout_secs"] = json!(300);
+    settings["label_only"] = json!(true);
+    settings["scope"] = json!("media");
+    settings["cleanup"] = json!(true);
+    let r = preview_change(&mut ws, 1, json!({ "kind": "settings", "data": settings })).await;
+    assert_eq!(r["event"]["type"], "Preview", "{r}");
+    let r = confirm(&mut ws, 2, &r["event"]["data"]["preview_id"]).await;
+    assert_eq!(r["event"]["type"], "UpdatesChanged", "{r}");
+    let s = updates(&a).store().settings();
+    assert_eq!(s.health_timeout_secs, 300);
+    assert!(s.label_only && s.cleanup);
+    let entries = a.audit_entries();
+    let c = entries
+        .iter()
+        .find(|e| e.action == AuditAction::UpdateSettings)
+        .and_then(|e| e.change.clone())
+        .unwrap();
+    assert_eq!(c.before["window"]["start"], "03:00");
+    assert_eq!(c.after["window"]["days"], json!(["sat"]));
+    assert_eq!(c.after["scope"], "media");
+    server.abort();
+}
+
+#[tokio::test]
+async fn retry_forgets_a_rejected_digest_and_is_audited() {
+    let a = updates_app();
+    updates(&a)
+        .store()
+        .update_decisions(|d| {
+            d.rejected.push(depths_server::updates::store::Rejected {
+                stack: "web".into(),
+                service: "app".into(),
+                digest: DIGEST.into(),
+                at: "2026-10-01T00:00:00Z".into(),
+                reason: "health check failed".into(),
+                run_id: None,
+            });
+        })
+        .unwrap();
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    let other = DIGEST.replace('2', "3");
+    let r = preview_change(
+        &mut ws,
+        1,
+        json!({ "kind": "retry", "data": { "stack": "web", "service": "app", "digest": other } }),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Invalid", "no such rejection: {r}");
+
+    let r = preview_change(
+        &mut ws,
+        2,
+        json!({ "kind": "retry", "data": { "stack": "web", "service": "app", "digest": DIGEST } }),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Preview", "{r}");
+    let r = confirm(&mut ws, 3, &r["event"]["data"]["preview_id"]).await;
+    assert_eq!(r["event"]["type"], "UpdatesChanged", "{r}");
+    assert!(updates(&a).store().decisions().unwrap().rejected.is_empty());
+    let entries = a.audit_entries();
+    let e = entries
+        .iter()
+        .find(|e| e.action == AuditAction::UpdateRetry)
+        .unwrap_or_else(|| panic!("{entries:?}"));
+    assert_eq!(e.change.as_ref().unwrap().before["digest"], DIGEST);
+    server.abort();
+}
+
+#[tokio::test]
+async fn apply_held_and_watchtower_answers_refuse_what_is_not_there() {
+    let a = updates_app();
+    seed(&a);
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    // `web/app` is Available, not Held.
+    let r = preview_change(
+        &mut ws,
+        1,
+        json!({ "kind": "apply_held", "data": { "stack": "web", "service": "app", "digest": DIGEST } }),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Invalid", "{r}");
+    // No Watchtower runs here.
+    let r = preview_change(
+        &mut ws,
+        2,
+        json!({ "kind": "ack_watchtower", "data": { "container_id": "abc123", "answer": "monitor_only" } }),
+    )
+    .await;
+    assert_eq!(r["event"]["type"], "Invalid", "{r}");
+    assert!(a.audit_entries().iter().all(|e| {
+        e.action != AuditAction::WatchtowerAck && e.action != AuditAction::ImageHoldApply
+    }));
+    server.abort();
+}
+
+#[tokio::test]
+async fn the_updates_view_shows_the_auto_queue_state() {
+    let a = updates_app();
+    let (mut ws, server, _) = open(&a, OWNER).await;
+    let r = ask(&mut ws, 1, json!({ "type": "ListUpdates" })).await;
+    let v = &r["event"]["data"];
+    assert_eq!(v["watchtower"], json!([]), "{r}");
+    assert_eq!(v["paused_policies"], json!([]), "{r}");
+    // DEPTHS_UPDATES_AUTO is unset (on) and the file is readable: not paused.
+    assert!(v["auto_paused"].is_null(), "{r}");
+    server.abort();
+}
