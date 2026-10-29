@@ -68,6 +68,11 @@ fn image_id(reference: &str) -> Option<String> {
     out.status.success().then(|| stdout(&out))
 }
 
+/// The daemon uses the containerd image store.
+fn containerd_store() -> bool {
+    ok(&["info", "--format", "{{json .DriverStatus}}"]).contains("io.containerd.snapshotter.v1")
+}
+
 /// The Dockerfile of one test image. `user` is the image's `USER`; `healthy` its healthcheck.
 fn dockerfile(version: &str, user: &str, healthy: bool) -> String {
     let check = if healthy { "true" } else { "false" };
@@ -124,6 +129,8 @@ struct Lab {
     host: String,
     stacks: Vec<String>,
     built: Mutex<Vec<String>>,
+    /// `held-…` tags that keep a rebuilt tag's previous image named until an update keeps it.
+    holds: Mutex<Vec<String>>,
     containers: Mutex<Vec<String>>,
 }
 
@@ -190,6 +197,7 @@ impl Lab {
             host: format!("localhost:{port}"),
             stacks: Vec::new(),
             built: Mutex::default(),
+            holds: Mutex::default(),
             containers: Mutex::new(vec![registry]),
         };
         lab.settings(false);
@@ -218,8 +226,19 @@ impl Lab {
     }
 
     /// Builds `dockerfile` as `repo:tag`, pushes it, and returns the image id.
+    ///
+    /// The build moves the local tag. A container may still run the image it pointed to, and on
+    /// the containerd image store an image the build left without a name is gone (no inspect, no
+    /// `docker tag` by id), where a real `docker pull` would have kept it. So the previous image is
+    /// first tagged `<repo>:held-<id>`, which [`Lab::update`] releases once the run has kept it.
     fn push(&self, repo: &str, tag: &str, dockerfile: &str) -> String {
         let reference = self.reference(repo, tag);
+        if let Some(old) = image_id(&reference) {
+            let short = old.trim_start_matches("sha256:");
+            let hold = self.reference(repo, &format!("held-{}", &short[..short.len().min(12)]));
+            ok(&["tag", &old, &hold]);
+            self.holds.lock().unwrap().push(hold);
+        }
         let mut child = Command::new("docker")
             .args(["build", "-q", "-t", &reference, "-"])
             .stdin(Stdio::piped())
@@ -330,7 +349,16 @@ impl Lab {
             tx,
         );
         drain.join().unwrap();
+        self.release();
         run
+    }
+
+    /// Removes the `held-…` tags (the tag only: the image stays while another name or a container
+    /// keeps it).
+    fn release(&self) {
+        for hold in self.holds.lock().unwrap().drain(..) {
+            let _ = docker(&["image", "rm", &hold]);
+        }
     }
 
     /// Nothing would run for `stack`.
@@ -370,6 +398,7 @@ impl Drop for Lab {
         for c in self.containers.lock().unwrap().iter() {
             let _ = docker(&["rm", "-f", c]);
         }
+        self.release();
         let listed = docker(&["image", "ls", "--format", "{{.Repository}}:{{.Tag}}"]);
         let ours = format!("{}/{}/", self.host, self.prefix);
         let keeps: Vec<String> = self.stacks.iter().map(|s| keep::repository(s)).collect();
@@ -442,12 +471,18 @@ fn an_unchanged_tag_is_head_only_and_a_pushed_image_is_resolved_once() {
 
     lab.push("app", "1", &dockerfile("2", "1000", true));
     let calls = lab.check(&stack);
+    // The new digest is resolved once. On the containerd image store the running image's id is
+    // the digest it was pulled by, so the checker also resolves that once to compare platform
+    // manifests (check.rs `same_image`); both are cached from then on.
+    let expected = if containerd_store() { 2 } else { 1 };
     assert_eq!(
         calls.iter().filter(|c| c.get > 0).count(),
-        1,
-        "one resolution: {calls:?}"
+        expected,
+        "one resolution per digest never seen: {calls:?}"
     );
     assert_eq!(lab.state(&stack, "app"), UpdateState::Available);
+    let calls = lab.check(&stack);
+    assert_eq!(sum(&calls).get, 0, "resolved once, then cached: {calls:?}");
     let observed = lab.u().store().observed();
     let available = observed.services[&format!("{stack}/app")]
         .available
@@ -500,9 +535,32 @@ fn update_recreates_only_the_changed_service(lab: &mut Lab, suffix: &str) {
     ok(&["tag", &old_image, &lab.reference("app", "1")]);
     lab.check(&stack);
     assert_eq!(lab.state(&stack, "app"), UpdateState::Available);
+    // Research R3 below reads the app's container events. They are followed live through the
+    // run: the daemon replays only its last 256 events, and the healthchecks of tests running in
+    // parallel push the `create` out of that window before a later `docker events --until` asks.
     let since = chrono::Utc::now().timestamp().to_string();
+    let mut follow = Command::new("docker")
+        .args([
+            "events",
+            "--since",
+            &since,
+            "--filter",
+            "type=container",
+            "--filter",
+            &format!("label=com.docker.compose.project={stack}"),
+            "--filter",
+            "label=com.docker.compose.service=app",
+            "--format",
+            "{{.Action}} {{.Actor.ID}}",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("docker events runs");
     let run = lab.update(&stack);
-    let until = (chrono::Utc::now().timestamp() + 1).to_string();
+    std::thread::sleep(Duration::from_millis(500));
+    let _ = follow.kill();
+    let events = stdout(&follow.wait_with_output().unwrap());
     assert_eq!(outcome(&run), Some(StackOutcome::Updated), "{run:?}");
 
     let new_app = lab.container(&stack, "app");
@@ -522,19 +580,6 @@ fn update_recreates_only_the_changed_service(lab: &mut Lab, suffix: &str) {
     );
 
     // Research R3: compose creates the replacement before it stops the old container.
-    let events = ok(&[
-        "events",
-        "--since",
-        &since,
-        "--until",
-        &until,
-        "--filter",
-        &format!("label=com.docker.compose.project={stack}"),
-        "--filter",
-        "label=com.docker.compose.service=app",
-        "--format",
-        "{{.Action}} {{.Actor.ID}}",
-    ]);
     let lines: Vec<(&str, &str)> = events.lines().filter_map(|l| l.split_once(' ')).collect();
     // `compose ps -q` and the events may print ids of different lengths.
     let same = |a: &str, b: &str| !a.is_empty() && (a.starts_with(b) || b.starts_with(a));
