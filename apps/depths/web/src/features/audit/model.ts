@@ -1,5 +1,5 @@
 /** Pure helpers for the audit log view (US5, T070, T074). */
-import type { AuditAction, AuditEntry, AuditFilter, AuditOutcome, Grant } from '@/protocol/generated'
+import type { AuditAction, AuditEntry, AuditFilter, AuditOutcome, AuditServiceUpdate, Grant } from '@/protocol/generated'
 
 import { argvLine } from '@/features/stacks/argv'
 
@@ -85,8 +85,25 @@ export function detailLines(e: AuditEntry): string[] {
   if (e.diff_summary) out.push(e.diff_summary)
   if (e.file) out.push(`${e.file.source}: ${e.file.path || '/'}`)
   if (e.target) out.push(`${e.target.id}: ${grantText(e.target.before)} → ${grantText(e.target.after)}`)
+  if (e.update) {
+    for (const s of e.update.services) out.push(serviceUpdateLine(s))
+    if (e.update.hold) out.push(e.update.hold)
+    if (e.update.rejected_digest) out.push(`rejected ${shortDigest(e.update.rejected_digest)}`)
+  }
+  if (e.on_behalf_of) out.push(`on behalf of ${e.on_behalf_of.username}`)
   if (e.outcome.kind === 'failed' && e.outcome.stderr_tail) out.push(e.outcome.stderr_tail)
   return out
+}
+
+function shortDigest(d: string): string {
+  return d.replace(/^sha256:/, '').slice(0, 12)
+}
+
+/** `app: nginx:1.29 (1111aaaa2222) -> nginx:1.29 (9999ffff8888)`, spec 062 update entries. */
+function serviceUpdateLine(s: AuditServiceUpdate): string {
+  const from = s.from_digest ? `${s.from_image} (${shortDigest(s.from_digest)})` : s.from_image
+  const to = `${s.to_image ?? s.from_image} (${shortDigest(s.to_digest)})`
+  return `${s.service}: ${from} -> ${to}${s.version ? `, ${s.version}` : ''}`
 }
 
 export function actorId(e: AuditEntry): string {
