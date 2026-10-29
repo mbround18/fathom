@@ -47,6 +47,7 @@ use crate::limits::{
     RateLimiter, SOCKETS_PER_IP, SOCKETS_PER_SESSION, WS_COMMAND_BURST, WS_COMMANDS_PER_MINUTE,
 };
 use crate::ops::Who;
+use crate::step_up::{self, Caller};
 use crate::users::{self, SignIn};
 use crate::watch::{Subscription, Update};
 
@@ -199,6 +200,39 @@ impl Conn {
         }
     }
 
+    fn caller(&self, role: role::Role) -> Caller<'_> {
+        Caller {
+            user: &self.user,
+            session: &self.session,
+            actor: &self.actor,
+            ip: self.ip,
+            role,
+        }
+    }
+
+    /// Spec 054: the step-up gate for `kind`, answered with `id`.
+    async fn step_up(
+        &self,
+        id: Option<RequestId>,
+        role: role::Role,
+        kind: CommandKind,
+        escape_findings: bool,
+        assertion: Option<&depths_protocol::PasskeyAssertion>,
+        cmd: &str,
+    ) -> Option<EventEnvelope> {
+        step_up::step_up(
+            &self.app,
+            self.caller(role),
+            kind,
+            escape_findings,
+            assertion,
+            cmd,
+        )
+        .await
+        .err()
+        .map(|e| reply(id, *e))
+    }
+
     /// Audits a refusal and answers it.
     fn deny(&self, id: Option<RequestId>, stack: Option<&str>, why: String) -> EventEnvelope {
         let _ = self
@@ -215,8 +249,23 @@ impl Conn {
     }
 
     /// Spec 052: call after the role check. `Some(Denied{untrusted_network})` when the network
-    /// of this socket is not trusted for `kind` (audited, and the session's shells end).
+    /// of this socket is not trusted for `kind` (audited, and the session's shells end). Then
+    /// spec 054's verification gate: an admin whose session has not checked a passkey gets
+    /// only the restricted set (`PasskeyEnrolmentRequired`, or `Denied` asking for a check).
     fn untrusted(
+        &self,
+        id: Option<RequestId>,
+        kind: CommandKind,
+        cmd: &str,
+    ) -> Option<EventEnvelope> {
+        if let Some(refused) = self.network_refused(id, kind, cmd) {
+            return Some(refused);
+        }
+        self.unverified(id, kind, cmd)
+    }
+
+    /// The 052 network gate alone.
+    fn network_refused(
         &self,
         id: Option<RequestId>,
         kind: CommandKind,
@@ -234,6 +283,27 @@ impl Conn {
                         detail: None,
                     },
                 )
+            })
+    }
+
+    /// The 054 verification gate alone (audited).
+    fn unverified(
+        &self,
+        id: Option<RequestId>,
+        kind: CommandKind,
+        cmd: &str,
+    ) -> Option<EventEnvelope> {
+        let role = self.access().role;
+        step_up::verified(&self.app, &self.user, &self.session, role, kind)
+            .err()
+            .map(|u| {
+                let _ = self.app.audit.record(&audit::denied(
+                    self.actor.clone(),
+                    self.ip,
+                    None,
+                    format!("{cmd}: {}", u.code()),
+                ));
+                reply(id, u.event())
             })
     }
 
@@ -255,6 +325,281 @@ impl Conn {
                 detail: None,
             },
         )
+    }
+}
+
+/// Spec 054: puts a verify ceremony on a preview whose confirm will need a fresh check.
+fn with_step_up(
+    conn: &Conn,
+    who: &Who,
+    mut p: depths_protocol::Preview,
+) -> depths_protocol::Preview {
+    if let Some((kind, escape)) = conn.app.ops.preview_step_up(&conn.session, p.preview_id) {
+        p.step_up = step_up::preview_request(&conn.app, Caller::of(who), kind, escape);
+    }
+    p
+}
+
+fn verification_event(conn: &Conn, role: role::Role) -> Event {
+    Event::Verification(step_up::verification(&conn.app, conn.caller(role)))
+}
+
+/// `PasskeyBegin`: a registration (the first passkey needs no check; later ones need a fresh
+/// one or a redeemed recovery code) or a verification.
+fn passkey_begin(
+    conn: &Conn,
+    access: &Access,
+    id: Option<RequestId>,
+    purpose: depths_protocol::PasskeyPurpose,
+) -> EventEnvelope {
+    use crate::passkeys::BeginError;
+    let app = &conn.app;
+    let started = match &purpose {
+        depths_protocol::PasskeyPurpose::Register { name } => {
+            // The first passkey (or the first after a recovery) is how a session gets
+            // verified, so only the network gate applies to it.
+            let k = CommandKind::ManagePasskeys;
+            let refused = if app.passkeys.enrolled(&conn.user) {
+                conn.untrusted(id, k, "PasskeyBegin")
+            } else {
+                conn.network_refused(id, k, "PasskeyBegin")
+            };
+            if let Some(refused) = refused {
+                return refused;
+            }
+            let recovering = app.trust.sessions.verification(&conn.session).1;
+            let allowed = step_up::fresh(app, &conn.session) || recovering;
+            app.passkeys.begin_register(
+                &conn.session,
+                &conn.user,
+                &conn.actor.username,
+                name.as_str(),
+                allowed,
+            )
+        }
+        depths_protocol::PasskeyPurpose::Verify => {
+            app.passkeys.begin_verify(&conn.session, &conn.user)
+        }
+    };
+    match started {
+        Ok(request) => reply(id, Event::PasskeyChallenge(request)),
+        Err(BeginError::Unavailable) => reply(id, step_up::unavailable()),
+        Err(BeginError::NotEnrolled) => reply(id, Event::PasskeyEnrolmentRequired),
+        Err(BeginError::StepUpFirst) => {
+            match step_up::require_fresh(
+                app,
+                conn.caller(access.role),
+                CommandKind::ManagePasskeys,
+                false,
+                "PasskeyBegin",
+            ) {
+                Err(e) => reply(id, *e),
+                Ok(()) => invalid(id, "Depths could not start that. Try again."),
+            }
+        }
+        Err(BeginError::Internal) => invalid(id, "Depths could not start that. Try again."),
+    }
+}
+
+/// `PasskeyFinish`: a registration (`PasskeyRegistered`, then `Verification`) or a verification
+/// (`Verification`). Either marks the session verified now. A refusal is audited.
+async fn passkey_finish(
+    conn: &Conn,
+    access: &Access,
+    id: Option<RequestId>,
+    response: &depths_protocol::PasskeyResponse,
+) -> Vec<EventEnvelope> {
+    use crate::passkeys::Finished;
+    let app = &conn.app;
+    let caller = conn.caller(access.role);
+    let recovering = app.trust.sessions.verification(&conn.session).1;
+    let allowed = step_up::fresh(app, &conn.session) || recovering;
+    match app
+        .passkeys
+        .finish(&conn.session, &conn.user, response, allowed)
+        .await
+    {
+        Ok(Finished::Registered(info)) => {
+            app.trust
+                .sessions
+                .set_verified(&conn.session, app.passkeys.now());
+            step_up::audit(
+                app,
+                caller,
+                AuditAction::PasskeyRegistered,
+                AuditOutcome::Succeeded,
+                depths_protocol::AuditPasskey {
+                    name: Some(info.name.clone()),
+                    ..Default::default()
+                },
+            );
+            vec![
+                reply(id, Event::PasskeyRegistered(info)),
+                reply(None, verification_event(conn, access.role)),
+            ]
+        }
+        Ok(Finished::Verified { name }) => {
+            step_up::mark_verified(app, caller, "PasskeyFinish", name);
+            vec![reply(id, verification_event(conn, access.role))]
+        }
+        Err(f) => {
+            let reason = f.reason();
+            step_up::audit_failed(app, caller, "PasskeyFinish", reason);
+            vec![reply(id, Event::PasskeyRefused { reason })]
+        }
+    }
+}
+
+/// The pseudo-step a passkey-removal preview shows.
+const REMOVE_PASSKEY: &str = "depths:remove-passkey";
+
+/// `PreviewPasskeyRemove`: a preview `Confirm` acts on (with `step_up` when the session is
+/// stale). Never the last passkey: that is what recovery is for.
+fn preview_passkey_remove(
+    conn: &Conn,
+    access: &Access,
+    id: Option<RequestId>,
+    credential: &str,
+) -> EventEnvelope {
+    let app = &conn.app;
+    if let Some(refused) = conn.untrusted(id, CommandKind::ManagePasskeys, "PreviewPasskeyRemove") {
+        return refused;
+    }
+    match app
+        .passkeys
+        .preview_remove(&conn.session, &conn.user, credential)
+    {
+        Ok((preview_id, name)) => {
+            let step_up = step_up::preview_request(
+                app,
+                conn.caller(access.role),
+                CommandKind::ManagePasskeys,
+                false,
+            );
+            let expires =
+                app.passkeys.now() + chrono::Duration::seconds(crate::passkeys::REMOVAL_TTL_SECS);
+            reply(
+                id,
+                Event::Preview(depths_protocol::Preview {
+                    preview_id,
+                    stack: String::new(),
+                    kind: depths_protocol::OperationKind::Delete,
+                    steps: vec![depths_protocol::Step {
+                        argv: vec![REMOVE_PASSKEY.to_owned(), name],
+                        cwd: String::new(),
+                        stdin: depths_protocol::StepStdin::None,
+                    }],
+                    file_diff: None,
+                    reaches: depths_protocol::Reach {
+                        containers: Vec::new(),
+                        networks: Vec::new(),
+                        volumes: Vec::new(),
+                    },
+                    destructive: true,
+                    stack_hash: String::new(),
+                    expires_at: crate::trust::rfc3339(expires),
+                    warnings: Vec::new(),
+                    ack_required: false,
+                    step_up,
+                }),
+            )
+        }
+        Err(reason) => {
+            step_up::audit_failed(
+                app,
+                conn.caller(access.role),
+                "PreviewPasskeyRemove",
+                reason,
+            );
+            reply(id, Event::PasskeyRefused { reason })
+        }
+    }
+}
+
+/// `Confirm` of a passkey-removal preview: step-up, then remove. Replies `Passkeys`.
+async fn confirm_passkey_remove(
+    conn: &Conn,
+    access: &Access,
+    id: Option<RequestId>,
+    preview_id: depths_protocol::PreviewId,
+    assertion: Option<depths_protocol::PasskeyAssertion>,
+) -> EventEnvelope {
+    let app = &conn.app;
+    if let Some(refused) = conn.untrusted(id, CommandKind::ManagePasskeys, "Confirm") {
+        return refused;
+    }
+    if let Some(refused) = conn
+        .step_up(
+            id,
+            access.role,
+            CommandKind::ManagePasskeys,
+            false,
+            assertion.as_ref(),
+            "Confirm",
+        )
+        .await
+    {
+        return refused;
+    }
+    let caller = conn.caller(access.role);
+    match app
+        .passkeys
+        .confirm_remove(&conn.session, &conn.user, preview_id)
+    {
+        Ok(removed) => {
+            step_up::audit(
+                app,
+                caller,
+                AuditAction::PasskeyRemoved,
+                AuditOutcome::Succeeded,
+                depths_protocol::AuditPasskey {
+                    name: Some(removed.name),
+                    ..Default::default()
+                },
+            );
+            reply(
+                id,
+                Event::Passkeys {
+                    items: app.passkeys.list(&conn.user),
+                },
+            )
+        }
+        Err(f) => {
+            let reason = f.reason();
+            step_up::audit_failed(app, caller, "Confirm", reason);
+            reply(id, Event::PasskeyRefused { reason })
+        }
+    }
+}
+
+/// `RecoverPasskeys`: redeems the person's recovery code, removes every passkey they had and
+/// lets this session register a new one without a prior check (`Verification{recovering}`).
+async fn recover_passkeys(
+    conn: &Conn,
+    access: &Access,
+    id: Option<RequestId>,
+    code: &str,
+) -> EventEnvelope {
+    let app = &conn.app;
+    let caller = conn.caller(access.role);
+    match app.passkeys.recover(&conn.user, code).await {
+        Ok(removed) => {
+            app.trust.sessions.set_recovering(&conn.session);
+            step_up::audit(
+                app,
+                caller,
+                AuditAction::PasskeyRecovered,
+                AuditOutcome::Succeeded,
+                depths_protocol::AuditPasskey::default(),
+            );
+            tracing::info!(removed, "passkey recovery redeemed");
+            reply(id, verification_event(conn, access.role))
+        }
+        Err(f) => {
+            let reason = f.reason();
+            step_up::audit_failed(app, caller, "RecoverPasskeys", reason);
+            reply(id, Event::PasskeyRefused { reason })
+        }
     }
 }
 
@@ -341,6 +686,11 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
         streams: registry,
         app: app.clone(),
     };
+    // Spec 054: an admin who still has to verify (or enrol) learns it straight away.
+    let v = step_up::verification(&app, conn.caller(conn.access().role));
+    if v.required && !v.verified && !send(&mut socket, &reply(None, Event::Verification(v))).await {
+        return;
+    }
     if let Some(badge) = conn.updates.initial(&app)
         && !send(&mut socket, &badge).await
     {
@@ -638,17 +988,37 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             }
             let who = conn.who(access);
             match app.ops.preview(&who, &stack, &op).await {
-                Ok(p) => vec![reply(id, Event::Preview(p))],
+                Ok(p) => vec![reply(id, Event::Preview(with_step_up(conn, &who, p)))],
                 Err(r) => vec![reply(id, r.into())],
             }
         }
         Cmd::Confirm {
             preview_id,
             acknowledge_findings,
-            ..
+            assertion,
         } => {
+            // Spec 054: removing one of the person's passkeys.
+            if app.passkeys.has_removal(&conn.session, preview_id) {
+                return vec![
+                    confirm_passkey_remove(conn, &access, id, preview_id, assertion).await,
+                ];
+            }
             // Spec 053: a file preview confirms through the file gate.
             if app.files.has_preview(&conn.session, preview_id) {
+                // Step-up first, so a refused check claims nothing; the gate then sees it fresh.
+                if let Some(refused) = conn
+                    .step_up(
+                        id,
+                        access.role,
+                        CommandKind::FilesWrite,
+                        false,
+                        assertion.as_ref(),
+                        "Confirm",
+                    )
+                    .await
+                {
+                    return vec![refused];
+                }
                 let who = conn.who(access);
                 let app = app.clone();
                 let answer =
@@ -662,6 +1032,14 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             // The preview was authorised when made; the network may have changed since.
             if let Some(k) = app.ops.preview_kind(&conn.session, preview_id)
                 && let Some(refused) = conn.untrusted(id, crate::ops::command_kind(k), "Confirm")
+            {
+                return vec![refused];
+            }
+            // Spec 054: before the preview is claimed, so a refused check changes nothing.
+            if let Some((kind, escape)) = app.ops.preview_step_up(&conn.session, preview_id)
+                && let Some(refused) = conn
+                    .step_up(id, access.role, kind, escape, assertion.as_ref(), "Confirm")
+                    .await
             {
                 return vec![refused];
             }
@@ -707,7 +1085,7 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
                 }
                 let who = conn.who(access);
                 match app.ops.preview_save(&who, &draft, deploy).await {
-                    Ok(p) => vec![reply(id, Event::Preview(p))],
+                    Ok(p) => vec![reply(id, Event::Preview(with_step_up(conn, &who, p)))],
                     Err(r) => vec![reply(id, r.into())],
                 }
             } else {
@@ -724,10 +1102,13 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             shell,
             cols,
             rows,
-            ..
+            assertion,
         } => {
             if app.cfg.features.shell {
-                vec![streams::open_shell(conn, &access, id, container, shell, cols, rows).await]
+                let size = (cols, rows);
+                vec![
+                    streams::open_shell(conn, &access, id, container, shell, size, assertion).await,
+                ]
             } else {
                 vec![conn.deny_reason(
                     id,
@@ -737,18 +1118,36 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
                 )]
             }
         }
-        // Spec 054: the protocol is in, the server half is not built yet.
-        Cmd::GetVerification
-        | Cmd::PasskeyBegin { .. }
-        | Cmd::PasskeyFinish(_)
-        | Cmd::ListPasskeys
-        | Cmd::PreviewPasskeyRemove { .. }
-        | Cmd::RecoverPasskeys { .. }
-        | Cmd::GetGuardExceptions { .. } => vec![conn.deny_reason(
+        // Spec 054 US4: the person's own passkeys.
+        Cmd::GetVerification => vec![reply(
+            id,
+            Event::Verification(step_up::verification(&app, conn.caller(access.role))),
+        )],
+        Cmd::PasskeyBegin { purpose } => vec![passkey_begin(conn, &access, id, purpose)],
+        Cmd::PasskeyFinish(response) => passkey_finish(conn, &access, id, &response).await,
+        Cmd::ListPasskeys => vec![reply(
+            id,
+            Event::Passkeys {
+                items: app.passkeys.list(&conn.user),
+            },
+        )],
+        Cmd::PreviewPasskeyRemove { id: credential } => {
+            vec![preview_passkey_remove(
+                conn,
+                &access,
+                id,
+                credential.as_str(),
+            )]
+        }
+        Cmd::RecoverPasskeys { code } => {
+            vec![recover_passkeys(conn, &access, id, code.as_str()).await]
+        }
+        // Spec 054 US1 (the runtime guard) is not built yet.
+        Cmd::GetGuardExceptions { .. } => vec![conn.deny_reason(
             id,
             None,
             DenyReason::FeatureDisabled,
-            "passkeys and the runtime guard are not available yet (spec 054)".into(),
+            "the runtime guard is not available yet (spec 054)".into(),
         )],
         // Spec 062. Off (`DEPTHS_UPDATES=off`, research R10): refused, nothing constructed.
         Cmd::ListUpdates => vec![updates::list(conn, &access, id)],
@@ -863,6 +1262,19 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             if let Some(refused) = conn.untrusted(id, CommandKind::ManageUsers, "PutUser") {
                 return vec![refused];
             }
+            if let Some(refused) = conn
+                .step_up(
+                    id,
+                    access.role,
+                    CommandKind::ManageUsers,
+                    false,
+                    None,
+                    "PutUser",
+                )
+                .await
+            {
+                return vec![refused];
+            }
             let r = app.users.put(&target, role, &stacks);
             vec![user_changed(conn, id, &target, r)]
         }
@@ -871,6 +1283,19 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
                 return vec![conn.deny(id, None, "RemoveUser needs manage_users".into())];
             }
             if let Some(refused) = conn.untrusted(id, CommandKind::ManageUsers, "RemoveUser") {
+                return vec![refused];
+            }
+            if let Some(refused) = conn
+                .step_up(
+                    id,
+                    access.role,
+                    CommandKind::ManageUsers,
+                    false,
+                    None,
+                    "RemoveUser",
+                )
+                .await
+            {
                 return vec![refused];
             }
             let r = app.users.remove(&target);

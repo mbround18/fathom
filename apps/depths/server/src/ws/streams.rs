@@ -704,8 +704,8 @@ pub(super) async fn open_shell(
     id: Option<RequestId>,
     container: ContainerRef,
     shell: Option<Shell>,
-    cols: u16,
-    rows: u16,
+    (cols, rows): (u16, u16),
+    assertion: Option<depths_protocol::PasskeyAssertion>,
 ) -> EventEnvelope {
     if !size_ok(cols, rows) {
         return invalid(
@@ -730,6 +730,20 @@ pub(super) async fn open_shell(
     // Spec 052: the role allowed it; an untrusted network still may not open a shell.
     // 051 shell guard composes after this
     if let Some(refused) = conn.untrusted(id, depths_core::role::CommandKind::Shell, "OpenShell") {
+        return refused;
+    }
+    // Spec 054: opening a shell always needs a fresh passkey check.
+    if let Some(refused) = conn
+        .step_up(
+            id,
+            access.role,
+            depths_core::role::CommandKind::Shell,
+            false,
+            assertion.as_ref(),
+            "OpenShell",
+        )
+        .await
+    {
         return refused;
     }
     if !conn.streams.has_room() {

@@ -891,6 +891,27 @@ impl Ops {
             .map(|b| b.kind)
     }
 
+    /// 054: the command kind of `session`'s unconfirmed preview `id`, and whether its compose
+    /// has escape-level findings: what the step-up gate needs before `Confirm` claims it.
+    pub fn preview_step_up(
+        &self,
+        session: &str,
+        id: PreviewId,
+    ) -> Option<(depths_core::role::CommandKind, bool)> {
+        self.previews
+            .lock()
+            .unwrap()
+            .get(&id)
+            .filter(|b| b.session == session)
+            .map(|b| {
+                let escape = b
+                    .security
+                    .as_ref()
+                    .is_some_and(|s| s.level == SecurityLevel::Escape);
+                (command_kind(b.kind), escape)
+            })
+    }
+
     fn unclaim(&self, id: PreviewId) {
         if let Some(b) = self.previews.lock().unwrap().get_mut(&id) {
             b.used = false;

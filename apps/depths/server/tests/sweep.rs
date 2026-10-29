@@ -315,14 +315,16 @@ fn expected(cmd: &Cmd, who: Who, scope: Scope, f: Features) -> Outcome {
         | Cmd::ListHistory { stack, .. }
         | Cmd::ReadVersion { stack, .. }
         | Cmd::PreviewFileOp { stack, .. } => gate(who, stack_place(stack), Refused("missing")),
-        // 054: refused for everyone until the server half lands.
-        Cmd::GetVerification
-        | Cmd::PasskeyBegin { .. }
-        | Cmd::PasskeyFinish(_)
-        | Cmd::ListPasskeys
-        | Cmd::PreviewPasskeyRemove { .. }
-        | Cmd::RecoverPasskeys { .. }
-        | Cmd::GetGuardExceptions { .. } => Denied(FEATURE_DISABLED),
+        // 054 US4: everyone manages their own passkeys. Nobody here has one, the samples'
+        // ceremony, credential and recovery code are unknown: each is refused as such.
+        Cmd::GetVerification => Reply("Verification"),
+        Cmd::PasskeyBegin { .. } => Reply("PasskeyEnrolmentRequired"),
+        Cmd::ListPasskeys => Reply("Passkeys"),
+        Cmd::PasskeyFinish(_) | Cmd::PreviewPasskeyRemove { .. } | Cmd::RecoverPasskeys { .. } => {
+            Reply("PasskeyRefused")
+        }
+        // 054 US1 (the runtime guard) is not built yet.
+        Cmd::GetGuardExceptions { .. } => Denied(FEATURE_DISABLED),
         // 062: refused for everyone until the Updates service serves them.
         Cmd::ListUpdates
         | Cmd::CheckUpdatesNow { .. }
@@ -550,7 +552,7 @@ fn samples() -> Vec<(Prep, Value)> {
             cmd("CloseStream", json!({ "stream_id": "$ID" })),
         ));
     }
-    // 054: refused until the server half lands.
+    // 054.
     v.push((Prep::None, bare("GetVerification")));
     v.push((
         Prep::None,
@@ -721,6 +723,10 @@ fn observe(replies: &[Value]) -> Result<Outcome, String> {
                     "Mounts" => "Mounts",
                     _ => "Users",
                 }),
+                "Verification" => Reply("Verification"),
+                "Passkeys" => Reply("Passkeys"),
+                "PasskeyEnrolmentRequired" => Reply("PasskeyEnrolmentRequired"),
+                "PasskeyRefused" => Reply("PasskeyRefused"),
                 _ => return Err(format!("{e}")),
             })
         }

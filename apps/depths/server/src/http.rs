@@ -464,6 +464,20 @@ async fn audit_export(
     ) {
         return untrusted(&d);
     }
+    let me = who.id();
+    let actor = crate::audit::actor_of(&session.identity);
+    let caller = crate::step_up::Caller {
+        user: &me,
+        session: &session.id,
+        actor: &actor,
+        ip,
+        role: access.role,
+    };
+    if let Some(refused) =
+        crate::step_up::http_gate(&app, caller, depths_core::role::CommandKind::ReadAudit)
+    {
+        return refused;
+    }
     let Ok(Query(filter)) = filter else {
         return error(StatusCode::BAD_REQUEST, "invalid_filter");
     };

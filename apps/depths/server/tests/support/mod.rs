@@ -443,6 +443,13 @@ pub fn app_with_env(extra: &[(&str, &str)], tweak: impl FnOnce(&mut AppState)) -
         runtime.clone(),
     )
     .unwrap();
+    // The synthetic session of tests that build a `Who` by hand counts as passkey-verified.
+    let far = chrono::Utc::now() + chrono::Duration::days(36_500);
+    state
+        .trust
+        .sessions
+        .insert(TEST_SESSION, LOOPBACK, None, chrono::Utc::now());
+    state.trust.sessions.set_verified(TEST_SESSION, far);
     tweak(&mut state);
     App {
         _dir: dir,
@@ -550,7 +557,26 @@ impl App {
     }
 
     /// [`App::sign_in`] from peer `ip`: that network becomes the person's first if they have none.
+    ///
+    /// The session counts as passkey-verified for the next century (spec 054), so tests of
+    /// other features need no passkey ceremony. Passkey tests use [`App::sign_in_unverified`].
     pub async fn sign_in_from(&self, ip: IpAddr, subject: &str) -> String {
+        let cookie = self.sign_in_unverified_from(ip, subject).await;
+        let far = chrono::Utc::now() + chrono::Duration::days(36_500);
+        self.state
+            .trust
+            .sessions
+            .set_verified(&session_of(&cookie), far);
+        cookie
+    }
+
+    /// [`App::sign_in`] with a session that has not checked a passkey.
+    pub async fn sign_in_unverified(&self, subject: &str) -> String {
+        self.sign_in_unverified_from(LOOPBACK, subject).await
+    }
+
+    /// [`App::sign_in_unverified`] from peer `ip`.
+    pub async fn sign_in_unverified_from(&self, ip: IpAddr, subject: &str) -> String {
         let r = self
             .get_from(ip, "/auth/login?provider=discord", None)
             .await;
@@ -574,6 +600,14 @@ impl App {
         assert_eq!(location(&r), "/");
         cookie_pair(&r, "__Host-depths_session")
     }
+}
+
+/// The session of a hand-built `Who`; verified for the app's lifetime.
+pub const TEST_SESSION: &str = "test-session";
+
+/// The session handle (`Session::id`) of a `__Host-depths_session=...` cookie pair.
+pub fn session_of(cookie: &str) -> String {
+    web_auth::session::session_handle(cookie.split_once('=').map_or(cookie, |(_, v)| v))
 }
 
 /// The peer of a real test socket, and of every request that names no other.

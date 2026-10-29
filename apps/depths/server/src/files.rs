@@ -327,6 +327,18 @@ pub fn gate(
             detail: None,
         }));
     }
+    // Spec 054: an admin's session must have verified with a passkey, and a write needs a
+    // fresh check (`StepUpRequired`; the client answers with `PasskeyFinish` and retries).
+    if let Err(u) = crate::step_up::verified(app, &who.user, &who.session, who.access.role, kind) {
+        let _ = app.audit.record(&crate::audit::denied(
+            who.actor.clone(),
+            who.ip,
+            Some(stack.as_str()),
+            format!("{cmd}: {}", u.code()),
+        ));
+        return Err(Box::new(u.event()));
+    }
+    crate::step_up::require_fresh(app, crate::step_up::Caller::of(who), kind, false, cmd)?;
     match at {
         Some(at) => gate_mount(app, who, stack, kind, cmd, at),
         None => Ok(()),

@@ -15,10 +15,10 @@
 use std::net::IpAddr;
 
 use chrono::{DateTime, Utc};
-use depths_core::role::{CommandKind, restricted_ok, step_up_needed};
+use depths_core::role::{CommandKind, Role, restricted_ok, step_up_needed};
 use depths_protocol::{
     Actor, AuditAction, AuditOutcome, AuditPasskey, DenyReason, Event, PasskeyAssertion,
-    PasskeyRefusedReason, PasskeyRequest, Role, Verification,
+    PasskeyRefusedReason, PasskeyRequest, Verification,
 };
 
 use crate::http::AppState;
@@ -35,6 +35,19 @@ pub struct Caller<'a> {
     pub actor: &'a Actor,
     pub ip: IpAddr,
     pub role: Role,
+}
+
+impl<'a> Caller<'a> {
+    /// The caller of a command made by `who`.
+    pub fn of(who: &'a crate::ops::Who) -> Self {
+        Caller {
+            user: &who.user,
+            session: &who.session,
+            actor: &who.actor,
+            ip: who.ip,
+            role: who.access.role,
+        }
+    }
 }
 
 /// Where `caller`'s session stands on passkeys.
@@ -203,26 +216,11 @@ pub async fn step_up(
     escape_findings: bool,
     assertion: Option<&PasskeyAssertion>,
     cmd: &str,
-) -> Result<(), Event> {
+) -> Result<(), Box<Event>> {
     if !step_up_needed(kind, escape_findings) || fresh(app, caller.session) {
         return Ok(());
     }
-    if !app.passkeys.enrolled(caller.user) {
-        audit(
-            app,
-            caller,
-            AuditAction::StepUpRequired,
-            AuditOutcome::Denied {
-                reason: format!("{cmd}: no passkey enrolled"),
-            },
-            AuditPasskey {
-                cmd: Some(cmd.chars().take(64).collect()),
-                ..AuditPasskey::default()
-            },
-        );
-        return Err(Event::PasskeyEnrolmentRequired);
-    }
-    if let Some(a) = assertion {
+    if let Some(a) = assertion.filter(|_| app.passkeys.enrolled(caller.user)) {
         return match app
             .passkeys
             .verify_assertion(caller.session, caller.user, a)
@@ -235,29 +233,51 @@ pub async fn step_up(
             Err(f) => {
                 let reason = f.reason();
                 audit_failed(app, caller, cmd, reason);
-                Err(Event::PasskeyRefused { reason })
+                Err(Box::new(Event::PasskeyRefused { reason }))
             }
         };
     }
-    let request = match app.passkeys.begin_verify(caller.session, caller.user) {
-        Ok(r) => r,
-        Err(BeginError::Unavailable) => return Err(unavailable()),
-        Err(BeginError::NotEnrolled) => return Err(Event::PasskeyEnrolmentRequired),
-        Err(BeginError::StepUpFirst | BeginError::Internal) => return Err(internal()),
+    require_fresh(app, caller, kind, escape_findings, cmd)
+}
+
+/// The step-up gate for a command that carries no assertion (file writes, user changes): `Ok`
+/// when no check is needed or the session is fresh; otherwise `StepUpRequired { request }` (the
+/// client answers it with `PasskeyFinish`, which refreshes the session, and sends the command
+/// again) or `PasskeyEnrolmentRequired`, boxed (an `Event` is large). Audits `step_up_required`.
+pub fn require_fresh(
+    app: &AppState,
+    caller: Caller<'_>,
+    kind: CommandKind,
+    escape_findings: bool,
+    cmd: &str,
+) -> Result<(), Box<Event>> {
+    if !step_up_needed(kind, escape_findings) || fresh(app, caller.session) {
+        return Ok(());
+    }
+    let (answer, why) = match app.passkeys.begin_verify(caller.session, caller.user) {
+        Ok(request) => (
+            Event::StepUpRequired { request },
+            "a fresh passkey check is needed",
+        ),
+        Err(BeginError::NotEnrolled) => (Event::PasskeyEnrolmentRequired, "no passkey enrolled"),
+        Err(BeginError::Unavailable) => (unavailable(), "passkeys are unavailable"),
+        Err(BeginError::StepUpFirst | BeginError::Internal) => {
+            (internal(), "the passkey check could not start")
+        }
     };
     audit(
         app,
         caller,
         AuditAction::StepUpRequired,
         AuditOutcome::Denied {
-            reason: format!("{cmd}: a fresh passkey check is needed"),
+            reason: format!("{cmd}: {why}"),
         },
         AuditPasskey {
             cmd: Some(cmd.chars().take(64).collect()),
             ..AuditPasskey::default()
         },
     );
-    Err(Event::StepUpRequired { request })
+    Err(Box::new(answer))
 }
 
 /// For HTTP routes, which carry no assertion: `Some(code)` for a 403 when `kind` needs a check
@@ -285,6 +305,25 @@ pub fn http_step_up(app: &AppState, caller: Caller<'_>, kind: CommandKind) -> Op
         },
     );
     Some(code)
+}
+
+/// The 054 gates for an HTTP route, after its trust gate: verification, then step-up. `Some`
+/// is the 403 to answer (`passkey_enrolment_required`, `passkey_verification_required` or
+/// `step_up_required`).
+pub fn http_gate(
+    app: &AppState,
+    caller: Caller<'_>,
+    kind: CommandKind,
+) -> Option<axum::response::Response> {
+    let forbidden = |code| crate::http::error(http::StatusCode::FORBIDDEN, code);
+    if let Err(u) = verified(app, caller.user, caller.session, caller.role, kind) {
+        write(
+            app,
+            &crate::audit::denied(caller.actor.clone(), caller.ip, None, u.code()),
+        );
+        return Some(forbidden(u.code()));
+    }
+    http_step_up(app, caller, kind).map(forbidden)
 }
 
 /// `verified_at` as a time, for tests and the sessions page.

@@ -367,6 +367,16 @@ async fn whitelist(
     ) {
         return untrusted(&d);
     }
+    let caller = crate::step_up::Caller {
+        user: &me,
+        session: &session.id,
+        actor: &actor,
+        ip,
+        role: depths_core::role::Role::Admin,
+    };
+    if let Some(refused) = crate::step_up::http_gate(&app, caller, CommandKind::ManageNetworks) {
+        return refused;
+    }
     let Ok(Json(body)) = body else {
         return error(StatusCode::BAD_REQUEST, "invalid_body");
     };
@@ -424,6 +434,16 @@ async fn remove_network(
         "remove network",
     ) {
         return untrusted(&d);
+    }
+    let caller = crate::step_up::Caller {
+        user: &me,
+        session: &session.id,
+        actor: &actor,
+        ip,
+        role: depths_core::role::Role::Admin,
+    };
+    if let Some(refused) = crate::step_up::http_gate(&app, caller, CommandKind::ManageNetworks) {
+        return refused;
     }
     let Some(key) = NetworkKey::parse(key.trim_start_matches('/')) else {
         return error(StatusCode::BAD_REQUEST, "invalid_network");
