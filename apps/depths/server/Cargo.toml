@@ -63,6 +63,8 @@ webauthn-rs = "0.5.5"
 depths-volume-helper = { path = "../volume-helper" }
 http-body-util = "0.1"
 oci-registry = { path = "../../../crates/oci-registry", features = ["test-util"] }
+# The walkthrough reads the shipped compose file (spec 062 quickstart §3).
+serde_yaml = "0.9"
 tempfile = "3"
 tokio = { version = "1.54.1", features = ["full", "test-util"] }
 tokio-tungstenite = "0.30"
