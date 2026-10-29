@@ -8,4 +8,8 @@ export type RunInfo = { id: string, workspace: string, binding: string | null, j
 /**
  * A newer revision of the inventory exists than the one this run is pinned to.
  */
-newer_inventory_revision: boolean, limit: string | null, hosts: Array<string>, policy: string | null, state: RunPhase, reason: RunReason | null, created_at: string, started_at: string | null, ended_at: string | null, summary: RunSummary | null, };
+newer_inventory_revision: boolean, limit: string | null, hosts: Array<string>, policy: string | null, state: RunPhase, reason: RunReason | null, created_at: string, started_at: string | null, ended_at: string | null, summary: RunSummary | null, 
+/**
+ * The job params the run was queued with; empty when there are none (spec 061).
+ */
+params: { [key in string]: string }, };

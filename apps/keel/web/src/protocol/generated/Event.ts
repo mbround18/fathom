@@ -19,6 +19,7 @@ import type { InventoryRevisionInfo } from "./InventoryRevisionInfo";
 import type { InventoryRevisionSummary } from "./InventoryRevisionSummary";
 import type { JobInfo } from "./JobInfo";
 import type { JobSummary } from "./JobSummary";
+import type { KeelBuild } from "./KeelBuild";
 import type { LogStream } from "./LogStream";
 import type { Me } from "./Me";
 import type { OverrideChallenge } from "./OverrideChallenge";
@@ -43,6 +44,8 @@ import type { SignerInfo } from "./SignerInfo";
 import type { SshCaInfo } from "./SshCaInfo";
 import type { TeamInfo } from "./TeamInfo";
 import type { TokenSecret } from "./TokenSecret";
+import type { UpdateStatus } from "./UpdateStatus";
+import type { UpdateStatusLine } from "./UpdateStatusLine";
 import type { UserInfo } from "./UserInfo";
 import type { Verification } from "./Verification";
 import type { WorkspaceInfo } from "./WorkspaceInfo";
@@ -102,4 +105,4 @@ configured: boolean, workspace: string | null, allowed_profiles: Array<string>,
 /**
  * 0 while not configured.
  */
-version: number, bindings: Array<string>, hosts: Array<string>, } };
+version: number, bindings: Array<string>, hosts: Array<string>, } } | { "type": "KeelBuild", "data": KeelBuild } | { "type": "UpdateStatus", "data": UpdateStatus } | { "type": "UpdateStatusLine", "data": UpdateStatusLine };

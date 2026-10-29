@@ -6,4 +6,13 @@ import type { Verification } from "./Verification";
 /**
  * The signed-in user, as `GetMe` returns it.
  */
-export type Me = { id: string, display_name: string, email: string | null, instance_role: InstanceRole, grants: Array<MeGrant>, verification: Verification, };
+export type Me = { id: string, display_name: string, email: string | null, instance_role: InstanceRole, grants: Array<MeGrant>, verification: Verification, 
+/**
+ * The running build's display string (`0.2.0`, `untagged build abc1234`, ...), for everyone
+ * (spec 061).
+ */
+keel_version: string | null, 
+/**
+ * The available digest whose dot the owner dismissed; `None` for everyone else (spec 061).
+ */
+update_dot_dismissed: string | null, };
