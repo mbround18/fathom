@@ -171,10 +171,10 @@ impl AppState {
         let (revocations, _) = broadcast::channel(256);
         let passkeys = Arc::new(Passkeys::new(&cfg, db.clone(), clock.clone()));
         let cfg_log_cap = cfg.run_log_cap;
-        let updates = Arc::new(crate::updates::Updates::new(
-            cfg.build.clone(),
-            cfg.update.clone(),
-        ));
+        let updates = Arc::new(
+            crate::updates::Updates::new(cfg.build.clone(), cfg.update.clone())
+                .with_clock(clock.clone()),
+        );
         Self {
             previews: Arc::new(Previews::new(clock.clone())),
             logins: Arc::new(LoginStore::new(LOGIN_TTL, LOGIN_CAP).with_cookie(cookies.login)),

@@ -263,11 +263,16 @@ async fn serve(cfg: Config, tls: Option<tokio_rustls::TlsAcceptor>, exporting: b
     };
     let sweeper = app.auth.sessions.spawn_sweeper(SESSION_SWEEP);
     let poller = sync::spawn_poller(app.clone());
+    // Scheduled update checks; none at all with KEEL_UPDATE_CHECK=false (spec 061 FR-004).
+    let update_checker = app.updates.spawn_checker();
     let router = serve::router(app.clone());
     let result = match tls {
         Some(tls) => tls::serve(listener, tls, router).await,
         None => serve::serve(listener, router).await,
     };
+    if let Some(t) = update_checker {
+        t.abort();
+    }
     poller.abort();
     sweeper.abort();
     runners.abort();
