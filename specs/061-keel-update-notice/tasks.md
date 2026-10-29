@@ -110,10 +110,10 @@ them, in the rollout order in quickstart.md.
 
 - [ ] T027 [US1] Implement `GetKeelBuild` in `apps/keel/server/src/updates/commands.rs` (new), shaped by role as in contracts/protocol.md, and set `Me.keel_version` from `BuildInfo::display()` in `apps/keel/server/src/dispatch.rs`. Makes T022's first half pass.
 - [ ] T028 [US1] In `apps/keel/server/src/updates/mod.rs`, add `record_build_seen(db, &BuildInfo)`, called once from `apps/keel/server/src/serve.rs` at start: upsert the single `keel_build_seen` row, and write `keel_updated` "once per change. On the first start after this migration, the row is filled without an audit entry". Makes T022 pass.
-- [ ] T029 [P] [US1] In `apps/keel/server/src/telemetry.rs`, set the resource `service.version` from `KEEL_BUILD_VERSION`, else the revision, else `CARGO_PKG_VERSION` (R9).
-- [ ] T030 [P] [US1] In `apps/keel/Dockerfile`'s runtime stage only: add `ARG CREATED=`, change `ARG VERSION=0.0.0` to `ARG VERSION=`, add `LABEL org.opencontainers.image.created=$CREATED`, and `ENV KEEL_BUILD_VERSION=$VERSION KEEL_BUILD_REVISION=$REVISION KEEL_BUILD_DATE=$CREATED KEEL_BUILD_SOURCE=$SOURCE` (R2). The cargo-chef and build stages stay untouched.
-- [ ] T031 [P] [US1] In `apps/keel/Makefile` `image`: `VERSION` from `git describe --exact-match --match 'keel-v*'` with the prefix stripped, else empty; `CREATED` from `date -u +%Y-%m-%dT%H:%M:%SZ`; pass both as build args. `image-push` keeps refusing a dirty tree.
-- [ ] T032 [P] [US1] Add `KEEL_IMAGE_DIGEST` to the environment passthrough in `apps/keel/compose.yaml`.
+- [X] T029 [P] [US1] In `apps/keel/server/src/telemetry.rs`, set the resource `service.version` from `KEEL_BUILD_VERSION`, else the revision, else `CARGO_PKG_VERSION` (R9).
+- [X] T030 [P] [US1] In `apps/keel/Dockerfile`'s runtime stage only: add `ARG CREATED=`, change `ARG VERSION=0.0.0` to `ARG VERSION=`, add `LABEL org.opencontainers.image.created=$CREATED`, and `ENV KEEL_BUILD_VERSION=$VERSION KEEL_BUILD_REVISION=$REVISION KEEL_BUILD_DATE=$CREATED KEEL_BUILD_SOURCE=$SOURCE` (R2). The cargo-chef and build stages stay untouched.
+- [X] T031 [P] [US1] In `apps/keel/Makefile` `image`: `VERSION` from `git describe --exact-match --match 'keel-v*'` with the prefix stripped, else empty; `CREATED` from `date -u +%Y-%m-%dT%H:%M:%SZ`; pass both as build args. `image-push` keeps refusing a dirty tree.
+- [X] T032 [P] [US1] Add `KEEL_IMAGE_DIGEST` to the environment passthrough in `apps/keel/compose.yaml`.
 - [ ] T033 [US1] In `apps/keel/web/src/features/settings/tabs.ts`, open `system` to admins (`visibleTabs`), and update the header comment to say the System tab is owner and admin, with role-shaped sections (spec 061 FR-024). Makes T024 pass.
 - [ ] T034 [US1] Write `apps/keel/web/src/features/settings/BuildPanel.tsx` (a definition list: version, revision, digest, build date, with `CopyBlock` for the full values and the "unknown" hint), and load it with `GetKeelBuild` in `apps/keel/web/src/features/settings/store.ts`.
 - [ ] T035 [US1] Reshape `apps/keel/web/src/features/settings/SystemTab.tsx` by role: owners see `BuildPanel` above the existing spec 060 content; admins see `BuildPanel` only, and the tab never sends `GetSystem` or any System workspace command for them. Makes T025 and T026 pass.
@@ -145,7 +145,7 @@ them, in the rollout order in quickstart.md.
 
 - [ ] T043 [US2] Write `apps/keel/server/src/updates/scheduler.rs`: the schedule above, taking the check as a closure and the random source as a parameter. Spawn it from `apps/keel/server/src/serve.rs` only when `KEEL_UPDATE_CHECK` is true. Makes T040 and T041 pass.
 - [ ] T044 [US2] Implement `GetUpdateStatus` in `apps/keel/server/src/updates/commands.rs`: owners get `UpdateStatus`, admins get `UpdateStatusLine`, users get `Denied { reason: "admin_only" }`; and `CheckForUpdates` returning `update_check_off` when checks are off.
-- [ ] T045 [P] [US2] Add `KEEL_UPDATE_CHECK`, `KEEL_UPDATE_INTERVAL`, `KEEL_UPDATE_IMAGE`, `KEEL_UPDATE_REGISTRY_USERNAME` and `KEEL_UPDATE_REGISTRY_PASSWORD_FILE` to the environment passthrough in `apps/keel/compose.yaml`, with the contract's commented example in the stack's `.env` example.
+- [X] T045 [P] [US2] Add `KEEL_UPDATE_CHECK`, `KEEL_UPDATE_INTERVAL`, `KEEL_UPDATE_IMAGE`, `KEEL_UPDATE_REGISTRY_USERNAME` and `KEEL_UPDATE_REGISTRY_PASSWORD_FILE` to the environment passthrough in `apps/keel/compose.yaml`, with the contract's commented example in the stack's `.env` example.
 - [ ] T046 [US2] Write `apps/keel/web/src/features/settings/UpdateCard.tsx` with the off state, load the status with `GetUpdateStatus` after `Me` in `apps/keel/web/src/features/settings/store.ts`, and render the card on the owner's System tab. Makes T042 pass.
 
 **Checkpoint**: with defaults, Keel makes no registry request; with checks on, the scheduler fires on time.
@@ -255,8 +255,8 @@ them, in the rollout order in quickstart.md.
 
 ## Phase 8: Polish and cross-cutting
 
-- [ ] T082 [P] Write `docs/guides/keel/updates.md`: turning checks on (`KEEL_UPDATE_CHECK`, interval, image, credentials), what the card's states mean, updating from the card, the manual path, rollback with `KEEL_DIGEST` and `digest.previous`, and the rollout order for params. Link it from `docs/guides/keel/README.md`.
-- [ ] T083 [P] Write the crate docs in `crates/oci-registry/src/lib.rs` (what it is, the HEAD-first rule, `test-util`), and add `crates/oci-registry` to the architecture section of `CONTRIBUTING.md` as the registry adapter shared by Keel and Depths.
+- [X] T082 [P] Write `docs/guides/keel/updates.md`: turning checks on (`KEEL_UPDATE_CHECK`, interval, image, credentials), what the card's states mean, updating from the card, the manual path, rollback with `KEEL_DIGEST` and `digest.previous`, and the rollout order for params. Link it from `docs/guides/keel/README.md`.
+- [X] T083 [P] Write the crate docs in `crates/oci-registry/src/lib.rs` (what it is, the HEAD-first rule, `test-util`), and add `crates/oci-registry` to the architecture section of `CONTRIBUTING.md` as the registry adapter shared by Keel and Depths.
 - [ ] T084 Extend `apps/keel/web/tests/e2e/polish-screens.spec.ts` with the System tab as owner (build panel and card in each state) and as admin (build panel and line), at 360 and 1280 px, in light and dark, asserting no horizontal scroll.
 - [ ] T085 Run the `impeccable` skill over the UI changes and their surroundings (critique, then polish, then harden): `apps/keel/web/src/features/settings/{SystemTab,BuildPanel,UpdateCard,UpdateLine}.tsx`, the nav dot in `apps/keel/web/src/app/{nav.ts,Shell.tsx}`, and the params display in `apps/keel/web/src/features/runs/`. Apply its findings and rerun the `s061` project.
 - [ ] T086 Walk through quickstart.md scenarios 1 to 10 and 14 against the dev stack and the fake registry; scenarios 11 to 13 and 15 on the test instance after the rollout steps.
