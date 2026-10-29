@@ -28,6 +28,12 @@ pub struct SessionMeta {
     pub last_used: DateTime<Utc>,
     /// When the network use was last written to the registry.
     pub last_recorded: Instant,
+    /// Spec 054: when this session last proved it is the person with a passkey. Set on a
+    /// successful verify or step-up, dropped with the session.
+    pub verified_at: Option<DateTime<Utc>>,
+    /// Spec 054: this session redeemed a recovery code, so it may register a passkey without a
+    /// prior check. Cleared once it registers.
+    pub recovering: bool,
 }
 
 /// The side table.
@@ -61,6 +67,8 @@ impl SessionTable {
                 created: now,
                 last_used: now,
                 last_recorded: Instant::now(),
+                verified_at: None,
+                recovering: false,
             },
         );
     }
@@ -89,6 +97,8 @@ impl SessionTable {
                         created: now,
                         last_used: now,
                         last_recorded: Instant::now(),
+                        verified_at: None,
+                        recovering: false,
                     },
                 );
                 true
@@ -98,6 +108,30 @@ impl SessionTable {
 
     pub fn get(&self, handle: &str) -> Option<SessionMeta> {
         self.lock().get(handle).cloned()
+    }
+
+    /// Spec 054: `handle` proved it is the person at `at` (and is no longer recovering).
+    /// Nothing happens for a handle without a row: the session ended.
+    pub fn set_verified(&self, handle: &str, at: DateTime<Utc>) {
+        if let Some(m) = self.lock().get_mut(handle) {
+            m.verified_at = Some(at);
+            m.recovering = false;
+        }
+    }
+
+    /// Spec 054: `handle` redeemed a recovery code: its check is gone until it enrols again.
+    pub fn set_recovering(&self, handle: &str) {
+        if let Some(m) = self.lock().get_mut(handle) {
+            m.verified_at = None;
+            m.recovering = true;
+        }
+    }
+
+    /// `(verified_at, recovering)` of `handle`; an unknown handle is unverified.
+    pub fn verification(&self, handle: &str) -> (Option<DateTime<Utc>>, bool) {
+        self.lock()
+            .get(handle)
+            .map_or((None, false), |m| (m.verified_at, m.recovering))
     }
 
     pub fn remove(&self, handle: &str) {
@@ -254,5 +288,25 @@ mod tests {
         assert_eq!(t.len(), 1);
         t.remove("s");
         assert!(t.is_empty());
+    }
+
+    #[test]
+    fn verification_is_per_session_and_dropped_with_it() {
+        let t = SessionTable::new();
+        let now = Utc::now();
+        t.insert("a", ip("203.0.113.7"), None, now);
+        t.insert("b", ip("203.0.113.7"), None, now);
+        assert_eq!(t.verification("a"), (None, false));
+        t.set_verified("a", now);
+        assert_eq!(t.verification("a"), (Some(now), false));
+        assert_eq!(t.verification("b"), (None, false), "another browser is unverified");
+        t.set_recovering("a");
+        assert_eq!(t.verification("a"), (None, true));
+        t.set_verified("a", now);
+        assert_eq!(t.verification("a"), (Some(now), false), "registering ends recovery");
+        t.remove("a");
+        assert_eq!(t.verification("a"), (None, false));
+        t.set_verified("gone", now);
+        assert_eq!(t.verification("gone"), (None, false));
     }
 }

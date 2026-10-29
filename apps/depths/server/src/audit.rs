@@ -168,6 +168,30 @@ pub fn entry(actor: Actor, action: AuditAction, ip: IpAddr, outcome: AuditOutcom
     }
 }
 
+/// A passkey entry (spec 054). `passkey` holds only names, reasons and command names: never a
+/// credential, a challenge or a recovery code.
+pub fn passkey(
+    actor: Actor,
+    action: AuditAction,
+    ip: IpAddr,
+    outcome: AuditOutcome,
+    passkey: depths_protocol::AuditPasskey,
+) -> AuditEntry {
+    let mut e = entry(actor, action, ip, outcome);
+    e.passkey = Some(passkey);
+    e
+}
+
+/// The server's own actor, for entries nobody's request caused (a store moved aside, a
+/// recovery code issued on the host).
+pub fn system_actor() -> Actor {
+    Actor {
+        provider: depths_protocol::Provider::Depths,
+        subject: "depths".into(),
+        username: "depths".into(),
+    }
+}
+
 /// A refusal: `denied` with the reason, and the stack it was aimed at, if any.
 pub fn denied(
     actor: Actor,

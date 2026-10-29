@@ -21,6 +21,7 @@ pub mod refresh;
 pub mod security;
 pub mod serve;
 pub mod session_meta;
+pub mod step_up;
 pub mod telemetry;
 pub mod trust;
 pub mod updates;

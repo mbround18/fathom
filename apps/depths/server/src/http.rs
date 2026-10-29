@@ -88,6 +88,8 @@ pub struct AppState {
     pub trust: Arc<Trust>,
     /// The volume explorer (spec 053).
     pub files: Arc<crate::files::Files>,
+    /// Passkeys: enrolment, verification and step-up (spec 054 US4/US5).
+    pub passkeys: Arc<crate::passkeys::Passkeys>,
     /// Image updates (spec 062). `None` when `DEPTHS_UPDATES=off`, and until the caller
     /// attaches the service with [`AppState::with_updates`].
     pub updates: Option<Arc<crate::updates::Updates>>,
@@ -133,6 +135,24 @@ impl AppState {
             })?,
         );
         let trust = Arc::new(Trust::open(&cfg, audit.clone(), &sessions)?);
+        let (passkeys, note) = crate::passkeys::Passkeys::open(&cfg)?;
+        if let Some(note) = note {
+            tracing::warn!("{note}");
+            let entry = crate::audit::passkey(
+                crate::audit::system_actor(),
+                depths_protocol::AuditAction::PasskeyFailed,
+                std::net::IpAddr::from([127, 0, 0, 1]),
+                depths_protocol::AuditOutcome::Failed {
+                    exit_code: None,
+                    stderr_tail: note,
+                },
+                depths_protocol::AuditPasskey::default(),
+            );
+            if let Err(e) = audit.record(&entry) {
+                tracing::error!(error = %e, "audit write failed");
+            }
+        }
+        let passkeys = Arc::new(passkeys);
         let watch = Watch::new(store.clone(), runtime.clone()).with_shell_policy(cfg.shell_policy);
         let ops = Arc::new(Ops::new(
             store.clone(),
@@ -170,6 +190,7 @@ impl AppState {
             ws: WsConfig::default(),
             trust,
             files,
+            passkeys,
             updates: None,
             ready: Arc::default(),
             auth: AuthState {
