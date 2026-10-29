@@ -73,6 +73,15 @@ services:
       KEEL_DISCORD_CLIENT_ID: ${KEEL_DISCORD_CLIENT_ID:-}
       KEEL_DISCORD_CLIENT_SECRET: ${KEEL_DISCORD_CLIENT_SECRET:-}
       KEEL_SIGNED_MODE_DEFAULT: ${KEEL_SIGNED_MODE_DEFAULT:-false}
+      # The update check (spec 061, contracts/config.md). Off unless KEEL_UPDATE_CHECK=true. A
+      # registry password goes in a file under KEEL_SECRETS_DIR, named here by its /run/keel path.
+      KEEL_UPDATE_CHECK: ${KEEL_UPDATE_CHECK:-false}
+      KEEL_UPDATE_INTERVAL: ${KEEL_UPDATE_INTERVAL:-}
+      KEEL_UPDATE_IMAGE: ${KEEL_UPDATE_IMAGE:-}
+      KEEL_UPDATE_REGISTRY_USERNAME: ${KEEL_UPDATE_REGISTRY_USERNAME:-}
+      KEEL_UPDATE_REGISTRY_PASSWORD_FILE: ${KEEL_UPDATE_REGISTRY_PASSWORD_FILE:-}
+      # The running image's digest. The keel_server role writes it; set it by hand only without it.
+      KEEL_IMAGE_DIGEST: ${KEEL_IMAGE_DIGEST:-}
       KEEL_LOG: ${KEEL_LOG:-info}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
