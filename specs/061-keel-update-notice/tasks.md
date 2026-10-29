@@ -121,9 +121,9 @@ them, in the rollout order in quickstart.md.
 
 ### The owner's Ansible repository (FR-003; the owner lands these)
 
-- [ ] T037 [US1] In `/home/mbruno/development/ansible/scripts/tests/test_keel_server_digest.py` (new, pytest, the repository's pattern), write the cases in contracts/ansible-role.md "Tests in that repository": digest validation; repository derivation (`repo:tag`, `registry:5000/repo:tag`, refusing `repo@sha256:…`); `digest.previous` written only on change; the rendered compose `image:` always contains `@sha256:`; check mode makes no pull.
-- [ ] T038 [US1] In `/home/mbruno/development/ansible/roles/keel_server/`: add `keel_server_image_digest: ""` and `keel_server_update_check: false` to `defaults/main.yml`; in `tasks/main.yml` validate the digest (`^sha256:[0-9a-f]{64}$`), derive `keel_server_image_repository`, pull a given digest with `policy: missing` or the tag with `policy: always` and read `RepoDigests`, write `digest.previous` (mode 0644, root-owned) when the target changes, and write `digest.current`; in `templates/compose.yaml.j2` use `image: {{ keel_server_target_image }}`; in `templates/keel.env.j2` add `KEEL_IMAGE_DIGEST` and `KEEL_UPDATE_CHECK={{ keel_server_update_check | lower }}`. Makes T037 pass.
-- [ ] T039 [US1] In `/home/mbruno/development/ansible/Makefile`, give `keel-server` the hook `$(if $(KEEL_DIGEST),-e keel_server_image_digest=$(KEEL_DIGEST))` and document `KEEL_DIGEST` in its help, for rollback with `make keel-server KEEL_DIGEST=$(cat /opt/keel/digest.previous)`.
+- [X] T037 [US1] In `/home/mbruno/development/ansible/scripts/tests/test_keel_server_digest.py` (new, pytest, the repository's pattern), write the cases in contracts/ansible-role.md "Tests in that repository": digest validation; repository derivation (`repo:tag`, `registry:5000/repo:tag`, refusing `repo@sha256:…`); `digest.previous` written only on change; the rendered compose `image:` always contains `@sha256:`; check mode makes no pull.
+- [X] T038 [US1] In `/home/mbruno/development/ansible/roles/keel_server/`: add `keel_server_image_digest: ""` and `keel_server_update_check: false` to `defaults/main.yml`; in `tasks/main.yml` validate the digest (`^sha256:[0-9a-f]{64}$`), derive `keel_server_image_repository`, pull a given digest with `policy: missing` or the tag with `policy: always` and read `RepoDigests`, write `digest.previous` (mode 0644, root-owned) when the target changes, and write `digest.current`; in `templates/compose.yaml.j2` use `image: {{ keel_server_target_image }}`; in `templates/keel.env.j2` add `KEEL_IMAGE_DIGEST` and `KEEL_UPDATE_CHECK={{ keel_server_update_check | lower }}`. Makes T037 pass.
+- [X] T039 [US1] In `/home/mbruno/development/ansible/Makefile`, give `keel-server` the hook `$(if $(KEEL_DIGEST),-e keel_server_image_digest=$(KEEL_DIGEST))` and document `KEEL_DIGEST` in its help, for rollback with `make keel-server KEEL_DIGEST=$(cat /opt/keel/digest.previous)`.
 
 **Checkpoint**: US1 works with the fake backend, and a locally built image shows its labels on the System tab.
 
@@ -225,8 +225,8 @@ them, in the rollout order in quickstart.md.
 
 ### The owner's Ansible repository (after the rollout steps; the owner lands these)
 
-- [ ] T075 [US4] In `/home/mbruno/development/ansible/scripts/tests/test_keel_manifest_check.py`, add cases: the `keel-server` job's `params:` block is accepted; more than 8 params, a bad name, an `ansible_*` or `keel_internal_*` name, a kind other than `oci_digest`, and a name also in `vars` are each refused.
-- [ ] T076 [US4] In `/home/mbruno/development/ansible/scripts/keel-manifest-check.py`, add `params` to `JOB_KEYS` and check its shape as above. Makes T075 pass.
+- [X] T075 [US4] In `/home/mbruno/development/ansible/scripts/tests/test_keel_manifest_check.py`, add cases: the `keel-server` job's `params:` block is accepted; more than 8 params, a bad name, an `ansible_*` or `keel_internal_*` name, a kind other than `oci_digest`, and a name also in `vars` are each refused.
+- [X] T076 [US4] In `/home/mbruno/development/ansible/scripts/keel-manifest-check.py`, add `params` to `JOB_KEYS` and check its shape as above. Makes T075 pass.
 - [ ] T077 [US4] Only after quickstart.md rollout steps 1 to 4 (Keel and the runner with params support deployed on Keel's host): add `params: { keel_server_image_digest: { kind: oci_digest } }` to the `keel-server` job in `/home/mbruno/development/ansible/.keel/jobs.yaml`. Run `make lint` there.
 
 **Checkpoint**: an owner updates Keel from the card on a test instance (quickstart 11 to 13), and rollback by `KEEL_DIGEST` works (15).
