@@ -7,6 +7,7 @@
  * - Hook and `depends-on` labels are shown "not run" with the reason.
  * - A running Watchtower container pauses Auto; the banner names it, and an admin's answer
  *   ("stopped" or "only monitors") confirmed with the passkey lifts the pause.
+ * - At 360 px the banner doesn't squeeze the service list: the page scrolls instead.
  */
 import type { Page } from '@playwright/test'
 
@@ -126,6 +127,31 @@ for (const width of [360, 1280]) {
     expect(overflow).toBeLessThanOrEqual(0)
   })
 }
+
+test('at 360 px with the banner showing, the page scrolls and every panel is reachable', async ({ page, backend }) => {
+  await page.setViewportSize({ width: 360, height: 640 })
+  seed(backend, withWatchtower())
+  await page.goto('/admin/updates')
+  await expect(page.getByTestId('updates-watchtower')).toBeVisible()
+
+  // The service list keeps most of the screen rather than being squeezed under the banner; the
+  // page scrolls instead.
+  const list = await page.getByTestId('updates-scroller').boundingBox()
+  expect(list?.height ?? 0).toBeGreaterThanOrEqual(640 * 0.55)
+  const scrolls = await page.locator('[data-page="updates"]').evaluate((el) => {
+    const pane = el.parentElement
+    return pane !== null && pane.scrollHeight > pane.clientHeight
+  })
+  expect(scrolls).toBe(true)
+
+  for (const panel of ['updates-policies', 'updates-registries']) {
+    const summary = page.getByTestId(panel).locator('summary')
+    await summary.scrollIntoViewIfNeeded()
+    await expect(summary).toBeInViewport()
+  }
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+  expect(overflow).toBeLessThanOrEqual(0)
+})
 
 test('the stack page shows the same policy, source and labels', async ({ page, backend }) => {
   seed(backend)

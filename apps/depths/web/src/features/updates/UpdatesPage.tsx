@@ -75,8 +75,10 @@ export default function UpdatesPage() {
     load()
   }, [load])
 
+  // Below `sm` the page grows and scrolls, the panels stacked under a list of fixed height: the
+  // banner and the strips leave a phone too little room to share. From `sm` up it fills the pane.
   return (
-    <section data-page="updates" aria-labelledby="updates-title" className="flex h-full min-w-0 flex-col">
+    <section data-page="updates" aria-labelledby="updates-title" className="flex min-h-full min-w-0 flex-col sm:h-full">
       <Header view={view} />
       {denied !== null ? (
         <p role="status" className="p-3 text-xs text-muted-foreground">
@@ -376,7 +378,7 @@ function ServiceList({ services }: { services: readonly ServiceUpdate[] }) {
         aria-label="Services and their image updates"
         aria-rowcount={shown.length + 1}
         data-testid="updates-scroller"
-        className="min-h-48 min-w-0 flex-1 overflow-x-hidden overflow-y-auto"
+        className="h-[60dvh] min-h-48 min-w-0 shrink-0 overflow-x-hidden overflow-y-auto sm:h-auto sm:shrink sm:flex-1"
       >
         <div role="rowgroup" className="sticky top-0 z-10 hidden border-b border-border bg-background md:block">
           <div role="row" aria-rowindex={1} className={`${ROW} font-semibold text-muted-foreground`}>
