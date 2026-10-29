@@ -14,6 +14,7 @@ import type { Params } from '@/app/router'
 import type { HostStats, RunHostInfo, RunInfo, RunSummary } from '@/protocol/wire'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { DataTable } from '@/ui/DataTable'
+import { when } from '@/features/settings/updates'
 import { H2, LINK } from '@/ui/form'
 import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
@@ -170,9 +171,9 @@ function Header({ run }: { run: RunInfo }) {
         <dt className="text-muted-foreground">Trigger</dt>
         <dd>{run.trigger}</dd>
         <dt className="text-muted-foreground">Started</dt>
-        <dd className="tabular-nums">{run.started_at ?? 'not yet'}</dd>
+        <dd className="tabular-nums">{run.started_at ? when(run.started_at) : 'not yet'}</dd>
         <dt className="text-muted-foreground">Ended</dt>
-        <dd className="tabular-nums">{run.ended_at ?? '—'}</dd>
+        <dd className="tabular-nums">{run.ended_at ? when(run.ended_at) : '—'}</dd>
       </dl>
       {/* Params get their own list: a name like keel_server_image_digest and a full digest would
           otherwise widen the label column of every field above. On a phone the value sits under its
