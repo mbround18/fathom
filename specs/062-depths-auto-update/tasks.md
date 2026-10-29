@@ -79,7 +79,7 @@ check that the crate's API still matches that contract.
   - the Cmds `ListUpdates`, `CheckUpdatesNow`, `PreviewUpdateBatch`, `PreviewUpdateChange`, and the Events `Updates`, `UpdatesChanged`, `UpdatesBadge`, `CheckStarted`, `UpdatePreview`, `UpdateRunStarted`, `UpdateStackDone`, `UpdateRunFinished`.
   Bump `PROTOCOL_VERSION` in `crates/depths-protocol/src/lib.rs` to the next number after 054's bump. Regenerate the ts-rs bindings into `apps/depths/web/src/protocol/` and check for drift. T019 passes.
 - [X] T021 [P] Refuse the `depths` provider in `users.json` validation in `apps/depths/server/src/users.rs`, with a test (research R8: nobody can sign in as it).
-- [ ] T022 [P] Add `CommandKind::{ViewUpdates, CheckUpdates, ManageUpdates}` to `crates/depths-core/src/role.rs`, admin only, with role-table tests.
+- [X] T022 [P] Add `CommandKind::{ViewUpdates, CheckUpdates, ManageUpdates}` to `crates/depths-core/src/role.rs`, admin only, with role-table tests.
 - [ ] T023 Add `image_inspect`, `containers_health` and `host_platform` to `ContainerRuntime` in `crates/depths-core/src/ports.rs` (default `Unsupported`). Implement them in `crates/depths-runtime-cli/src/lib.rs` with parse tests over captured `docker image inspect`, `docker inspect` (`State.Health.Status`, `State.Running`, `RestartCount`) and `docker info` (platform, `driver-type`) JSON. Extend the `Mock` runtime and `Fx` fixture in `apps/depths/server/src/ops.rs` with scripted image configs, health sequences and the image store type.
 
 ### Stores, flags, wiring

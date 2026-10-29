@@ -61,11 +61,14 @@ pub enum Action {
     ManageUsers,
     /// Host metrics (`WatchHost`): CPU, memory, disk and load of the machine Depths runs on.
     ViewHost,
+    /// Image updates (spec 062): the Updates page, checking now, and changing update settings
+    /// and policies. Admin only; a user updates an assigned stack through `Lifecycle`.
+    ManageUpdates,
 }
 
 impl Action {
     /// Every action, for tables and tests.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::View,
         Self::RevealEnv,
         Self::Lifecycle,
@@ -78,6 +81,7 @@ impl Action {
         Self::ReadAudit,
         Self::ManageUsers,
         Self::ViewHost,
+        Self::ManageUpdates,
     ];
 
     /// Whether a `user` may take this action on a stack assigned to them. The rest are admin-only.
@@ -140,10 +144,17 @@ pub enum CommandKind {
     FilesRead,
     /// Changing a volume: `PreviewFileOp` and its confirm, and the upload route.
     FilesWrite,
+    /// The Updates page (spec 062 `ListUpdates`).
+    ViewUpdates,
+    /// Checking the registries now (`CheckUpdatesNow`): makes outbound requests.
+    CheckUpdates,
+    /// Changing update settings, policies, acknowledgements and rejections
+    /// (`PreviewUpdateChange` and its confirm).
+    ManageUpdates,
 }
 
 impl CommandKind {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 23] = [
         Self::View,
         Self::Subscribe,
         Self::Start,
@@ -164,6 +175,9 @@ impl CommandKind {
         Self::FilesList,
         Self::FilesRead,
         Self::FilesWrite,
+        Self::ViewUpdates,
+        Self::CheckUpdates,
+        Self::ManageUpdates,
     ];
 
     /// The [`Action`] the volume explorer's kinds need: [`Action::Edit`] for all three, so a
@@ -172,6 +186,17 @@ impl CommandKind {
     pub fn files_action(self) -> Option<Action> {
         match self {
             Self::FilesList | Self::FilesRead | Self::FilesWrite => Some(Action::Edit),
+            _ => None,
+        }
+    }
+
+    /// The [`Action`] the image-update kinds need: [`Action::ManageUpdates`], admin only (spec
+    /// 062 contracts/protocol.md "Gates"). `None` for every other kind.
+    pub fn updates_action(self) -> Option<Action> {
+        match self {
+            Self::ViewUpdates | Self::CheckUpdates | Self::ManageUpdates => {
+                Some(Action::ManageUpdates)
+            }
             _ => None,
         }
     }
@@ -191,7 +216,8 @@ pub fn restricted_ok(kind: CommandKind) -> bool {
         | K::Restart
         | K::AnswerNetwork
         | K::EndSession
-        | K::FilesList => true,
+        | K::FilesList
+        | K::ViewUpdates => true,
         K::Down
         | K::Pull
         | K::Update
@@ -203,7 +229,9 @@ pub fn restricted_ok(kind: CommandKind) -> bool {
         | K::ManageUsers
         | K::ManageNetworks
         | K::FilesRead
-        | K::FilesWrite => false,
+        | K::FilesWrite
+        | K::CheckUpdates
+        | K::ManageUpdates => false,
     }
 }
 
@@ -240,7 +268,7 @@ mod tests {
     }
 
     /// data-model.md's table: (action, user on an assigned stack, admin).
-    const TABLE: [(Action, bool, bool); 12] = [
+    const TABLE: [(Action, bool, bool); 13] = [
         (Action::View, true, true),
         (Action::RevealEnv, false, true),
         (Action::Lifecycle, true, true),
@@ -253,6 +281,7 @@ mod tests {
         (Action::ReadAudit, false, true),
         (Action::ManageUsers, false, true),
         (Action::ViewHost, false, true),
+        (Action::ManageUpdates, false, true),
     ];
 
     #[test]
@@ -326,7 +355,7 @@ mod tests {
     }
 
     /// spec 052 FR-010: (kind, allowed from an untrusted network).
-    const RESTRICTED: [(CommandKind, bool); 20] = [
+    const RESTRICTED: [(CommandKind, bool); 23] = [
         (CommandKind::View, true),
         (CommandKind::Subscribe, true),
         (CommandKind::Start, true),
@@ -347,7 +376,42 @@ mod tests {
         (CommandKind::FilesList, true),
         (CommandKind::FilesRead, false),
         (CommandKind::FilesWrite, false),
+        (CommandKind::ViewUpdates, true),
+        (CommandKind::CheckUpdates, false),
+        (CommandKind::ManageUpdates, false),
     ];
+
+    const UPDATES: [CommandKind; 3] = [
+        CommandKind::ViewUpdates,
+        CommandKind::CheckUpdates,
+        CommandKind::ManageUpdates,
+    ];
+
+    /// Spec 062 contracts/protocol.md "Gates": every update kind is admin only.
+    #[test]
+    fn the_update_kinds_are_admin_only() {
+        for kind in CommandKind::ALL {
+            let want = UPDATES.contains(&kind).then_some(Action::ManageUpdates);
+            assert_eq!(kind.updates_action(), want, "{kind:?}");
+        }
+        for kind in UPDATES {
+            let action = kind.updates_action().unwrap();
+            assert!(permits(&admin(), None, action), "{kind:?}");
+            assert!(permits(&admin(), Some(&name("web")), action), "{kind:?}");
+            for u in [user(&["web"]), user(&[])] {
+                assert!(!permits(&u, Some(&name("web")), action), "{kind:?}");
+                assert!(!permits(&u, None, action), "{kind:?}");
+            }
+        }
+    }
+
+    /// Viewing the page is allowed from an untrusted network; checking (outbound requests) and
+    /// changing settings or policies are not.
+    #[test]
+    fn only_viewing_updates_is_allowed_when_restricted() {
+        let ok: Vec<CommandKind> = UPDATES.into_iter().filter(|k| restricted_ok(*k)).collect();
+        assert_eq!(ok, vec![CommandKind::ViewUpdates]);
+    }
 
     const FILES: [CommandKind; 3] = [
         CommandKind::FilesList,
