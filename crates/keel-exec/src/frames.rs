@@ -74,6 +74,9 @@ pub enum Refusal {
     Replay,
     LedgerCorrupt,
     VersionTooOld,
+    /// The params Keel sent don't match what the job declares at the target commit (spec 061):
+    /// an undeclared name, or a value that isn't of the declared kind.
+    ParamsMismatch,
 }
 
 impl Refusal {
@@ -87,6 +90,7 @@ impl Refusal {
             Refusal::Replay => "replay",
             Refusal::LedgerCorrupt => "ledger_corrupt",
             Refusal::VersionTooOld => "version_too_old",
+            Refusal::ParamsMismatch => "params_mismatch",
         }
     }
 }

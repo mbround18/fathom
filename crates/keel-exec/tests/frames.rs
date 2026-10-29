@@ -264,6 +264,7 @@ fn every_refusal_value_of_the_data_model_is_spelled_as_in_run_hosts() {
         (Refusal::Replay, "replay"),
         (Refusal::LedgerCorrupt, "ledger_corrupt"),
         (Refusal::VersionTooOld, "version_too_old"),
+        (Refusal::ParamsMismatch, "params_mismatch"),
     ];
     for (r, s) in all {
         assert_eq!(
