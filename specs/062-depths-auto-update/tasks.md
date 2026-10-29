@@ -30,12 +30,12 @@ before the implementation tasks start.
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] Add `us9-update-check`, `us10-update-batch`, `us11-update-auto`, `us12-watchtower` and `us13-image-cleanup` to the `STORIES` array in `apps/depths/web/playwright.config.ts`, and create the five empty directories under `apps/depths/web/tests/e2e/`. If 054 has not yet added `us7-passkeys` and `us8-guard`, leave those numbers free; renumber only if a later spec took these names.
-- [ ] T002 [P] Create the empty modules:
+- [X] T001 [P] Add `us9-update-check`, `us10-update-batch`, `us11-update-auto`, `us12-watchtower` and `us13-image-cleanup` to the `STORIES` array in `apps/depths/web/playwright.config.ts`, and create the five empty directories under `apps/depths/web/tests/e2e/`. If 054 has not yet added `us7-passkeys` and `us8-guard`, leave those numbers free; renumber only if a later spec took these names.
+- [X] T002 [P] Create the empty modules:
   - `crates/depths-core/src/updates/mod.rs`, declared in `crates/depths-core/src/lib.rs`;
   - `apps/depths/server/src/updates/mod.rs`, declared in `apps/depths/server/src/lib.rs`;
   - the directory `apps/depths/web/src/features/updates/`.
-- [ ] T003 [P] Add the `/etc/localtime:/etc/localtime:ro` mount and the commented `DOCKER_CONFIG` mount and variable to the `depths` service in `apps/depths/compose.yaml`, and the commented `DOCKER_CONFIG` line to `apps/depths/.env.example`, exactly as contracts/config.md "Compose" shows. Keep `restart: ${RESTART_POLICY:-no}` as it is.
+- [X] T003 [P] Add the `/etc/localtime:/etc/localtime:ro` mount and the commented `DOCKER_CONFIG` mount and variable to the `depths` service in `apps/depths/compose.yaml`, and the commented `DOCKER_CONFIG` line to `apps/depths/.env.example`, exactly as contracts/config.md "Compose" shows. Keep `restart: ${RESTART_POLICY:-no}` as it is.
 
 ---
 

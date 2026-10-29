@@ -22,6 +22,7 @@ pub mod serve;
 pub mod session_meta;
 pub mod telemetry;
 pub mod trust;
+pub mod updates;
 pub mod users;
 pub mod watch;
 pub mod ws;

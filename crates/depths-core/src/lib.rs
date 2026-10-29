@@ -16,6 +16,7 @@ pub mod role;
 pub mod secrets;
 pub mod security;
 pub mod status;
+pub mod updates;
 
 pub use hash::ContentHash;
 pub use name::{InvalidName, ServiceName, StackName, valid_name, valid_service_name};

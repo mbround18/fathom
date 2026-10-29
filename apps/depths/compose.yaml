@@ -53,6 +53,9 @@ services:
       # Host CPU, memory, swap, load and uptime for admins, from the /proc mounted below. To turn
       # it off, delete this line and that mount.
       DEPTHS_HOST_PROC: /host/proc
+      # Registry credentials for private images (image updates, spec 062, and Pull): the directory
+      # holding the config.json mounted below. Without it Depths checks anonymously.
+      # DOCKER_CONFIG: /run/depths/docker
     read_only: true
     tmpfs:
       - /tmp
@@ -72,6 +75,11 @@ services:
       # and uptime, but the mount also lets it read every host process and its command line
       # (arguments can hold secrets). Delete it to keep Depths out of the host's process list.
       - /proc:/host/proc:ro
+      # Host local time for maintenance windows. Without it windows run in UTC.
+      - /etc/localtime:/etc/localtime:ro
+      # Optional: registry credentials for private images, read-only. A plain config.json,
+      # no credential helpers (see docs/guides/depths/install.md, "Private registries").
+      # - /srv/depths/docker/config.json:/run/depths/docker/config.json:ro
     networks:
       - docker-api
       - web
