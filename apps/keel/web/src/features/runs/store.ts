@@ -14,7 +14,7 @@
 import { create } from 'zustand'
 
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
-import type { Cmd, Preview, RequestId, RunHostInfo, RunInfo, RunPhase, RunReason } from '@/protocol/wire'
+import type { Cmd, Preview, RequestId, RunHostInfo, RunInfo, RunPhase } from '@/protocol/wire'
 
 /** A commit, shortened for a table cell. */
 export function short(commit: string | null): string {
@@ -28,9 +28,18 @@ export function active(state: RunPhase): boolean {
   return ACTIVE.includes(state)
 }
 
+/**
+ * Reasons whose code reads poorly with its underscores replaced. Keyed by string: the runner's
+ * refusals (spec 061 `params_mismatch`) may reach a page built before the bindings name them.
+ */
+const REASON_LABEL: Record<string, string> = {
+  params_mismatch: 'Inputs don’t match the job',
+}
+
 /** `cancelled_by_user` as "cancelled by user". */
-export function reasonText(reason: RunReason | null): string {
-  return reason ? reason.replace(/_/g, ' ') : ''
+export function reasonText(reason: string | null): string {
+  if (!reason) return ''
+  return REASON_LABEL[reason] ?? reason.replace(/_/g, ' ')
 }
 
 const OFFLINE = 'Keel is not connected. Wait for it to reconnect, then try again.'

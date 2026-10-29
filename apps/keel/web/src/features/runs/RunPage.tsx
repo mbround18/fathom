@@ -1,7 +1,8 @@
 /**
  * One run (spec 055 US2, T072): its state, the live output in a `LogView`, the summary counts and
- * the per-host results with each host's first failure. A run pinned to an inventory revision that
- * has since been replaced says so. A run that has not ended can be cancelled, previewed first.
+ * the per-host results with each host’s first failure. The job params it was queued with sit next to
+ * its commit (spec 061). A run pinned to an inventory revision that has since been replaced says so.
+ * A run that has not ended can be cancelled, previewed first.
  */
 import { ArrowLeftIcon, StopIcon } from '@phosphor-icons/react'
 import { LogView } from '@companion/terminal'
@@ -33,6 +34,18 @@ const TONE: Record<string, string> = {
   failed: 'text-status-err',
   refused: 'text-status-err',
   lost: 'text-status-err',
+}
+
+/** One job param the run was queued with (spec 061 FR-019), e.g. the image digest an update moves to. */
+function Param({ name, value }: { name: string; value: string }) {
+  return (
+    <>
+      <dt className="font-mono text-muted-foreground">{name}</dt>
+      <dd data-param={name} title={value} className="min-w-0 font-mono break-all">
+        {value}
+      </dd>
+    </>
+  )
 }
 
 function Summary({ summary }: { summary: RunSummary }) {
@@ -152,6 +165,11 @@ function Header({ run }: { run: RunInfo }) {
       <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
         <dt className="text-muted-foreground">Commit</dt>
         <dd className="font-mono">{short(run.commit)}</dd>
+        {Object.entries(run.params)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([name, value]) => (
+            <Param key={name} name={name} value={value} />
+          ))}
         <dt className="text-muted-foreground">Inventory</dt>
         <dd>{run.inventory}</dd>
         <dt className="text-muted-foreground">Trigger</dt>
