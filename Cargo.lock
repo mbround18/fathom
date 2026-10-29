@@ -2168,6 +2168,9 @@ dependencies = [
  "url",
  "uuid",
  "web-auth",
+ "web-passkeys",
+ "webauthn-authenticator-rs",
+ "webauthn-rs",
 ]
 
 [[package]]

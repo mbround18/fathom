@@ -16,6 +16,7 @@ pub mod limits;
 pub mod network_routes;
 pub mod networks;
 pub mod ops;
+pub mod passkeys;
 pub mod refresh;
 pub mod security;
 pub mod serve;

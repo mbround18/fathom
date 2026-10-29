@@ -15,6 +15,8 @@ name = "depths"
 path = "src/main.rs"
 
 [dependencies]
+# PasskeyStore is an async trait (web-passkeys, spec 054).
+async-trait = "0.1"
 audit-log = { path = "../../../crates/audit-log" }
 axum = { version = "0.8", features = ["ws"] }
 base64 = "0.22"
@@ -52,14 +54,18 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"]
 url = "2.5"
 uuid = { version = "1", features = ["v4"] }
 web-auth = { path = "../../../crates/web-auth" }
+# Spec 054 passkeys: the shared ceremonies, and the WebAuthn types they take (same version).
+web-passkeys = { path = "../../../crates/web-passkeys" }
+webauthn-rs = "0.5.5"
 
 [dev-dependencies]
 # The fake volume helper runs the real `serve` over pipes (spec 053 T030).
 depths-volume-helper = { path = "../volume-helper" }
-async-trait = "0.1"
 http-body-util = "0.1"
 oci-registry = { path = "../../../crates/oci-registry", features = ["test-util"] }
 tempfile = "3"
 tokio = { version = "1.54.1", features = ["full", "test-util"] }
 tokio-tungstenite = "0.30"
 tower = { version = "0.5", features = ["util"] }
+# A software authenticator for the passkey ceremony tests (spec 054 T055).
+webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }
