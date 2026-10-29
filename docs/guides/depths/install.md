@@ -210,6 +210,10 @@ came from.
 | | `DEPTHS_FILES_HISTORY_FILE_MAX`, `DEPTHS_FILES_HISTORY_VERSIONS`, `DEPTHS_FILES_HISTORY_TOTAL`, `DEPTHS_FILES_HISTORY_DAYS` | `10MiB`, `20`, `1GiB`, `30` | How much of each file's earlier content Depths keeps, and for how long |
 | | `DEPTHS_FILES_HELPERS` | `8` | Most volume helpers running at once |
 | `--host-proc` | `DEPTHS_HOST_PROC` | unset | A read-only mount of the host's `/proc` (the compose file uses `/host/proc`). Turns on host metrics for admins. Must be an absolute directory with a readable `stat`. Unset means off; see below |
+| `--updates` | `DEPTHS_UPDATES` | `on` | Image updates: the Updates page and update states on stack pages. `off` removes the feature entirely. Checks themselves start off until an admin turns them on. See [Image updates](updates.md) |
+| `--updates-auto` | `DEPTHS_UPDATES_AUTO` | `on` | `off` pauses every automatic update policy host-wide without changing it |
+| `--updates-check-min-gap` | `DEPTHS_UPDATES_CHECK_GAP` | `60s` | Least time between two **Check now** runs |
+| | `DOCKER_CONFIG` | `/var/lib/depths/.docker` | The directory holding the `config.json` that registry credentials are read from. Must be absolute. See [Private registries](#private-registries) |
 | | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Sends telemetry to an OpenTelemetry collector (the standard `OTEL_*` variables apply). Unset means no export |
 
 Durations take `s`, `m`, `h` or `d` (`30m`, `8h`). Sizes take `b`, `KiB`, `MiB`, `GiB`, `KB`, `MB`
@@ -228,6 +232,36 @@ These are read by the compose file, not by Depths:
 | `DEPTHS_PORT` | `8080` | The loopback port on the host |
 | `DEPTHS_SOCKET_EXEC` | `0` | Opens exec on the socket proxy, for shells |
 | `RESTART_POLICY` | `no` | Restart policy for both services |
+
+## Private registries
+
+Depths checks public images without any setup. To check (and pull) private images, it needs a
+plain `config.json` mounted into its container, with `DOCKER_CONFIG` naming the directory it is in.
+The Docker daemon holds no registry credentials, and the Depths container can't see the host's
+`~/.docker`.
+
+1. Log in into a directory of its own on the host:
+
+   ```sh
+   DOCKER_CONFIG=/srv/depths/docker docker login --username <user> --password-stdin <registry>
+   ```
+
+   If the resulting file names a `credsStore`, the login handed the password to a credential
+   helper installed on the host. Write the file by hand instead:
+   `{"auths":{"<registry>":{"auth":"<base64 of user:token>"}}}`.
+2. Uncomment the `config.json` mount and `DOCKER_CONFIG` in the compose file:
+
+   ```yaml
+   volumes:
+     - /srv/depths/docker/config.json:/run/depths/docker/config.json:ro
+   environment:
+     DOCKER_CONFIG: /run/depths/docker
+   ```
+
+The file holds passwords in base64: mount it read-only and make it readable only by the Depths
+user (10001). Credential helpers (`credsStore`, `credHelpers`) and identity tokens are not
+supported, because the helper programs are not in the image. Services on those registries show
+**Can't check** on the Updates page, and their Pull fails the same way.
 
 ## Turning on shells
 
