@@ -14,7 +14,7 @@ use std::sync::LazyLock;
 use std::time::Duration;
 
 use opentelemetry::KeyValue;
-use opentelemetry::metrics::Histogram;
+use opentelemetry::metrics::{Counter, Histogram};
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
@@ -149,9 +149,183 @@ pub fn files_span(kind: &'static str, stack: &str, mount: &str) -> tracing::Span
     )
 }
 
+// ---------------------------------------------------------------------------
+// Image updates (spec 062 research R9). Labels are registry hosts, stacks, services and fixed
+// words: never credentials, never paths, never `auths` keys.
+// ---------------------------------------------------------------------------
+
+/// A registry as a label: the host (and port) only. Anything that could carry a user, a
+/// password, a path or a scheme is cut away.
+pub fn registry_label(registry: &str) -> String {
+    let s = registry.trim();
+    let s = s.split_once("://").map_or(s, |(_, rest)| rest);
+    let s = s.rsplit_once('@').map_or(s, |(_, host)| host);
+    let s = s.split(['/', '?', '#']).next().unwrap_or_default();
+    s.to_ascii_lowercase()
+}
+
+/// Which registry request a count is for (`oci-registry`'s `RequestCounts`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegistryRequest {
+    Head,
+    Get,
+    ManifestGet,
+}
+
+impl RegistryRequest {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Head => "head",
+            Self::Get => "get",
+            Self::ManifestGet => "manifest_get",
+        }
+    }
+}
+
+static REGISTRY_REQUESTS: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter(SERVICE_NAME)
+        .u64_counter("depths.updates.registry_requests")
+        .with_description("Registry requests made by update checks, by kind")
+        .build()
+});
+
+static CHECK_MS: LazyLock<Histogram<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter(SERVICE_NAME)
+        .u64_histogram("depths.updates.check_ms")
+        .with_unit("ms")
+        .with_description("Time one update check pass took")
+        .build()
+});
+
+static OUTCOMES: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter(SERVICE_NAME)
+        .u64_counter("depths.updates.outcomes")
+        .with_description("Stack update outcomes, by trigger")
+        .build()
+});
+
+static HEALTH_WAIT_MS: LazyLock<Histogram<u64>> = LazyLock::new(|| {
+    opentelemetry::global::meter(SERVICE_NAME)
+        .u64_histogram("depths.updates.health_wait_ms")
+        .with_unit("ms")
+        .with_description("Time spent waiting for updated containers to be healthy")
+        .build()
+});
+
+fn millis(took: Duration) -> u64 {
+    u64::try_from(took.as_millis()).unwrap_or(u64::MAX)
+}
+
+/// Adds `n` requests of `kind` to `registry` (a host; see [`registry_label`]).
+pub fn record_registry_requests(registry: &str, kind: RegistryRequest, n: u64) {
+    if n > 0 {
+        REGISTRY_REQUESTS.add(
+            n,
+            &[
+                KeyValue::new("registry", registry_label(registry)),
+                KeyValue::new("kind", kind.as_str()),
+            ],
+        );
+    }
+}
+
+pub fn record_check(took: Duration) {
+    CHECK_MS.record(millis(took), &[]);
+}
+
+/// `outcome` and `trigger` (`manual` | `scheduled`) are fixed words.
+pub fn record_outcome(outcome: &'static str, trigger: &'static str) {
+    OUTCOMES.add(
+        1,
+        &[
+            KeyValue::new("outcome", outcome),
+            KeyValue::new("trigger", trigger),
+        ],
+    );
+}
+
+pub fn record_health_wait(took: Duration) {
+    HEALTH_WAIT_MS.record(millis(took), &[]);
+}
+
+/// `updates.check`. Fill `outcome` once known.
+pub fn updates_check_span(stack: &str, registry: &str) -> tracing::Span {
+    tracing::info_span!(
+        "updates.check",
+        stack,
+        registry = registry_label(registry),
+        outcome = tracing::field::Empty,
+    )
+}
+
+/// `updates.resolve`. Fill `outcome` once known.
+pub fn updates_resolve_span(registry: &str) -> tracing::Span {
+    tracing::info_span!(
+        "updates.resolve",
+        registry = registry_label(registry),
+        outcome = tracing::field::Empty,
+    )
+}
+
+/// `updates.run`: `trigger` is `manual` or `scheduled`.
+pub fn updates_run_span(run_id: &str, trigger: &'static str, stacks: usize) -> tracing::Span {
+    tracing::info_span!("updates.run", run_id, trigger, stacks)
+}
+
+/// `updates.stack`. Fill `outcome` once known.
+pub fn updates_stack_span(stack: &str) -> tracing::Span {
+    tracing::info_span!("updates.stack", stack, outcome = tracing::field::Empty)
+}
+
+/// `updates.health_wait`. Fill `outcome` and `waited_ms` once known.
+pub fn updates_health_wait_span(stack: &str, service: &str) -> tracing::Span {
+    tracing::info_span!(
+        "updates.health_wait",
+        stack,
+        service,
+        outcome = tracing::field::Empty,
+        waited_ms = tracing::field::Empty,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_registry_label_is_the_host_only() {
+        assert_eq!(registry_label("ghcr.io"), "ghcr.io");
+        assert_eq!(
+            registry_label("Registry.Example:5000"),
+            "registry.example:5000"
+        );
+        assert_eq!(
+            registry_label("https://user:s3cret@registry.example/v2/app?x=1"),
+            "registry.example"
+        );
+        assert_eq!(
+            registry_label("https://index.docker.io/v1/"),
+            "index.docker.io"
+        );
+        assert_eq!(registry_label("token@host"), "host");
+    }
+
+    #[test]
+    fn the_update_instruments_record_without_an_exporter() {
+        // No meter provider is installed: every instrument is a no-op and must not panic.
+        record_registry_requests("ghcr.io", RegistryRequest::Head, 2);
+        record_registry_requests("ghcr.io", RegistryRequest::Get, 0);
+        record_check(Duration::from_millis(12));
+        record_outcome("updated", "manual");
+        record_health_wait(Duration::from_secs(3));
+        let span = updates_health_wait_span("media", "app");
+        span.record("outcome", "healthy");
+        span.record("waited_ms", 3000_u64);
+        drop(updates_check_span("media", "user:pw@ghcr.io"));
+        drop(updates_resolve_span("ghcr.io"));
+        drop(updates_run_span("6f1c", "scheduled", 2));
+        drop(updates_stack_span("media"));
+    }
 
     #[test]
     fn otlp_only_with_an_endpoint() {
