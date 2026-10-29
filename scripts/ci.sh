@@ -109,9 +109,8 @@ CARGO_DENY="{ [ -x /opt/cargo-tools/bin/cargo-deny ] \
 || $N cargo install --locked --root /opt/cargo-tools cargo-deny; } \
 && $N /opt/cargo-tools/bin/cargo-deny check"
 
-# Crates shared by more than one app. A change to one runs the shared slice and every app that
-# depends on it (slices_for below).
-SHARED_CRATES="-p container-runtime -p audit-log -p web-auth -p web-passkeys"
+# SHARED_CRATES, slices_for and changed_slices: which slices a diff needs.
+. scripts/lib/slices.sh
 
 job_shared() {
   need_mem $((CI_MIN_FREE_GB / 2)) shared || return 1
@@ -242,32 +241,9 @@ echo 'error: apps/keel/web/src/protocol/generated is stale. Run cargo test -p ke
     --step "$N pnpm --filter $KEEL_WEB e2e --workers=\"\$PLAYWRIGHT_WORKERS\""
 }
 
-# slices_for <path>...: the slices a set of changed paths needs, one per line. Docs and specs
-# need none; anything not claimed by an app or the shared code is Fathom's.
-slices_for() {
-  local f
-  for f in "$@"; do
-    case "$f" in
-      specs/* | docs/* | *.md | .specify/* | .claude/* | LICENSE*) ;;
-      apps/depths/* | crates/depths-*) echo depths ;;
-      apps/keel/* | crates/keel-*) echo keel ;;
-      crates/container-runtime/* | crates/audit-log/*) printf '%s\n' shared fathom depths ;;
-      crates/web-auth/*) printf '%s\n' shared fathom depths keel ;;
-      crates/web-passkeys/*) printf '%s\n' shared keel ;;
-      packages/*) printf '%s\n' shared fathom depths keel ;;
-      Cargo.toml | Cargo.lock | deny.toml | rust-toolchain* | package.json | pnpm-lock.yaml \
-        | pnpm-workspace.yaml | scripts/ci.sh | .github/*) printf '%s\n' shared fathom depths keel ;;
-      *) echo fathom ;;
-    esac
-  done
-}
-
 job_changed() {
   local base=${CI_BASE:-origin/main} slices job failed=()
-  mapfile -t slices < <(
-    { git diff --name-only "$(git merge-base "$base" HEAD)"; git ls-files --others --exclude-standard; } \
-      | sort -u | { mapfile -t files; slices_for "${files[@]}"; } | sort -u
-  )
+  mapfile -t slices < <(changed_slices "$base")
   if [ "${#slices[@]}" -eq 0 ]; then
     echo "ci: nothing to run: no changes against $base outside docs and specs"
     return 0
