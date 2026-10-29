@@ -714,7 +714,11 @@ async fn logs_refuse_unknown_services_and_containers_a_user_may_not_see() {
         )
         .await,
     );
-    assert_eq!(a.runtime.follows.lock().unwrap().len(), 1);
+    // The follow runs on a blocking thread and may start just after `StreamOpened`.
+    until("the follow started", || {
+        a.runtime.follows.lock().unwrap().len() == 1
+    })
+    .await;
     server.abort();
 
     // An admin may follow the stray, and is told plainly when a container does not exist.
