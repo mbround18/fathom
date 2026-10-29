@@ -19,6 +19,21 @@ use tracing_subscriber::{EnvFilter, Registry};
 
 pub const SERVICE_NAME: &str = "keel";
 
+/// The resource's `service.version` (spec 061 R9): `KEEL_BUILD_VERSION`, else
+/// `KEEL_BUILD_REVISION`, else the crate version. Empty values count as unset, since an untagged
+/// image carries `KEEL_BUILD_VERSION=`.
+#[must_use]
+pub fn service_version(var: impl Fn(&str) -> Option<String>) -> String {
+    let set = |name: &str| {
+        var(name)
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty())
+    };
+    set("KEEL_BUILD_VERSION")
+        .or_else(|| set("KEEL_BUILD_REVISION"))
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned())
+}
+
 /// Keeps the OTLP pipeline alive; dropping it flushes and shuts it down.
 #[derive(Debug)]
 pub struct Guard {
@@ -66,7 +81,16 @@ pub fn init(endpoint: Option<&str>) -> Result<Guard, String> {
         .with_span_list(false)
         .with_writer(std::io::stderr);
     let endpoint = endpoint.map(str::trim).filter(|e| !e.is_empty());
-    let resource = || Resource::builder().with_service_name(SERVICE_NAME).build();
+    let version = service_version(|name| std::env::var(name).ok());
+    let resource = || {
+        Resource::builder()
+            .with_service_name(SERVICE_NAME)
+            .with_attribute(opentelemetry::KeyValue::new(
+                "service.version",
+                version.clone(),
+            ))
+            .build()
+    };
 
     let (traces, metrics) = match endpoint {
         Some(base) => {
@@ -119,5 +143,41 @@ mod tests {
             signal_url(" http://c:4318/ ", "metrics"),
             "http://c:4318/v1/metrics"
         );
+    }
+
+    fn version_from(pairs: &[(&str, &str)]) -> String {
+        service_version(|name| {
+            pairs
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| (*v).to_owned())
+        })
+    }
+
+    #[test]
+    fn service_version_prefers_the_release_version() {
+        assert_eq!(
+            version_from(&[
+                ("KEEL_BUILD_VERSION", "0.2.0"),
+                ("KEEL_BUILD_REVISION", "cf7fdd6")
+            ]),
+            "0.2.0"
+        );
+    }
+
+    #[test]
+    fn service_version_falls_back_to_the_revision_then_the_crate() {
+        assert_eq!(
+            version_from(&[
+                ("KEEL_BUILD_VERSION", ""),
+                ("KEEL_BUILD_REVISION", "cf7fdd6-dirty")
+            ]),
+            "cf7fdd6-dirty"
+        );
+        assert_eq!(
+            version_from(&[("KEEL_BUILD_VERSION", " ")]),
+            env!("CARGO_PKG_VERSION")
+        );
+        assert_eq!(version_from(&[]), env!("CARGO_PKG_VERSION"));
     }
 }
