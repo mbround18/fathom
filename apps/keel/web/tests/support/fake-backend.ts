@@ -20,6 +20,8 @@
  *   check to be fresh: `OpError step_up_required`, or `PasskeyEnrolmentRequired` with no
  *   passkeys), then answers `Confirmed` and `Passkeys`. Registering another passkey needs a fresh
  *   check too. "Fresh" here is `me.verification.verified`; the fake reads no clock.
+ * - The running build and update notice (spec 061) answer by `me`'s role from `updates`
+ *   (./fake-updates.ts): set `updates.status`, then `updates.push()` or `updates.finishCheck()`.
  *
  * Usage, in a spec:
  *
@@ -58,6 +60,7 @@ import type {
 import { PROTOCOL_VERSION } from '../../src/protocol/generated/constants'
 import { FakeInventories } from './fake-inventories'
 import { FakeRepos } from './fake-repos'
+import { FakeUpdates } from './fake-updates'
 
 export { expect }
 
@@ -172,6 +175,8 @@ export class FakeBackend {
   readonly repos = new FakeRepos()
   /** Inventories and their revisions (US4): ./fake-inventories.ts. */
   readonly inventories = new FakeInventories()
+  /** The running build and the update notice (spec 061), answered by role: ./fake-updates.ts. */
+  readonly updates: FakeUpdates = new FakeUpdates(this)
   /** Close code for every new socket's `Hello`, e.g. `Close.Outdated`. `null` = accept. */
   helloClose: number | null = null
 
@@ -452,7 +457,10 @@ export class FakeBackend {
         const id = this.previews.get(preview_id)
         this.previews.delete(preview_id)
         if (id === undefined) {
-          // Not a passkey preview: the inventories, or the bindings and receivers model, may hold it.
+          // Not a passkey preview: the update, the inventories, or the bindings and receivers model,
+          // may hold it.
+          const updates = this.updates.respond(me, cmd)
+          if (updates) return updates
           const inventories = this.inventories.respond(cmd)
           if (inventories) return inventories
           const repos = this.repos.respond(cmd)
@@ -480,7 +488,7 @@ export class FakeBackend {
         ]
       }
       default: {
-        const answer = this.repos.respond(cmd) ?? this.inventories.respond(cmd)
+        const answer = this.updates.respond(me, cmd) ?? this.repos.respond(cmd) ?? this.inventories.respond(cmd)
         if (answer) return answer
         // Every other command has an answer today; one added to the protocol later lands here.
         const type: string = (cmd as { type: string }).type
