@@ -21,7 +21,7 @@ use depths_server::ops::Ops;
 use depths_server::updates::batch::{self, Only};
 use depths_server::updates::inputs::{Inputs, RuntimeInputs};
 use depths_server::updates::registry::{OciRegistry, user_agent};
-use depths_server::updates::run::{Batch, Runner};
+use depths_server::updates::run::{Batch, Runner, Sleep};
 use depths_server::updates::{SystemClock, Updates, scheduler};
 use oci_registry::{Client, RequestCounts};
 
@@ -201,6 +201,11 @@ impl Lab {
 
     /// Starts the check scheduler and the Auto queue, as `main` does.
     pub fn start_tasks(&mut self) {
+        self.start_tasks_with(Arc::new(std::thread::sleep));
+    }
+
+    /// [`Lab::start_tasks`], with the Auto runner's health-wait `sleep` replaced.
+    pub fn start_tasks_with(&mut self, sleep: Sleep) {
         use depths_server::updates::auto;
         let u = self.u().clone();
         let deps = Arc::new(auto::Deps {
@@ -208,6 +213,7 @@ impl Lab {
             inputs: self.inputs.clone(),
             zone: Arc::new(auto::HostZone),
             is_admin: auto::admins(self.app.state.users.clone()),
+            sleep,
         });
         let check = self
             .rt
@@ -217,12 +223,18 @@ impl Lab {
     }
 
     /// Depths stops and starts again on the same stacks and data dir, as after a crash: the tasks
-    /// are aborted, a new app (and `Updates`) is built, and the start-up pass closes the runs left
-    /// open, as `main` does. Returns how many it closed. The tasks are not started again.
+    /// are aborted and the runtime is replaced, a new app (and `Updates`) is built, and the
+    /// start-up pass closes the runs left open, as `main` does. Returns how many it closed. The
+    /// tasks are not started again.
+    ///
+    /// The old runtime is shut down in the background: a blocking Auto tick parked in its health
+    /// wait stays parked (the old process is gone) instead of holding up the lab's drop.
     pub fn restart(&mut self) -> usize {
         for t in self.tasks.drain(..) {
             t.abort();
         }
+        let old = std::mem::replace(&mut self.rt, tokio::runtime::Runtime::new().unwrap());
+        old.shutdown_background();
         let app = build(
             self.app.dir(),
             &self.env,

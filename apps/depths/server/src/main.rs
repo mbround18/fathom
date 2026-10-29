@@ -203,6 +203,7 @@ async fn run() -> Result<(), String> {
             inputs: inputs.clone(),
             zone: Arc::new(auto::HostZone),
             is_admin: auto::admins(state.users.clone()),
+            sleep: Arc::new(std::thread::sleep),
         });
         (
             tokio::spawn(scheduler::run(u.clone(), inputs)),

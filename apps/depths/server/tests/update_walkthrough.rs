@@ -17,7 +17,6 @@
 
 mod support;
 
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
@@ -25,9 +24,6 @@ use depths_protocol::{
     AuditEntry, AutoPause, Exclusion, Provider, RunTrigger, ServiceUpdate, StackOutcome, UpdateRun,
     UpdateState, UpdatesView,
 };
-use depths_server::updates::auto;
-use depths_server::updates::batch::{self, Only};
-use depths_server::updates::run::{Batch, Runner};
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::{Value, json};
 use support::OWNER;
@@ -727,9 +723,8 @@ fn a_watchtower_beside_depths_pauses_auto_until_it_is_acknowledged() {
 /// Depths stops while a scheduled update waits for health. Started again on the same data, it
 /// records the run interrupted, with the image the stack really runs, and checks that image.
 ///
-/// The Auto queue is driven by `auto::tick` here, with the runner `auto` builds but a health-wait
-/// sleep that parks for good, standing in for the process dying: `auto::run` sleeps for real
-/// between health polls and offers no seam.
+/// The real Auto queue runs it (`auto::run`, started as `main` does), with a health-wait sleep
+/// that parks for good, standing in for the process dying there.
 #[test]
 fn a_restart_during_the_health_wait_records_the_run_interrupted_with_the_real_image() {
     if !enabled() {
@@ -750,61 +745,13 @@ fn a_restart_during_the_health_wait_records_the_run_interrupted_with_the_real_im
 
     let (waiting, parked) = std::sync::mpsc::sync_channel::<()>(1);
     let waiting = Mutex::new(waiting);
-    let (u, ops, inputs, users) = (
-        lab.u().clone(),
-        lab.app.state.ops.clone(),
-        lab.inputs.clone(),
-        lab.app.state.users.clone(),
-    );
-    let handle = lab.rt.handle().clone();
-    // The "old process": never joined, it stays parked until the test binary exits.
-    std::thread::spawn(move || {
-        let _context = handle.enter();
-        let sleep = Arc::new(move |_: Duration| {
-            let _ = waiting.lock().unwrap().try_send(());
-            loop {
-                std::thread::park();
-            }
-        });
-        auto::tick(
-            &u,
-            &auto::HostZone,
-            &*auto::admins(users),
-            &mut BTreeMap::new(),
-            &mut |stack, set_by| {
-                let p = batch::preview_stack(
-                    &u,
-                    &*ops.stack_store().clone(),
-                    &*inputs,
-                    ops.compose_policy(),
-                    stack,
-                    Only::Auto,
-                )
-                .unwrap();
-                let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-                std::thread::spawn(move || while rx.blocking_recv().is_some() {});
-                Runner {
-                    ops: ops.clone(),
-                    updates: u.clone(),
-                    sleep: sleep.clone(),
-                }
-                .run(
-                    Batch {
-                        run_id: depths_protocol::RunId(uuid::Uuid::new_v4()),
-                        trigger: RunTrigger::Scheduled {
-                            on_behalf_of: [(stack.to_owned(), set_by.clone())].into(),
-                        },
-                        ip: std::net::IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED),
-                        jobs: vec![p.job.expect("a scheduled update")],
-                        cancel: depths_core::ports::CancelToken::new(),
-                        reply_to: None,
-                        reply_on_op: false,
-                    },
-                    tx,
-                );
-            },
-        );
-    });
+    // The "old process": the Auto tick parks in its health wait until the test binary exits.
+    lab.start_tasks_with(Arc::new(move |_: Duration| {
+        let _ = waiting.lock().unwrap().try_send(());
+        loop {
+            std::thread::park();
+        }
+    }));
     parked
         .recv_timeout(RUN)
         .expect("the scheduled run reached its health wait");

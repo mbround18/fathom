@@ -204,12 +204,14 @@ pub fn tick(
 }
 
 /// What a scheduled stack needs to run: the stack store and runtime behind [`Inputs`], and
-/// [`crate::ops::Ops`] for the runner.
+/// [`crate::ops::Ops`] and the health-wait `sleep` for the runner.
 pub struct Deps {
     pub ops: Arc<crate::ops::Ops>,
     pub inputs: Arc<dyn Inputs>,
     pub zone: Arc<dyn LocalZone>,
     pub is_admin: Arc<IsAdmin>,
+    /// How the runner waits between health reads: `std::thread::sleep` in production.
+    pub sleep: super::run::Sleep,
 }
 
 /// Runs one stack through the US2 runner (blocking), forwarding its events to connected
@@ -246,7 +248,7 @@ fn run_one(u: &Arc<Updates>, deps: &Deps, stack: &str, set_by: &Actor) {
     let runner = super::run::Runner {
         ops: deps.ops.clone(),
         updates: u.clone(),
-        sleep: Arc::new(std::thread::sleep),
+        sleep: deps.sleep.clone(),
     };
     let run = runner.run(
         super::run::Batch {
