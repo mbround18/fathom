@@ -17,7 +17,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@companion/ui'
-import { lazy, Suspense, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react'
 
 import { BRAND_GLYPH, BRAND_NAME } from '@/brand'
 import { usePasskeys } from '@/features/passkeys/store'
@@ -55,6 +55,11 @@ function NavLink({
   dot?: boolean
 }) {
   const current = path === to || path.startsWith(`${to}/`)
+  const dotRef = useRef<HTMLSpanElement>(null)
+  // On a phone the strip scrolls and Settings is last, so bring the dot into view when it appears.
+  useEffect(() => {
+    if (dot) dotRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [dot])
   return (
     <Link to={to} aria-current={current ? 'page' : undefined} className={`${NAV_LINK} ${className}`}>
       <Icon aria-hidden className="size-3.5 shrink-0" />
@@ -63,7 +68,7 @@ function NavLink({
           instead of widening the page from wherever the strip scrolled it to. */}
       {dot && (
         <>
-          <span aria-hidden data-update-dot className="size-1.5 shrink-0 rounded-full bg-accent-neon shadow-[var(--glow)]" />
+          <span ref={dotRef} aria-hidden data-update-dot className="size-1.5 shrink-0 rounded-full bg-accent-neon shadow-[var(--glow)]" />
           <span className="sr-only"> (update available)</span>
         </>
       )}
