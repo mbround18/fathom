@@ -127,6 +127,10 @@ pub struct Flags {
     /// Least time between two Check now runs [env: DEPTHS_UPDATES_CHECK_GAP] [default: 60s]
     #[arg(long)]
     pub updates_check_min_gap: Option<String>,
+    /// How long a passkey verification counts for a risky action, 30s to 1h
+    /// [env: DEPTHS_STEP_UP_WINDOW] [default: 300]
+    #[arg(long)]
+    pub step_up_window: Option<String>,
 }
 
 /// Why start-up refused.
@@ -313,6 +317,11 @@ pub struct Config {
     pub files: FilesSettings,
     /// Image updates (spec 062 contracts/config.md).
     pub updates: UpdatesConfig,
+    /// Spec 054 `DEPTHS_STEP_UP_WINDOW`: how long a passkey verification lets a risky action
+    /// through without asking again. Clamped to [`STEP_UP_MIN`]..=[`STEP_UP_MAX`].
+    pub step_up_window: Duration,
+    /// The start-up warning when `DEPTHS_STEP_UP_WINDOW` was clamped.
+    pub step_up_warning: Option<String>,
     /// `(setting, where it came from)`, for the start-up log. Never a secret value.
     pub sources: Vec<(&'static str, String)>,
 }
@@ -382,6 +391,41 @@ pub fn host_zone_name(tz: Option<String>, localtime: &Path) -> String {
     } else {
         "UTC".to_owned()
     }
+}
+
+/// Shortest step-up window (spec 054 contracts/config.md).
+pub const STEP_UP_MIN: Duration = Duration::from_secs(30);
+/// Longest step-up window.
+pub const STEP_UP_MAX: Duration = Duration::from_secs(3600);
+/// The step-up window when unset.
+pub const STEP_UP_DEFAULT: Duration = Duration::from_secs(300);
+
+/// `DEPTHS_STEP_UP_WINDOW`: seconds (`300`) or a duration (`5m`). Out of range clamps, with the
+/// warning to log; anything unreadable refuses start.
+fn step_up_window(v: Option<String>) -> Result<(Duration, Option<String>), ConfigError> {
+    let Some(v) = v else {
+        return Ok((STEP_UP_DEFAULT, None));
+    };
+    let t = v.trim();
+    let asked = if t.chars().all(|c| c.is_ascii_digit()) {
+        let n: u64 = t.parse().or_else(|_| {
+            refuse(format!(
+                "DEPTHS_STEP_UP_WINDOW: `{t}` is not a number of seconds"
+            ))
+        })?;
+        Duration::from_secs(n)
+    } else {
+        parse_duration("DEPTHS_STEP_UP_WINDOW", t)?
+    };
+    let clamped = asked.clamp(STEP_UP_MIN, STEP_UP_MAX);
+    let warning = (clamped != asked).then(|| {
+        format!(
+            "DEPTHS_STEP_UP_WINDOW: {}s is outside 30 to 3600 seconds; using {}s",
+            asked.as_secs(),
+            clamped.as_secs()
+        )
+    });
+    Ok((clamped, warning))
 }
 
 /// The 062 settings. A bad value refuses start, naming the variable; with the feature off only
@@ -1200,6 +1244,12 @@ impl Config {
             ),
         )?;
 
+        let (step_up_window, step_up_warning) = step_up_window(r.pick(
+            "step_up_window",
+            flags.step_up_window,
+            &["DEPTHS_STEP_UP_WINDOW"],
+        ))?;
+
         Ok(Self {
             listen,
             public_url,
@@ -1224,6 +1274,8 @@ impl Config {
             compose_policy,
             files,
             updates,
+            step_up_window,
+            step_up_warning,
             sources: r.sources,
         })
     }
@@ -1938,6 +1990,34 @@ mod tests {
             src("updates_check_min_gap").as_deref(),
             Some("--updates-check-min-gap")
         );
+    }
+
+    #[test]
+    fn the_step_up_window_defaults_and_clamps_at_both_ends() {
+        let c = Fixture::deploy().resolve().unwrap();
+        assert_eq!(c.step_up_window, Duration::from_secs(300));
+        assert!(c.step_up_warning.is_none());
+        for (value, want, warned) in [
+            ("120", 120, false),
+            ("2m", 120, false),
+            ("30", 30, false),
+            ("3600", 3600, false),
+            ("5", 30, true),
+            ("0", 30, true),
+            ("7200", 3600, true),
+            ("2h", 3600, true),
+        ] {
+            let c = Fixture::deploy()
+                .set("DEPTHS_STEP_UP_WINDOW", value)
+                .resolve()
+                .unwrap();
+            assert_eq!(c.step_up_window, Duration::from_secs(want), "{value}");
+            assert_eq!(c.step_up_warning.is_some(), warned, "{value}");
+        }
+        let r = Fixture::deploy()
+            .set("DEPTHS_STEP_UP_WINDOW", "soon")
+            .refusal();
+        assert!(r.contains("DEPTHS_STEP_UP_WINDOW"), "{r}");
     }
 
     #[test]

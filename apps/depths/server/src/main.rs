@@ -47,6 +47,9 @@ async fn run() -> Result<(), String> {
     for (name, from) in &cfg.sources {
         tracing::info!(setting = name, from = %from, "config");
     }
+    if let Some(w) = &cfg.step_up_warning {
+        tracing::warn!("{w}");
+    }
     cfg.prepare_data_dir().map_err(|e| e.to_string())?;
     let oidc_issuer = cfg.providers.iter().find_map(|p| match p {
         ProviderConfig::Oidc { issuer, .. } => Some(issuer.clone()),
