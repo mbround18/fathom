@@ -74,13 +74,13 @@ export const STATE_ORDER: readonly UpdateState[] = [
 /** Border and text tone; the label always carries the meaning (WCAG 1.4.1). */
 export const STATE_TONE: Record<UpdateState, string> = {
   not_checked: 'border-border text-muted-foreground',
-  up_to_date: 'border-status-ok/60 text-status-ok',
+  up_to_date: 'border-status-ok text-status-ok',
   available: 'border-primary text-primary',
   moved_back: 'border-status-warn/60 text-status-warn',
   rejected: 'border-status-warn/60 text-status-warn',
   held: 'border-status-warn/60 text-status-warn',
   excluded: 'border-dashed border-border text-muted-foreground',
-  updating: 'border-primary/60 text-primary',
+  updating: 'border-primary text-primary',
   failed: 'border-status-err/60 text-status-err',
   rolled_back: 'border-status-warn/60 text-status-warn',
   rollback_failed: 'border-status-err/60 text-status-err',
@@ -246,7 +246,7 @@ export function outcomeText(o: StackOutcome): string {
 export function outcomeTone(o: StackOutcome): string {
   switch (o.kind) {
     case 'updated':
-      return 'border-status-ok/60 text-status-ok'
+      return 'border-status-ok text-status-ok'
     case 'held':
     case 'skipped':
     case 'stale':
