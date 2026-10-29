@@ -8,6 +8,12 @@
 //! Call [`init`] before the Tokio runtime starts: the OTLP HTTP client is a blocking one. Drop the
 //! runtime before the [`Guard`], so the final flush is not cut short.
 
+use std::sync::LazyLock;
+use std::time::Duration;
+
+use opentelemetry::KeyValue;
+use opentelemetry::global;
+use opentelemetry::metrics::{Counter, Histogram};
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry_otlp::WithExportConfig as _;
 use opentelemetry_sdk::Resource;
@@ -127,6 +133,73 @@ pub fn init(endpoint: Option<&str>) -> Result<Guard, String> {
         .try_init()
         .map_err(|e| format!("cannot install the log subscriber: {e}"))?;
     Ok(Guard { traces, metrics })
+}
+
+// Update checks (spec 061 research R9). The instruments bind to the global meter on first use, so
+// they record through whatever `init` installed, or nowhere.
+
+static UPDATE_CHECKS: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(SERVICE_NAME)
+        .u64_counter("keel.update.checks")
+        .with_description("Update checks, by outcome")
+        .build()
+});
+
+static UPDATE_CHECK_DURATION: LazyLock<Histogram<u64>> = LazyLock::new(|| {
+    global::meter(SERVICE_NAME)
+        .u64_histogram("keel.update.check.duration")
+        .with_unit("ms")
+        .with_description("How long one update check took")
+        .build()
+});
+
+static UPDATE_REQUESTS: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(SERVICE_NAME)
+        .u64_counter("keel.update.requests")
+        .with_description("Registry requests made by update checks, by method")
+        .build()
+});
+
+static UPDATE_PULLS: LazyLock<Counter<u64>> = LazyLock::new(|| {
+    global::meter(SERVICE_NAME)
+        .u64_counter("keel.update.pulls")
+        .with_description("Update checks that counted as an image pull")
+        .build()
+});
+
+/// The `keel.update_check` span. The outcome, request counts, status and error are recorded on it
+/// when the check ends. Never carries credentials.
+#[must_use]
+pub fn update_check_span(trigger: &'static str, image: &str) -> tracing::Span {
+    tracing::info_span!(
+        "keel.update_check",
+        keel.update.trigger = trigger,
+        keel.update.image = image,
+        keel.update.outcome = tracing::field::Empty,
+        keel.update.requests.head = tracing::field::Empty,
+        keel.update.requests.get = tracing::field::Empty,
+        keel.update.pulls = tracing::field::Empty,
+        http.response.status_code = tracing::field::Empty,
+        error.type = tracing::field::Empty,
+    )
+}
+
+/// Records one finished update check on the `keel.update.*` instruments.
+pub fn record_update_check(outcome: &'static str, took: Duration, head: u32, get: u32, pulls: u32) {
+    UPDATE_CHECKS.add(1, &[KeyValue::new("outcome", outcome)]);
+    UPDATE_CHECK_DURATION.record(
+        u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
+        &[KeyValue::new("outcome", outcome)],
+    );
+    if head > 0 {
+        UPDATE_REQUESTS.add(u64::from(head), &[KeyValue::new("method", "HEAD")]);
+    }
+    if get > 0 {
+        UPDATE_REQUESTS.add(u64::from(get), &[KeyValue::new("method", "GET")]);
+    }
+    if pulls > 0 {
+        UPDATE_PULLS.add(u64::from(pulls), &[]);
+    }
 }
 
 #[cfg(test)]
