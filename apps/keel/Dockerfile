@@ -52,14 +52,20 @@ RUN --mount=type=cache,id=keel-pnpm-store,target=/pnpm-store \
 # uid/gid 10001 (the keel_server Ansible role chowns the master key and TLS key to it).
 # No shell and no curl, so there is no HEALTHCHECK here; compose orders start on the database.
 FROM gcr.io/distroless/cc-debian13:nonroot AS server
-ARG VERSION=0.0.0
-ARG REVISION=unknown
+# Build metadata (spec 061 R2). Empty means unknown: an untagged build has no VERSION, and a plain
+# `docker build` (or compose's build) has no REVISION or CREATED. Keel refuses to start on a
+# malformed value, so the defaults stay empty rather than placeholders. These live in this stage
+# only, so changing them never invalidates the cargo-chef or build layers.
+ARG VERSION=
+ARG REVISION=
+ARG CREATED=
 ARG SOURCE=https://github.com/mbround18/fathom
 LABEL org.opencontainers.image.title="keel" \
       org.opencontainers.image.description="Keel: the Ansible control plane bound to source control (server)" \
       org.opencontainers.image.source="${SOURCE}" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${CREATED}" \
       org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=builder /src/target/release/keel /usr/local/bin/keel
 COPY --from=builder --chown=10001:10001 /out/var/lib/keel /var/lib/keel
@@ -67,7 +73,11 @@ COPY --from=web /src/apps/keel/web/dist /usr/share/keel/web
 ENV KEEL_LISTEN=0.0.0.0:7830 \
     KEEL_RUNNER_LISTEN=0.0.0.0:7831 \
     KEEL_STATIC_DIR=/usr/share/keel/web \
-    KEEL_DATA_DIR=/var/lib/keel
+    KEEL_DATA_DIR=/var/lib/keel \
+    KEEL_BUILD_VERSION=${VERSION} \
+    KEEL_BUILD_REVISION=${REVISION} \
+    KEEL_BUILD_DATE=${CREATED} \
+    KEEL_BUILD_SOURCE=${SOURCE}
 USER 10001:10001
 EXPOSE 7830 7831
 ENTRYPOINT ["/usr/local/bin/keel"]
