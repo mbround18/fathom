@@ -5,3 +5,5 @@
 //! [`window::LocalZone`] and [`window::Clock`] traits; the registry only through
 //! [`registry::Registry`]. The server owns the state files, credentials, the scheduler and the
 //! runner.
+
+pub mod reference;
