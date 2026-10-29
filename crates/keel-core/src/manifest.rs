@@ -123,6 +123,50 @@ pub struct JobDefinition {
     pub paths: Option<Vec<String>>,
     pub timeout_secs: Option<u64>,
     pub rollback: Option<Rollback>,
+    /// Values Keel may fill per run (spec 061 R4). Omitted when empty, so a definition stored
+    /// before 061 reads back, and one without params stores exactly as before.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub params: BTreeMap<String, ParamSpec>,
+}
+
+/// The most params one job may declare.
+pub const MAX_PARAMS: usize = 8;
+
+/// One declared job parameter: what kind of value Keel may pass for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ParamSpec {
+    pub kind: ParamKind,
+}
+
+/// The kinds a parameter can be. Closed: anything else is refused at parse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ParamKind {
+    /// `sha256:` and 64 lowercase hex characters.
+    OciDigest,
+}
+
+impl ParamKind {
+    /// Whether `value` is a value of this kind. The error never echoes the value.
+    ///
+    /// # Errors
+    ///
+    /// Why the value doesn't fit.
+    pub fn validate(self, value: &str) -> Result<(), &'static str> {
+        match self {
+            Self::OciDigest => {
+                let ok = value.strip_prefix("sha256:").is_some_and(|hex| {
+                    hex.len() == 64 && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+                });
+                if ok {
+                    Ok(())
+                } else {
+                    Err("not an OCI digest (sha256: and 64 lowercase hex characters)")
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -173,6 +217,8 @@ struct RawJob {
     timeout: Option<String>,
     #[serde(default)]
     rollback: Option<Rollback>,
+    #[serde(default)]
+    params: BTreeMap<String, ParamSpec>,
 }
 
 /// Parses and validates `bytes` (the manifest at the fetched head) against `tree`.
@@ -322,6 +368,25 @@ fn validate_job(
         }
     }
 
+    if job.params.len() > MAX_PARAMS {
+        issues.push(ManifestIssue::new(
+            format!("{at}.params"),
+            format!("a job declares at most {MAX_PARAMS} params"),
+        ));
+    }
+    for name in job.params.keys() {
+        let pat = format!("{at}.params.{name}");
+        if let Err(why) = check_param_name(name) {
+            issues.push(ManifestIssue::new(&pat, why));
+        }
+        if job.vars.contains_key(name) {
+            issues.push(ManifestIssue::new(
+                &pat,
+                format!("'{name}' is also set under vars"),
+            ));
+        }
+    }
+
     let mut seen = BTreeSet::new();
     for c in &job.credentials {
         if !is_name(c) {
@@ -391,6 +456,7 @@ fn validate_job(
             paths: job.paths,
             timeout_secs,
             rollback: job.rollback,
+            params: job.params,
         },
         missing_credentials,
     })
@@ -510,6 +576,23 @@ fn check_var_name(key: &str) -> Result<(), String> {
             || k.starts_with("ansible_become_pass"))
     {
         return Err("secret variables come only from credentials".into());
+    }
+    Ok(())
+}
+
+/// Param names: `^[a-z_][a-z0-9_]{0,63}$`, and never in Ansible's or Keel's own namespace.
+fn check_param_name(name: &str) -> Result<(), &'static str> {
+    let b = name.as_bytes();
+    let ok = !b.is_empty()
+        && b.len() <= 64
+        && (b[0].is_ascii_lowercase() || b[0] == b'_')
+        && b.iter()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'_');
+    if !ok {
+        return Err("a parameter name is a-z, 0-9 and '_', not starting with a digit (at most 64)");
+    }
+    if name.starts_with("ansible_") || name.starts_with("keel_internal_") {
+        return Err("a parameter name may not start with ansible_ or keel_internal_");
     }
     Ok(())
 }

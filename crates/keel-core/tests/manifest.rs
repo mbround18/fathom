@@ -2,7 +2,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use keel_core::manifest::{Context, InventorySource, ManifestIssue, PathKind, RepoTree, validate};
+use keel_core::manifest::{
+    Context, InventorySource, JobDefinition, ManifestIssue, ParamKind, PathKind, RepoTree, validate,
+};
 
 /// An in-memory tree: files, directories (implied by their children) and symlinks.
 #[derive(Default)]
@@ -378,4 +380,137 @@ fn oversized_and_malformed_manifests_are_refused() {
     let big = format!("{GOOD}\n# {}", "x".repeat(300 * 1024));
     assert!(!errors(&big, &Tree::standard(), &granted(&[])).is_empty());
     assert!(!errors("version: [", &Tree::standard(), &granted(&[])).is_empty());
+}
+
+// ---- job params (spec 061 T011, data-model.md "Job parameters") ------------------------------
+
+const DIGEST: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+/// GOOD with `block` (already indented under the job) as the job's `params`.
+fn with_params(block: &str) -> String {
+    GOOD.replace(
+        "    timeout: 30m\n",
+        &format!("    timeout: 30m\n    params:\n{block}"),
+    )
+}
+
+fn ok_ctx() -> Context {
+    granted(&["prod-vault", "web-secrets"])
+}
+
+#[test]
+fn a_job_without_params_parses_as_before() {
+    let m = validate(GOOD.as_bytes(), &Tree::standard(), &ok_ctx()).unwrap();
+    let def = &m.jobs["web-deploy"].definition;
+    assert!(def.params.is_empty());
+    // The stored definition is unchanged for jobs without params, and one stored before this
+    // spec still reads back.
+    let json = serde_json::to_value(def).unwrap();
+    assert!(json.get("params").is_none(), "{json}");
+    let back: JobDefinition = serde_json::from_value(json).unwrap();
+    assert_eq!(&back, def);
+}
+
+#[test]
+fn a_valid_params_block_parses() {
+    let y = with_params("      keel_server_image_digest: { kind: oci_digest }\n");
+    let m = validate(y.as_bytes(), &Tree::standard(), &ok_ctx()).unwrap();
+    let def = &m.jobs["web-deploy"].definition;
+    assert_eq!(
+        def.params["keel_server_image_digest"].kind,
+        ParamKind::OciDigest
+    );
+    let json = serde_json::to_value(def).unwrap();
+    assert_eq!(
+        json["params"]["keel_server_image_digest"]["kind"],
+        "oci_digest"
+    );
+    let back: JobDefinition = serde_json::from_value(json).unwrap();
+    assert_eq!(&back, def);
+}
+
+#[test]
+fn param_names_follow_the_rules() {
+    let long = "a".repeat(65);
+    for bad in [
+        "Upper",
+        "9lives",
+        "has-dash",
+        "ansible_host",
+        "keel_internal_x",
+        long.as_str(),
+    ] {
+        let y = with_params(&format!("      {bad}: {{ kind: oci_digest }}\n"));
+        let issues = errors(&y, &Tree::standard(), &ok_ctx());
+        assert!(
+            mentions(&issues, "jobs.web-deploy.params", "parameter name"),
+            "{bad}: {issues:?}"
+        );
+    }
+    // 64 characters is the longest allowed, and a leading '_' is fine.
+    let longest = "a".repeat(64);
+    for good in [longest.as_str(), "_digest"] {
+        let y = with_params(&format!("      {good}: {{ kind: oci_digest }}\n"));
+        validate(y.as_bytes(), &Tree::standard(), &ok_ctx()).unwrap();
+    }
+}
+
+#[test]
+fn at_most_eight_params() {
+    let block = |n: usize| -> String {
+        (0..n)
+            .map(|i| format!("      p{i}: {{ kind: oci_digest }}\n"))
+            .collect()
+    };
+    let issues = errors(&with_params(&block(9)), &Tree::standard(), &ok_ctx());
+    assert!(
+        mentions(&issues, "jobs.web-deploy.params", "at most 8"),
+        "{issues:?}"
+    );
+    validate(
+        with_params(&block(8)).as_bytes(),
+        &Tree::standard(),
+        &ok_ctx(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn param_kinds_are_a_closed_set() {
+    let y = with_params("      image: { kind: string }\n");
+    assert!(!errors(&y, &Tree::standard(), &ok_ctx()).is_empty());
+    // A param spec takes no other keys.
+    let y = with_params("      image: { kind: oci_digest, default: x }\n");
+    assert!(!errors(&y, &Tree::standard(), &ok_ctx()).is_empty());
+}
+
+#[test]
+fn a_param_may_not_also_be_a_var() {
+    let y = with_params("      release_channel: { kind: oci_digest }\n");
+    let issues = errors(&y, &Tree::standard(), &ok_ctx());
+    assert!(
+        mentions(&issues, "jobs.web-deploy.params.release_channel", "vars"),
+        "{issues:?}"
+    );
+}
+
+#[test]
+fn oci_digest_values_are_checked() {
+    assert!(ParamKind::OciDigest.validate(DIGEST).is_ok());
+    let upper = DIGEST.replace("abcdef", "ABCDEF");
+    let short = &DIGEST[..DIGEST.len() - 1];
+    let long = format!("{DIGEST}0");
+    let spaced = format!(" {DIGEST}");
+    let other = DIGEST.replace("sha256", "sha512");
+    for bad in [
+        "",
+        "sha256:",
+        upper.as_str(),
+        short,
+        long.as_str(),
+        spaced.as_str(),
+        other.as_str(),
+    ] {
+        assert!(ParamKind::OciDigest.validate(bad).is_err(), "{bad:?}");
+    }
 }
