@@ -10,6 +10,8 @@ const LABELS: Record<Provider, string> = {
   oidc: 'Sign in with your identity provider',
   github: 'Sign in with GitHub',
   discord: 'Sign in with Discord',
+  // Server-created actors only (spec 062); the server never offers it as a sign-in provider.
+  depths: 'Sign in',
 }
 
 /** Shown to anyone without a session. Lists the providers the server says are configured. */

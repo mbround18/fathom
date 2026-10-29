@@ -115,6 +115,7 @@ pub fn provider_str(p: Provider) -> &'static str {
         Provider::Oidc => "oidc",
         Provider::Github => "github",
         Provider::Discord => "discord",
+        Provider::Depths => "depths",
     }
 }
 

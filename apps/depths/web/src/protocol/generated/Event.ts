@@ -25,10 +25,15 @@ import type { Preview } from "./Preview";
 import type { PreviewId } from "./PreviewId";
 import type { PreviewVoidReason } from "./PreviewVoidReason";
 import type { RelPath } from "./RelPath";
+import type { RunId } from "./RunId";
+import type { RunTrigger } from "./RunTrigger";
 import type { StackDetail } from "./StackDetail";
 import type { StackList } from "./StackList";
+import type { StackOutcome } from "./StackOutcome";
+import type { StackUpdatePlan } from "./StackUpdatePlan";
 import type { StreamCloseReason } from "./StreamCloseReason";
 import type { StreamId } from "./StreamId";
+import type { UpdatesView } from "./UpdatesView";
 import type { UsageSample } from "./UsageSample";
 import type { UserList } from "./UserList";
 import type { ValidationError } from "./ValidationError";
@@ -51,4 +56,8 @@ detail?: string, } } | { "type": "Busy", "data": { stack: string, operation_id: 
 /**
  * The count stopped at the download limit.
  */
-capped: boolean, } } | { "type": "FilePreview", "data": FilePreview } | { "type": "FileOpDone", "data": { preview_id: PreviewId, mount: MountId, path: RelPath, fingerprint?: Fingerprint, running: Array<string>, } } | { "type": "History", "data": { mount: MountId, path: RelPath, versions: Array<FileVersion>, } } | { "type": "FileRefused", "data": FileRefusal } | { "type": "PasskeyChallenge", "data": PasskeyRequest } | { "type": "PasskeyRegistered", "data": PasskeyInfo } | { "type": "Passkeys", "data": { items: Array<PasskeyInfo>, } } | { "type": "Verification", "data": Verification } | { "type": "GuardExceptions", "data": { stack: string, items: Array<GuardException>, } } | { "type": "SessionExpiring", "data": { at: string, } };
+capped: boolean, } } | { "type": "FilePreview", "data": FilePreview } | { "type": "FileOpDone", "data": { preview_id: PreviewId, mount: MountId, path: RelPath, fingerprint?: Fingerprint, running: Array<string>, } } | { "type": "History", "data": { mount: MountId, path: RelPath, versions: Array<FileVersion>, } } | { "type": "FileRefused", "data": FileRefusal } | { "type": "PasskeyChallenge", "data": PasskeyRequest } | { "type": "PasskeyRegistered", "data": PasskeyInfo } | { "type": "Passkeys", "data": { items: Array<PasskeyInfo>, } } | { "type": "Verification", "data": Verification } | { "type": "GuardExceptions", "data": { stack: string, items: Array<GuardException>, } } | { "type": "Updates", "data": UpdatesView } | { "type": "UpdatesChanged", "data": UpdatesView } | { "type": "UpdatesBadge", "data": { stacks_with_updates: number, } } | { "type": "CheckStarted" } | { "type": "UpdatePreview", "data": { preview_id: PreviewId, stacks: Array<StackUpdatePlan>, step_up?: PasskeyRequest, } } | { "type": "UpdateRunStarted", "data": { run_id: RunId, trigger: RunTrigger, stacks: Array<string>, } } | { "type": "UpdateStackDone", "data": { run_id: RunId, stack: string, outcome: StackOutcome, 
+/**
+ * The `at` of the stack's audit entry.
+ */
+audit_at: string, } } | { "type": "UpdateRunFinished", "data": { run_id: RunId, summary: Array<[string, StackOutcome]>, } } | { "type": "SessionExpiring", "data": { at: string, } };

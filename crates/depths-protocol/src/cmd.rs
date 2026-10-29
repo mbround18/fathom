@@ -12,7 +12,8 @@ use crate::types::{
     AuditCursor, AuditFilter, ContainerRef, CsrfToken, FileOp, LogTail, LogTarget,
     MAX_STATS_TARGETS, MAX_USER_STACKS, MountId, OperationId, PasskeyAssertion, PasskeyPurpose,
     PasskeyResponse, PreviewId, RecoveryCode, RelPath, RequestId, Role, Shell, ShellBytes,
-    StackDraft, StackName, StackOp, StatsTarget, Timestamp, UserId, VersionId, at_most,
+    StackDraft, StackName, StackOp, StatsTarget, Timestamp, UpdateChange, UserId, VersionId,
+    at_most,
 };
 use crate::wire::StreamId;
 
@@ -225,4 +226,34 @@ pub enum Cmd {
     GetGuardExceptions {
         stack: StackName,
     },
+
+    // Image updates (spec 062). Admin.
+    /// `Updates`, then live `UpdatesChanged`.
+    ListUpdates,
+    /// `CheckStarted`, `Busy` (at most one per minute host-wide) or `Invalid` (checks off).
+    /// `None` checks every stack.
+    CheckUpdatesNow {
+        #[serde(
+            default,
+            deserialize_with = "at_most_some::<_, _, MAX_USER_STACKS>",
+            skip_serializing_if = "Option::is_none"
+        )]
+        #[ts(optional)]
+        stacks: Option<Vec<StackName>>,
+    },
+    /// `UpdatePreview`; its `Confirm` runs the batch in this order.
+    PreviewUpdateBatch {
+        #[serde(deserialize_with = "at_most::<_, _, MAX_USER_STACKS>")]
+        stacks: Vec<StackName>,
+    },
+    /// `Preview` with `step_up`; its `Confirm` gives `UpdatesChanged`.
+    PreviewUpdateChange(UpdateChange),
+}
+
+fn at_most_some<'de, D, T, const MAX: usize>(de: D) -> Result<Option<Vec<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    at_most::<D, T, MAX>(de).map(Some)
 }

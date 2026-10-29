@@ -431,7 +431,18 @@ fn all_cmds() -> Vec<Cmd> {
             version: version_id(),
             req: 4,
         },
+        Cmd::ListUpdates,
+        Cmd::CheckUpdatesNow { stacks: None },
+        Cmd::CheckUpdatesNow {
+            stacks: Some(vec![stack("media")]),
+        },
+        Cmd::PreviewUpdateBatch {
+            stacks: vec![stack("media"), stack("web")],
+        },
     ]
+    .into_iter()
+    .chain(update_changes().into_iter().map(Cmd::PreviewUpdateChange))
+    .collect()
 }
 
 /// Fails to compile when a `Cmd` variant has no sample above.
@@ -472,10 +483,15 @@ fn cmd_covered(cmd: &Cmd) -> &'static str {
         Cmd::PreviewPasskeyRemove { .. } => "PreviewPasskeyRemove",
         Cmd::RecoverPasskeys { .. } => "RecoverPasskeys",
         Cmd::GetGuardExceptions { .. } => "GetGuardExceptions",
+        Cmd::ListUpdates => "ListUpdates",
+        Cmd::CheckUpdatesNow { .. } => "CheckUpdatesNow",
+        Cmd::PreviewUpdateBatch { .. } => "PreviewUpdateBatch",
+        Cmd::PreviewUpdateChange(_) => "PreviewUpdateChange",
     }
 }
 
-const CMD_VARIANTS: usize = 35;
+const CMD_VARIANTS: usize = 39;
+const UPDATE_CHANGE_VARIANTS: usize = 5;
 const FILE_OP_VARIANTS: usize = 6;
 const STACK_OP_VARIANTS: usize = 10;
 
@@ -961,6 +977,7 @@ fn all_events() -> Vec<Event> {
             env: Some(EnvText::Masked("DB_PASSWORD=********\nPORT=80\n".into())),
             content_hash: "a".repeat(64),
             compose_warnings: vec![warning()],
+            updates: Some(vec![service_update()]),
         }),
         Event::StackDetail(StackDetail {
             stack: Stack {
@@ -971,6 +988,7 @@ fn all_events() -> Vec<Event> {
             env: Some(EnvText::Plain("PORT=80\n".into())),
             content_hash: "b".repeat(64),
             compose_warnings: vec![],
+            updates: None,
         }),
         Event::EnvRevealed {
             name: "web".into(),
@@ -1173,6 +1191,9 @@ fn all_events() -> Vec<Event> {
                         cmd: Some("Confirm".into()),
                         ..AuditPasskey::default()
                     }),
+                    on_behalf_of: None,
+                    update: None,
+                    change: None,
                 },
                 AuditEntry {
                     at: "2026-10-23T09:01:00Z".into(),
@@ -1201,6 +1222,9 @@ fn all_events() -> Vec<Event> {
                     file: None,
                     guard: None,
                     passkey: None,
+                    on_behalf_of: None,
+                    update: None,
+                    change: None,
                 },
                 AuditEntry {
                     at: "2026-10-23T09:02:00Z".into(),
@@ -1229,6 +1253,9 @@ fn all_events() -> Vec<Event> {
                     file: None,
                     guard: None,
                     passkey: None,
+                    on_behalf_of: None,
+                    update: None,
+                    change: None,
                 },
                 AuditEntry {
                     at: "2026-10-23T09:03:00Z".into(),
@@ -1259,7 +1286,11 @@ fn all_events() -> Vec<Event> {
                         reason: Some(PasskeyRefusedReason::Cancelled),
                         ..AuditPasskey::default()
                     }),
+                    on_behalf_of: None,
+                    update: None,
+                    change: None,
                 },
+                update_audit_entry(),
             ],
             next_cursor: Some("c2VnLTE".into()),
         },
@@ -1403,6 +1434,44 @@ fn all_events() -> Vec<Event> {
                 granted: Some("2026-10-23T09:00:00Z".into()),
             }],
         },
+        Event::Updates(updates_view()),
+        Event::UpdatesChanged(UpdatesView {
+            available: UpdatesAvailability::Unreadable {
+                path: "/var/lib/depths/updates.json".into(),
+                error: "expected value at line 1 column 1".into(),
+            },
+            auto_paused: Some(AutoPause::SettingsUnreadable),
+            ..updates_view()
+        }),
+        Event::UpdatesBadge {
+            stacks_with_updates: 3,
+        },
+        Event::CheckStarted,
+        Event::UpdatePreview {
+            preview_id: preview_id(),
+            stacks: vec![stack_update_plan()],
+            step_up: Some(passkey_request()),
+        },
+        Event::UpdateRunStarted {
+            run_id: run_id(),
+            trigger: RunTrigger::Manual { actor: actor() },
+            stacks: vec!["media".into(), "web".into()],
+        },
+        Event::UpdateStackDone {
+            run_id: run_id(),
+            stack: "media".into(),
+            outcome: StackOutcome::Skipped {
+                reason: "busy: octocat up".into(),
+            },
+            audit_at: "2026-10-28T03:01:00Z".into(),
+        },
+        Event::UpdateRunFinished {
+            run_id: run_id(),
+            summary: vec![
+                ("media".into(), StackOutcome::Updated),
+                ("web".into(), StackOutcome::RolledBack),
+            ],
+        },
     ]
 }
 
@@ -1452,10 +1521,18 @@ fn event_covered(event: &Event) -> &'static str {
         Event::Passkeys { .. } => "Passkeys",
         Event::Verification(_) => "Verification",
         Event::GuardExceptions { .. } => "GuardExceptions",
+        Event::Updates(_) => "Updates",
+        Event::UpdatesChanged(_) => "UpdatesChanged",
+        Event::UpdatesBadge { .. } => "UpdatesBadge",
+        Event::CheckStarted => "CheckStarted",
+        Event::UpdatePreview { .. } => "UpdatePreview",
+        Event::UpdateRunStarted { .. } => "UpdateRunStarted",
+        Event::UpdateStackDone { .. } => "UpdateStackDone",
+        Event::UpdateRunFinished { .. } => "UpdateRunFinished",
     }
 }
 
-const EVENT_VARIANTS: usize = 43;
+const EVENT_VARIANTS: usize = 51;
 
 #[test]
 fn every_event_roundtrips_in_an_envelope() {
@@ -1840,4 +1917,529 @@ fn file_audit_actions_are_dotted_and_carry_no_content() {
             .values()
             .all(|x| !x.is_object() && !x.is_array())
     );
+}
+
+// ---------------------------------------------------------------------------
+// Image updates (spec 062)
+// ---------------------------------------------------------------------------
+
+const DIGEST_A: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const DIGEST_B: &str = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+fn run_id() -> RunId {
+    RunId(Uuid::from_u128(3))
+}
+
+fn digest(d: &str) -> ImageDigest {
+    ImageDigest::new(d).unwrap()
+}
+
+fn window() -> MaintenanceWindow {
+    MaintenanceWindow {
+        days: vec![Weekday::Sat, Weekday::Sun],
+        start: TimeOfDay::new("23:00").unwrap(),
+        end: TimeOfDay::new("01:00").unwrap(),
+    }
+}
+
+fn update_settings() -> UpdateSettings {
+    UpdateSettings {
+        checks_enabled: true,
+        interval_secs: 21_600,
+        window: window(),
+        scope: Some(UpdateScope::new("media").unwrap()),
+        label_only: false,
+        cleanup: true,
+        health_timeout_secs: 120,
+    }
+}
+
+fn effective_policy() -> EffectivePolicy {
+    EffectivePolicy {
+        policy: UpdatePolicy::Notify,
+        source: PolicySource::Label {
+            rule: LabelRule::MonitorOnly,
+        },
+        excluded: None,
+        labels: vec![
+            WatchtowerLabel {
+                key: "com.centurylinklabs.watchtower.monitor-only".into(),
+                value: "true".into(),
+                effect: LabelEffect::Applied,
+            },
+            WatchtowerLabel {
+                key: "com.centurylinklabs.watchtower.lifecycle.pre-update".into(),
+                value: "/backup.sh".into(),
+                effect: LabelEffect::NotRun {
+                    reason: "Depths never runs commands from labels".into(),
+                },
+            },
+            WatchtowerLabel {
+                key: "com.centurylinklabs.watchtower.stop-signal".into(),
+                value: "SIGHUP".into(),
+                effect: LabelEffect::NotUsed {
+                    reason: "compose stop_signal applies".into(),
+                },
+            },
+            WatchtowerLabel {
+                key: "com.centurylinklabs.watchtower.made-up".into(),
+                value: "1".into(),
+                effect: LabelEffect::Unrecognised,
+            },
+        ],
+    }
+}
+
+fn service_update() -> ServiceUpdate {
+    ServiceUpdate {
+        stack: "media".into(),
+        service: "app".into(),
+        reference: "ghcr.io/example/app:1".into(),
+        running: Some(RunningImage {
+            image_id: DIGEST_A.into(),
+            repo_digest: Some(format!("ghcr.io/example/app@{DIGEST_A}")),
+            version: Some("1.0.0".into()),
+            revision: None,
+        }),
+        available: Some(AvailableImage {
+            digest: DIGEST_B.into(),
+            platform_digest: DIGEST_B.into(),
+            config_digest: DIGEST_A.into(),
+            version: Some("1.0.1".into()),
+            revision: Some("abc123".into()),
+            created: Some("2026-10-20T00:00:00Z".into()),
+            user: Some(String::new()),
+        }),
+        state: UpdateState::Available,
+        reason: None,
+        effective: effective_policy(),
+        last_checked: Some("2026-10-28T03:00:00Z".into()),
+        last_outcome: Some(StackOutcome::Updated),
+        replicas: 1,
+    }
+}
+
+fn updates_view() -> UpdatesView {
+    UpdatesView {
+        settings: update_settings(),
+        available: UpdatesAvailability::On,
+        zone: "Europe/Berlin (UTC+01:00)".into(),
+        next_check: Some("2026-10-28T09:00:00Z".into()),
+        next_window: Some("2026-10-31T22:00:00Z".into()),
+        auto_paused: Some(AutoPause::WatchtowerRunning {
+            containers: vec!["watchtower".into()],
+        }),
+        services: vec![service_update()],
+        policies: [(
+            "media".to_owned(),
+            StackUpdatePolicy {
+                policy: UpdatePolicy::Auto,
+                window: Some(window()),
+                set_by: actor(),
+                set_at: "2026-10-28T09:05:00Z".into(),
+            },
+        )]
+        .into_iter()
+        .collect(),
+        recent_runs: vec![UpdateRun {
+            run_id: run_id(),
+            trigger: RunTrigger::Scheduled {
+                on_behalf_of: [("media".to_owned(), actor())].into_iter().collect(),
+            },
+            stacks: vec![StackRun {
+                stack: "media".into(),
+                services: vec![ServiceChange {
+                    service: "app".into(),
+                    from_image: DIGEST_A.into(),
+                    to_digest: DIGEST_B.into(),
+                    to_image: None,
+                }],
+                operation_id: Some(operation_id()),
+                phase: RunPhase::Waiting,
+                outcome: None,
+            }],
+            started_at: "2026-10-28T03:00:00Z".into(),
+            finished_at: None,
+        }],
+        watchtower: vec![WatchtowerContainer {
+            id: "c".repeat(64),
+            name: "watchtower".into(),
+            image: "containrrr/watchtower:latest".into(),
+            acknowledged: Some(WatchtowerAnswer::MonitorOnly),
+        }],
+        paused_policies: vec!["web".into()],
+        registries: vec![
+            RegistryStatus {
+                host: "docker.io".into(),
+                auth: RegistryAuth::Anonymous,
+                backoff_until: Some("2026-10-28T04:00:00Z".into()),
+            },
+            RegistryStatus {
+                host: "ghcr.io".into(),
+                auth: RegistryAuth::Unsupported {
+                    reason: "credential helper".into(),
+                },
+                backoff_until: None,
+            },
+        ],
+    }
+}
+
+fn stack_update_plan() -> StackUpdatePlan {
+    StackUpdatePlan {
+        stack: "media".into(),
+        services: vec![service_update()],
+        skipped: vec![("db".into(), "pinned_by_digest".into())],
+        argv: vec![vec![
+            "docker".into(),
+            "pull".into(),
+            format!("ghcr.io/example/app@{DIGEST_B}"),
+        ]],
+        findings: vec![warning()],
+        ack_required: false,
+    }
+}
+
+fn update_changes() -> Vec<UpdateChange> {
+    vec![
+        UpdateChange::Settings(update_settings()),
+        UpdateChange::Policy {
+            stack: stack("media"),
+            policy: UpdatePolicy::Auto,
+            window: None,
+        },
+        UpdateChange::AckWatchtower {
+            container_id: ContainerId::new("c".repeat(64)).unwrap(),
+            answer: WatchtowerAnswer::Stopped,
+        },
+        UpdateChange::Retry {
+            stack: stack("media"),
+            service: ServiceName::new("app").unwrap(),
+            digest: digest(DIGEST_B),
+        },
+        UpdateChange::ApplyHeld {
+            stack: stack("media"),
+            service: ServiceName::new("app").unwrap(),
+            digest: digest(DIGEST_B),
+        },
+    ]
+}
+
+fn update_audit_entry() -> AuditEntry {
+    AuditEntry {
+        at: "2026-10-28T03:02:00Z".into(),
+        actor: Actor {
+            provider: Provider::Depths,
+            subject: "scheduler".into(),
+            username: "Depths scheduler".into(),
+        },
+        action: AuditAction::ImageUpdate,
+        stack: Some("media".into()),
+        preview_id: None,
+        operation_id: Some(operation_id()),
+        argv: vec![vec!["docker".into(), "compose".into(), "up".into()]],
+        target: None,
+        diff_summary: None,
+        outcome: AuditOutcome::Succeeded,
+        source_ip: "127.0.0.1".into(),
+        network: None,
+        security: None,
+        file: None,
+        guard: None,
+        passkey: None,
+        on_behalf_of: Some(actor()),
+        update: Some(AuditUpdate {
+            run_id: run_id(),
+            services: vec![AuditServiceUpdate {
+                service: "app".into(),
+                from_image: DIGEST_A.into(),
+                from_digest: Some(DIGEST_A.into()),
+                to_image: None,
+                to_digest: DIGEST_B.into(),
+                version: Some("1.0.1".into()),
+            }],
+            rejected_digest: None,
+            hold: None,
+        }),
+        change: Some(AuditChange {
+            before: json!({ "policy": "notify" }),
+            after: json!({ "policy": "auto" }),
+        }),
+    }
+}
+
+#[test]
+fn every_update_change_roundtrips() {
+    let changes = update_changes();
+    let mut kinds: Vec<_> = changes.iter().map(std::mem::discriminant).collect();
+    kinds.dedup();
+    assert_eq!(kinds.len(), UPDATE_CHANGE_VARIANTS);
+    for c in &changes {
+        roundtrip(c);
+    }
+}
+
+#[test]
+fn every_update_enum_roundtrips() {
+    for s in [
+        UpdateState::NotChecked,
+        UpdateState::UpToDate,
+        UpdateState::Available,
+        UpdateState::MovedBack,
+        UpdateState::Rejected,
+        UpdateState::Held,
+        UpdateState::Excluded,
+        UpdateState::Updating,
+        UpdateState::Failed,
+        UpdateState::RolledBack,
+        UpdateState::RollbackFailed,
+        UpdateState::Interrupted,
+        UpdateState::CheckFailed,
+    ] {
+        roundtrip(&s);
+    }
+    for o in [
+        StackOutcome::Updated,
+        StackOutcome::Held,
+        StackOutcome::Skipped {
+            reason: "cancelled".into(),
+        },
+        StackOutcome::Failed,
+        StackOutcome::RolledBack,
+        StackOutcome::RollbackFailed,
+        StackOutcome::Interrupted,
+        StackOutcome::Stale,
+    ] {
+        roundtrip(&o);
+    }
+    for p in [
+        RunPhase::Pending,
+        RunPhase::Pulling,
+        RunPhase::Checking,
+        RunPhase::Recreating,
+        RunPhase::Waiting,
+        RunPhase::RollingBack,
+        RunPhase::Cleaning,
+        RunPhase::Done,
+    ] {
+        roundtrip(&p);
+    }
+    let exclusions = [
+        (Exclusion::PinnedByDigest, "pinned_by_digest"),
+        (Exclusion::BuildContext, "build_context"),
+        (Exclusion::LocalImage, "local_image"),
+        (Exclusion::BadReference, "bad_reference"),
+        (Exclusion::LabelDisabled, "label_disabled"),
+        (Exclusion::LabelOnlyMode, "label_only_mode"),
+        (Exclusion::ScopeMismatch { scope: None }, "scope_mismatch"),
+        (Exclusion::NoPull, "no_pull"),
+        (Exclusion::DepthsItself, "depths_itself"),
+    ];
+    for (e, code) in exclusions {
+        roundtrip(&e);
+        assert_eq!(serde_json::to_value(&e).unwrap()["kind"], json!(code));
+    }
+    for s in [
+        PolicySource::StackPolicy,
+        PolicySource::Default,
+        PolicySource::Label {
+            rule: LabelRule::Enable,
+        },
+        PolicySource::Label {
+            rule: LabelRule::Scope,
+        },
+        PolicySource::Label {
+            rule: LabelRule::NoPull,
+        },
+    ] {
+        roundtrip(&s);
+    }
+    for a in [
+        AutoPause::Disabled,
+        AutoPause::SettingsUnreadable,
+        AutoPause::WatchtowerRunning { containers: vec![] },
+    ] {
+        roundtrip(&a);
+    }
+    roundtrip(&UpdatesAvailability::Off);
+    roundtrip(&RegistryAuth::Config);
+    roundtrip(&update_audit_entry());
+}
+
+#[test]
+fn update_wire_shapes_are_pinned() {
+    assert_eq!(
+        serde_json::to_value(window()).unwrap(),
+        json!({ "days": ["sat", "sun"], "start": "23:00", "end": "01:00" })
+    );
+    assert_eq!(
+        serde_json::to_value(Cmd::CheckUpdatesNow { stacks: None }).unwrap(),
+        json!({ "type": "CheckUpdatesNow", "data": {} })
+    );
+    assert_eq!(
+        serde_json::to_value(Cmd::PreviewUpdateChange(UpdateChange::Retry {
+            stack: stack("media"),
+            service: ServiceName::new("app").unwrap(),
+            digest: digest(DIGEST_B),
+        }))
+        .unwrap(),
+        json!({ "type": "PreviewUpdateChange", "data": {
+            "kind": "retry",
+            "data": { "stack": "media", "service": "app", "digest": DIGEST_B }
+        } })
+    );
+    assert_eq!(
+        serde_json::to_value(Cmd::PreviewUpdateChange(UpdateChange::Settings(
+            update_settings()
+        )))
+        .unwrap()["data"]["kind"],
+        json!("settings")
+    );
+    assert_eq!(
+        serde_json::to_value(effective_policy()).unwrap()["source"],
+        json!({ "kind": "label", "rule": "monitor_only" })
+    );
+    assert_eq!(
+        serde_json::to_value(UpdatePolicy::Auto).unwrap(),
+        json!("auto")
+    );
+    assert_eq!(
+        serde_json::to_value(UpdateState::CheckFailed).unwrap(),
+        json!("check_failed")
+    );
+    assert_eq!(
+        serde_json::to_value(StackOutcome::RollbackFailed).unwrap(),
+        json!({ "kind": "rollback_failed" })
+    );
+    assert_eq!(
+        serde_json::to_value(RunTrigger::Manual { actor: actor() }).unwrap()["kind"],
+        json!("manual")
+    );
+    assert_eq!(
+        serde_json::to_value(Provider::Depths).unwrap(),
+        json!("depths")
+    );
+    assert_eq!(
+        serde_json::to_value(UpdatesAvailability::Unreadable {
+            path: "/p".into(),
+            error: "e".into()
+        })
+        .unwrap(),
+        json!({ "kind": "unreadable", "path": "/p", "error": "e" })
+    );
+    for (a, wire) in [
+        (AuditAction::ImageUpdate, "image_update"),
+        (AuditAction::ImageRollback, "image_rollback"),
+        (AuditAction::ImageHold, "image_hold"),
+        (AuditAction::ImageHoldApply, "image_hold_apply"),
+        (AuditAction::ImageRemove, "image_remove"),
+        (AuditAction::UpdateInterrupted, "update_interrupted"),
+        (AuditAction::UpdateSettings, "update_settings"),
+        (AuditAction::UpdatePolicy, "update_policy"),
+        (AuditAction::UpdateRetry, "update_retry"),
+        (AuditAction::WatchtowerAck, "watchtower_ack"),
+    ] {
+        assert_eq!(serde_json::to_value(a).unwrap(), json!(wire));
+    }
+}
+
+#[test]
+fn old_wire_decodes_without_update_fields() {
+    // A 054-era StackDetail: no `updates`.
+    let mut detail = serde_json::to_value(StackDetail {
+        stack: stack_summary(),
+        compose_text: None,
+        env: None,
+        content_hash: "a".repeat(64),
+        compose_warnings: vec![],
+        updates: None,
+    })
+    .unwrap();
+    assert!(detail.get("updates").is_none(), "None is not sent");
+    detail.as_object_mut().unwrap().remove("updates");
+    let back: StackDetail = serde_json::from_value(detail).unwrap();
+    assert_eq!(back.updates, None);
+
+    // A 054-era audit line: no `on_behalf_of`, `update` or `change`.
+    let mut entry = serde_json::to_value(update_audit_entry()).unwrap();
+    let obj = entry.as_object_mut().unwrap();
+    obj.remove("on_behalf_of");
+    obj.remove("update");
+    obj.remove("change");
+    obj.insert("actor".into(), serde_json::to_value(actor()).unwrap());
+    let back: AuditEntry = serde_json::from_value(entry).unwrap();
+    assert_eq!(
+        (back.on_behalf_of, back.update, back.change),
+        (None, None, None)
+    );
+    let line = serde_json::to_value(&AuditEntry {
+        on_behalf_of: None,
+        update: None,
+        change: None,
+        ..update_audit_entry()
+    })
+    .unwrap();
+    for key in ["on_behalf_of", "update", "change"] {
+        assert!(line.get(key).is_none(), "{key} is not written when None");
+    }
+
+    // Every provider the old wire knew still parses.
+    for p in ["oidc", "github", "discord", "depths"] {
+        accepts::<Provider>(json!(p));
+    }
+}
+
+#[test]
+fn update_cmds_refuse_bad_values() {
+    let change = |data: Value| json!({ "type": "PreviewUpdateChange", "data": data });
+    let settings = serde_json::to_value(update_settings()).unwrap();
+    accepts::<Cmd>(change(
+        json!({ "kind": "settings", "data": settings.clone() }),
+    ));
+
+    let mut extra = settings.clone();
+    extra["changed_by"] = json!("someone");
+    rejects::<Cmd>(change(json!({ "kind": "settings", "data": extra })));
+
+    for (field, bad) in [
+        ("start", json!("24:00")),
+        ("start", json!("3:00")),
+        ("end", json!("03:60")),
+        ("end", json!("03:00:00")),
+        ("days", json!(["mon", "funday"])),
+        ("days", json!(vec!["mon"; 8])),
+    ] {
+        let mut s = settings.clone();
+        s["window"][field] = bad.clone();
+        rejects::<Cmd>(change(json!({ "kind": "settings", "data": s })));
+    }
+    for scope in [json!(""), json!("a".repeat(65)), json!("has space")] {
+        let mut s = settings.clone();
+        s["scope"] = scope;
+        rejects::<Cmd>(change(json!({ "kind": "settings", "data": s })));
+    }
+    for bad in [
+        "sha256:abc",
+        "md5:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    ] {
+        rejects::<Cmd>(change(json!({ "kind": "retry", "data": {
+            "stack": "media", "service": "app", "digest": bad
+        } })));
+    }
+    rejects::<Cmd>(change(json!({ "kind": "ack_watchtower", "data": {
+        "container_id": "watchtower", "answer": "stopped"
+    } })));
+    rejects::<Cmd>(change(json!({ "kind": "policy", "data": {
+        "stack": "media", "policy": "always"
+    } })));
+    rejects::<Cmd>(change(json!({ "kind": "rebuild", "data": {} })));
+    rejects::<Cmd>(json!({ "type": "CheckUpdatesNow", "data": { "stacks": ["Bad Name"] } }));
+    rejects::<Cmd>(json!({ "type": "PreviewUpdateBatch", "data": {
+        "stacks": vec!["a"; MAX_USER_STACKS + 1]
+    } }));
+    accepts::<Cmd>(json!({ "type": "CheckUpdatesNow", "data": {} }));
+    accepts::<Cmd>(change(json!({ "kind": "policy", "data": {
+        "stack": "media", "policy": "off"
+    } })));
 }

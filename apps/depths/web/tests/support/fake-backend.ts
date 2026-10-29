@@ -1248,6 +1248,13 @@ export class FakeBackend {
 
       case 'RecoverPasskeys':
         return [{ type: 'PasskeyRefused', data: { reason: 'recovery_invalid' } }]
+
+      // Spec 062: refused until the Updates service is wired, as the server does.
+      case 'ListUpdates':
+      case 'CheckUpdatesNow':
+      case 'PreviewUpdateBatch':
+      case 'PreviewUpdateChange':
+        return denied('feature_disabled')
     }
   }
 

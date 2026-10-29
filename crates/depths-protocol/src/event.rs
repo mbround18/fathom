@@ -7,8 +7,9 @@ use crate::types::{
     Actor, AuditEntry, ComposeWarning, DenyReason, Entry, EnvText, FileContent, FilePreview,
     FileRefusal, FileVersion, Fingerprint, GuardException, GuardRefusal, HostSample, Mount,
     MountId, OpOutcome, OperationId, OperationKind, PasskeyInfo, PasskeyRefusedReason,
-    PasskeyRequest, Preview, PreviewId, PreviewVoidReason, RelPath, RequestId, StackDetail,
-    StackList, StreamCloseReason, UserList, ValidationError, Verification, VersionId,
+    PasskeyRequest, Preview, PreviewId, PreviewVoidReason, RelPath, RequestId, RunId, RunTrigger,
+    StackDetail, StackList, StackOutcome, StackUpdatePlan, StreamCloseReason, UpdatesView,
+    UserList, ValidationError, Verification, VersionId,
 };
 use crate::wire::{StreamId, UsageSample};
 
@@ -205,6 +206,41 @@ pub enum Event {
     GuardExceptions {
         stack: String,
         items: Vec<GuardException>,
+    },
+
+    // Image updates (spec 062). Admin, except `StackDetail.updates`.
+    Updates(UpdatesView),
+    /// After a check pass, a run step, a settings change or a Watchtower container coming or
+    /// going. At most one per second.
+    UpdatesChanged(UpdatesView),
+    /// On sign-in and when the count changes: drives the navigation badge.
+    UpdatesBadge {
+        stacks_with_updates: u32,
+    },
+    CheckStarted,
+    /// A batch preview. Binds each stack's `content_hash`, the digests shown and the order.
+    UpdatePreview {
+        preview_id: PreviewId,
+        stacks: Vec<StackUpdatePlan>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        step_up: Option<PasskeyRequest>,
+    },
+    UpdateRunStarted {
+        run_id: RunId,
+        trigger: RunTrigger,
+        stacks: Vec<String>,
+    },
+    UpdateStackDone {
+        run_id: RunId,
+        stack: String,
+        outcome: StackOutcome,
+        /// The `at` of the stack's audit entry.
+        audit_at: String,
+    },
+    UpdateRunFinished {
+        run_id: RunId,
+        summary: Vec<(String, StackOutcome)>,
     },
 
     // Session

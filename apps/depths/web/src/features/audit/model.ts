@@ -49,6 +49,16 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   step_up_required: 'Passkey check required',
   passkey_recovery_issued: 'Recovery code issued',
   passkey_recovered: 'Passkeys recovered',
+  image_update: 'Images updated',
+  image_rollback: 'Update rolled back',
+  image_hold: 'Update held',
+  image_hold_apply: 'Held update applied',
+  image_remove: 'Old image removed',
+  update_interrupted: 'Update interrupted',
+  update_settings: 'Update settings changed',
+  update_policy: 'Update policy changed',
+  update_retry: 'Rejected update retried',
+  watchtower_ack: 'Watchtower acknowledged',
 }
 
 export const ACTIONS = Object.keys(ACTION_LABEL) as AuditAction[]

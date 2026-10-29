@@ -5,6 +5,7 @@
 //! still resolves names through the fs adapter and authorises every command (contracts/protocol.md,
 //! "Rules the server enforces"). Doc comments here are exported into the TypeScript bindings.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -343,6 +344,8 @@ pub enum Provider {
     Oidc,
     Github,
     Discord,
+    /// Server-created actors only (spec 062: the update scheduler). Nobody signs in as it.
+    Depths,
 }
 
 /// Access level in the users registry. `pending` = signed in, no access.
@@ -723,6 +726,10 @@ pub struct StackDetail {
     #[serde(default)]
     #[ts(as = "Option<Vec<ComposeWarning>>", optional)]
     pub compose_warnings: Vec<ComposeWarning>,
+    /// Image update states (spec 062). `None` when checks are off or the feature is disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub updates: Option<Vec<ServiceUpdate>>,
 }
 
 /// An edit to save, or a stack to create (data-model "StackDraft").
@@ -1085,6 +1092,22 @@ pub enum AuditAction {
     PasskeyRecoveryIssued,
     /// A recovery code was used: the person's passkeys were removed.
     PasskeyRecovered,
+    /// A stack's images were updated (spec 062).
+    ImageUpdate,
+    ImageRollback,
+    /// An update held by a 051 finding or the guard.
+    ImageHold,
+    /// An administrator applied a held image.
+    ImageHoldApply,
+    /// Cleanup removed an image Depths had replaced.
+    ImageRemove,
+    /// A run found open at start.
+    UpdateInterrupted,
+    UpdateSettings,
+    UpdatePolicy,
+    /// A rejected digest was forgotten.
+    UpdateRetry,
+    WatchtowerAck,
 }
 
 impl From<OperationKind> for AuditAction {
@@ -1173,6 +1196,18 @@ pub struct AuditEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub passkey: Option<AuditPasskey>,
+    /// Scheduled updates: the administrator who set the stack to Auto (spec 062).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub on_behalf_of: Option<Actor>,
+    /// Update entries (spec 062).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub update: Option<AuditUpdate>,
+    /// Settings or policy before and after (spec 062).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub change: Option<AuditChange>,
 }
 
 /// The file part of an audit entry. Names and sizes only: no field can carry content.
@@ -2027,4 +2062,521 @@ pub struct AuditPasskey {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub person: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Image updates (spec 062)
+// ---------------------------------------------------------------------------
+
+/// Most days in a window.
+pub const MAX_WINDOW_DAYS: usize = 7;
+/// Longest Watchtower scope.
+pub const MAX_SCOPE_BYTES: usize = 64;
+
+/// Server-generated id of an update run (a batch or a scheduled run).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+pub struct RunId(#[ts(type = "string")] pub Uuid);
+
+checked_string!(
+    /// `HH:MM`, 00:00 to 23:59, in the host's zone.
+    TimeOfDay,
+    "time of day",
+    |v| {
+        let b = v.as_bytes();
+        if b.len() != 5 || b[2] != b':' {
+            return Err("not HH:MM");
+        }
+        let digits = [b[0], b[1], b[3], b[4]];
+        if !digits.iter().all(u8::is_ascii_digit) {
+            return Err("not HH:MM");
+        }
+        let hour = (b[0] - b'0') * 10 + (b[1] - b'0');
+        let minute = (b[3] - b'0') * 10 + (b[4] - b'0');
+        if hour > 23 || minute > 59 {
+            return Err("out of range");
+        }
+        Ok(())
+    }
+);
+
+checked_string!(
+    /// A Watchtower scope: 1 to 64 of `[A-Za-z0-9._-]`. `none` has Watchtower's meaning.
+    UpdateScope,
+    "update scope",
+    |v| {
+        bounded(v, MAX_SCOPE_BYTES)?;
+        charset(
+            v,
+            |b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'),
+            |b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'),
+        )
+    }
+);
+
+checked_string!(
+    /// An image digest: `sha256:` and 64, or `sha512:` and 128, lower-case hex digits.
+    ImageDigest,
+    "image digest",
+    |v| {
+        let (alg, hex) = v.split_once(':').ok_or("no algorithm")?;
+        let len = match alg {
+            "sha256" => 64,
+            "sha512" => 128,
+            _ => return Err("unknown algorithm"),
+        };
+        if hex.len() != len {
+            return Err("wrong length");
+        }
+        charset(hex, is_lower_hex, is_lower_hex)
+    }
+);
+
+checked_string!(
+    /// A full container id: 64 lower-case hex digits.
+    ContainerId,
+    "container id",
+    |v| {
+        if v.len() != 64 {
+            return Err("not 64 hex digits");
+        }
+        charset(v, is_lower_hex, is_lower_hex)
+    }
+);
+
+/// A day of the week, in the host's zone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Weekday {
+    Mon,
+    Tue,
+    Wed,
+    Thu,
+    Fri,
+    Sat,
+    Sun,
+}
+
+/// A maintenance window in the host's local time (contracts `Window`; renamed so the TypeScript
+/// does not shadow the DOM's `Window`). `end` before `start` crosses midnight and
+/// belongs to the day it starts. The server refuses no days, a repeated day and `end == start`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct MaintenanceWindow {
+    #[serde(deserialize_with = "at_most::<_, _, MAX_WINDOW_DAYS>")]
+    pub days: Vec<Weekday>,
+    pub start: TimeOfDay,
+    pub end: TimeOfDay,
+}
+
+/// The host's update settings (`updates.json`). The server refuses `interval_secs` below 3600
+/// and `health_timeout_secs` outside 30..=1800.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateSettings {
+    pub checks_enabled: bool,
+    pub interval_secs: u32,
+    pub window: MaintenanceWindow,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub scope: Option<UpdateScope>,
+    pub label_only: bool,
+    pub cleanup: bool,
+    pub health_timeout_secs: u32,
+}
+
+/// Whether updates can run at all.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum UpdatesAvailability {
+    /// Checks are off.
+    Off,
+    On,
+    /// `updates.json` could not be read; it is never rewritten. Checks are off, Auto is paused.
+    Unreadable {
+        path: String,
+        error: String,
+    },
+}
+
+/// Why scheduled (Auto) updates are not running.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AutoPause {
+    /// A Watchtower container runs and nobody has answered for it. Names.
+    WatchtowerRunning {
+        containers: Vec<String>,
+    },
+    /// `DEPTHS_UPDATES_AUTO=off`.
+    Disabled,
+    SettingsUnreadable,
+}
+
+/// What an administrator chose for a stack. A stack with no entry is `notify`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdatePolicy {
+    Off,
+    Notify,
+    Auto,
+}
+
+/// A stack's stored policy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct StackUpdatePolicy {
+    pub policy: UpdatePolicy,
+    /// Overrides the host window.
+    pub window: Option<MaintenanceWindow>,
+    /// Named as `on_behalf_of` in scheduled audit entries.
+    pub set_by: Actor,
+    /// RFC 3339 UTC.
+    pub set_at: String,
+}
+
+/// A Watchtower label rule Depths honours.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum LabelRule {
+    Enable,
+    MonitorOnly,
+    Scope,
+    NoPull,
+}
+
+/// What decided a service's effective policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PolicySource {
+    StackPolicy,
+    Default,
+    Label { rule: LabelRule },
+}
+
+/// Why a service is never checked or updated.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Exclusion {
+    PinnedByDigest,
+    BuildContext,
+    LocalImage,
+    BadReference,
+    LabelDisabled,
+    LabelOnlyMode,
+    /// The container's own scope label, if it has one.
+    ScopeMismatch {
+        scope: Option<String>,
+    },
+    NoPull,
+    DepthsItself,
+}
+
+/// What Depths did with a Watchtower label.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LabelEffect {
+    Applied,
+    /// A hook: Depths never runs commands from labels.
+    NotRun {
+        reason: String,
+    },
+    NotUsed {
+        reason: String,
+    },
+    Unrecognised,
+}
+
+/// One Watchtower label on a container.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct WatchtowerLabel {
+    pub key: String,
+    pub value: String,
+    pub effect: LabelEffect,
+}
+
+/// The policy that applies to one service, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct EffectivePolicy {
+    /// After labels: never less restrictive than the stack's. `off` when excluded.
+    pub policy: UpdatePolicy,
+    pub source: PolicySource,
+    pub excluded: Option<Exclusion>,
+    /// Every Watchtower label seen, with what Depths did with it.
+    pub labels: Vec<WatchtowerLabel>,
+}
+
+/// The image a service's container runs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct RunningImage {
+    pub image_id: String,
+    pub repo_digest: Option<String>,
+    pub version: Option<String>,
+    pub revision: Option<String>,
+}
+
+/// What the tag points to now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AvailableImage {
+    /// The tag's digest (index or manifest).
+    pub digest: String,
+    /// The manifest for the host platform.
+    pub platform_digest: String,
+    pub config_digest: String,
+    /// `org.opencontainers.image.version`.
+    pub version: Option<String>,
+    /// `org.opencontainers.image.revision`.
+    pub revision: Option<String>,
+    pub created: Option<String>,
+    /// `config.User`, for the root check.
+    pub user: Option<String>,
+}
+
+/// Where a service stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateState {
+    NotChecked,
+    UpToDate,
+    Available,
+    /// The tag points to an image older than the running one.
+    MovedBack,
+    /// The tag's digest was rolled back before.
+    Rejected,
+    Held,
+    Excluded,
+    Updating,
+    Failed,
+    RolledBack,
+    RollbackFailed,
+    Interrupted,
+    /// Keeps the last known running and available images; `reason` says why.
+    CheckFailed,
+}
+
+/// One service's update state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ServiceUpdate {
+    pub stack: String,
+    pub service: String,
+    /// As written in the compose file.
+    pub reference: String,
+    /// `None` when no container runs.
+    pub running: Option<RunningImage>,
+    pub available: Option<AvailableImage>,
+    pub state: UpdateState,
+    /// For held, excluded, failed and check failed (`can't check: …`).
+    pub reason: Option<String>,
+    pub effective: EffectivePolicy,
+    pub last_checked: Option<String>,
+    pub last_outcome: Option<StackOutcome>,
+    pub replicas: u32,
+}
+
+/// A Watchtower container seen on the host.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct WatchtowerContainer {
+    pub id: String,
+    pub name: String,
+    pub image: String,
+    pub acknowledged: Option<WatchtowerAnswer>,
+}
+
+/// An administrator's answer about a Watchtower container.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum WatchtowerAnswer {
+    Stopped,
+    MonitorOnly,
+}
+
+/// How Depths authenticates to a registry. Never a credential.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RegistryAuth {
+    Anonymous,
+    /// From the mounted `config.json`.
+    Config,
+    /// A credential helper or identity token: "can't check".
+    Unsupported {
+        reason: String,
+    },
+}
+
+/// A registry Depths has talked to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct RegistryStatus {
+    pub host: String,
+    pub auth: RegistryAuth,
+    /// Set while the registry is backed off (rate limit or unreachable).
+    pub backoff_until: Option<String>,
+}
+
+/// What started a run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RunTrigger {
+    Manual {
+        actor: Actor,
+    },
+    /// The administrator who set each stack to Auto.
+    Scheduled {
+        on_behalf_of: BTreeMap<String, Actor>,
+    },
+}
+
+/// Where a stack's run is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum RunPhase {
+    Pending,
+    Pulling,
+    Checking,
+    Recreating,
+    Waiting,
+    RollingBack,
+    Cleaning,
+    Done,
+}
+
+/// How a stack's update ended.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum StackOutcome {
+    Updated,
+    Held,
+    Skipped { reason: String },
+    Failed,
+    RolledBack,
+    RollbackFailed,
+    Interrupted,
+    Stale,
+}
+
+/// One service a run recreates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ServiceChange {
+    pub service: String,
+    pub from_image: String,
+    pub to_digest: String,
+    pub to_image: Option<String>,
+}
+
+/// One stack in a run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct StackRun {
+    pub stack: String,
+    pub services: Vec<ServiceChange>,
+    /// Ties the stack to its streamed output.
+    pub operation_id: Option<OperationId>,
+    pub phase: RunPhase,
+    pub outcome: Option<StackOutcome>,
+}
+
+/// A batch or scheduled run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct UpdateRun {
+    pub run_id: RunId,
+    pub trigger: RunTrigger,
+    /// In order.
+    pub stacks: Vec<StackRun>,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+}
+
+/// The Updates page (`ListUpdates`). Admin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct UpdatesView {
+    pub settings: UpdateSettings,
+    pub available: UpdatesAvailability,
+    /// `Europe/Berlin (UTC+01:00)`, or `UTC (no /etc/localtime)`.
+    pub zone: String,
+    pub next_check: Option<String>,
+    pub next_window: Option<String>,
+    pub auto_paused: Option<AutoPause>,
+    pub services: Vec<ServiceUpdate>,
+    /// Only stacks an administrator changed; any other stack is `notify`.
+    pub policies: BTreeMap<String, StackUpdatePolicy>,
+    pub recent_runs: Vec<UpdateRun>,
+    pub watchtower: Vec<WatchtowerContainer>,
+    /// Auto stacks whose author is no longer an administrator.
+    pub paused_policies: Vec<String>,
+    pub registries: Vec<RegistryStatus>,
+}
+
+/// One stack in a batch preview.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct StackUpdatePlan {
+    pub stack: String,
+    /// Only those that will be recreated.
+    pub services: Vec<ServiceUpdate>,
+    /// Service and reason (up to date, excluded, rejected, …).
+    pub skipped: Vec<(String, String)>,
+    /// The steps, each an argv.
+    pub argv: Vec<Vec<String>>,
+    /// Compose lint of the stack, worst first.
+    pub findings: Vec<ComposeWarning>,
+    pub ack_required: bool,
+}
+
+/// What `PreviewUpdateChange` asks to change. Admin, step-up always.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(
+    tag = "kind",
+    content = "data",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
+pub enum UpdateChange {
+    Settings(UpdateSettings),
+    Policy {
+        stack: StackName,
+        policy: UpdatePolicy,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        window: Option<MaintenanceWindow>,
+    },
+    AckWatchtower {
+        container_id: ContainerId,
+        answer: WatchtowerAnswer,
+    },
+    /// Forget a rejected digest.
+    Retry {
+        stack: StackName,
+        service: ServiceName,
+        digest: ImageDigest,
+    },
+    /// Apply an image that was held.
+    ApplyHeld {
+        stack: StackName,
+        service: ServiceName,
+        digest: ImageDigest,
+    },
+}
+
+/// The update part of an audit entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AuditUpdate {
+    pub run_id: RunId,
+    pub services: Vec<AuditServiceUpdate>,
+    pub rejected_digest: Option<String>,
+    /// The 051 code or guard rule that held the update.
+    pub hold: Option<String>,
+}
+
+/// One service in an update audit entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AuditServiceUpdate {
+    pub service: String,
+    pub from_image: String,
+    pub from_digest: Option<String>,
+    pub to_image: Option<String>,
+    pub to_digest: String,
+    pub version: Option<String>,
+}
+
+/// Settings or policy before and after a change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AuditChange {
+    #[ts(type = "unknown")]
+    pub before: serde_json::Value,
+    #[ts(type = "unknown")]
+    pub after: serde_json::Value,
 }

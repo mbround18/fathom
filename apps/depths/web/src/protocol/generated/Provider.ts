@@ -3,4 +3,4 @@
 /**
  * Sign-in provider.
  */
-export type Provider = "oidc" | "github" | "discord";
+export type Provider = "oidc" | "github" | "discord" | "depths";

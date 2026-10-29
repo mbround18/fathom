@@ -323,6 +323,11 @@ fn expected(cmd: &Cmd, who: Who, scope: Scope, f: Features) -> Outcome {
         | Cmd::PreviewPasskeyRemove { .. }
         | Cmd::RecoverPasskeys { .. }
         | Cmd::GetGuardExceptions { .. } => Denied(FEATURE_DISABLED),
+        // 062: refused for everyone until the Updates service serves them.
+        Cmd::ListUpdates
+        | Cmd::CheckUpdatesNow { .. }
+        | Cmd::PreviewUpdateBatch { .. }
+        | Cmd::PreviewUpdateChange(_) => Denied(FEATURE_DISABLED),
     }
 }
 
@@ -584,6 +589,19 @@ fn samples() -> Vec<(Prep, Value)> {
         Prep::None,
         cmd("GetGuardExceptions", json!({ "stack": "web" })),
     ));
+    v.push((Prep::None, bare("ListUpdates")));
+    v.push((Prep::None, cmd("CheckUpdatesNow", json!({}))));
+    v.push((
+        Prep::None,
+        cmd("PreviewUpdateBatch", json!({ "stacks": ["web"] })),
+    ));
+    v.push((
+        Prep::None,
+        cmd(
+            "PreviewUpdateChange",
+            json!({ "kind": "policy", "data": { "stack": "web", "policy": "notify" } }),
+        ),
+    ));
     v
 }
 
@@ -628,7 +646,7 @@ fn declared_variants() -> BTreeSet<String> {
 #[test]
 fn every_command_has_a_sample() {
     let declared = declared_variants();
-    assert_eq!(declared.len(), 35, "{declared:?}");
+    assert_eq!(declared.len(), 39, "{declared:?}");
     let sampled: BTreeSet<String> = samples()
         .iter()
         .map(|(_, c)| c["type"].as_str().unwrap().to_owned())

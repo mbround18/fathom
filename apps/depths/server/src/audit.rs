@@ -162,6 +162,9 @@ pub fn entry(actor: Actor, action: AuditAction, ip: IpAddr, outcome: AuditOutcom
         network: None,
         security: None,
         file: None,
+        on_behalf_of: None,
+        update: None,
+        change: None,
     }
 }
 

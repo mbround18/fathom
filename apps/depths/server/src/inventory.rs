@@ -261,6 +261,7 @@ pub fn detail(stack: Stack, files: Option<StackFiles>) -> StackDetail {
             compose_warnings: crate::security::warnings(&f.compose),
             compose_text: Some(f.compose),
             stack,
+            updates: None,
         },
         None => StackDetail {
             content_hash: stack.content_hash.clone(),
@@ -268,6 +269,7 @@ pub fn detail(stack: Stack, files: Option<StackFiles>) -> StackDetail {
             env: None,
             stack,
             compose_warnings: Vec::new(),
+            updates: None,
         },
     }
 }

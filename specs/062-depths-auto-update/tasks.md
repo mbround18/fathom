@@ -71,8 +71,8 @@ check that the crate's API still matches that contract.
 
 ### Protocol, roles and ports
 
-- [ ] T019 [P] Write round-trip tests in `crates/depths-protocol/src/` for every new type and variant in contracts/protocol.md and data-model.md, including old-wire decoding of `StackDetail`, `AuditEntry` and `Provider` without the new optional fields.
-- [ ] T020 Add the types to `crates/depths-protocol/src/{types,cmd,event}.rs`:
+- [X] T019 [P] Write round-trip tests in `crates/depths-protocol/src/` for every new type and variant in contracts/protocol.md and data-model.md, including old-wire decoding of `StackDetail`, `AuditEntry` and `Provider` without the new optional fields.
+- [X] T020 Add the types to `crates/depths-protocol/src/{types,cmd,event}.rs`:
   - `Window`, `Weekday`, `UpdateSettings`, `UpdatesView` (with `paused_policies` and `registries`), `UpdatesAvailability`, `AutoPause`, `ServiceUpdate`, `RunningImage`, `AvailableImage`, `UpdateState`, `EffectivePolicy` and its enums, `UpdatePolicy`, `StackUpdatePolicy`, `StackUpdatePlan`, `UpdateChange`, `UpdateRun`, `StackRun`, `RunPhase`, `ServiceChange`, `StackOutcome`, `WatchtowerContainer`, `WatchtowerAnswer`, `RegistryStatus`;
   - `Provider::Depths`; `AuditEntry` `on_behalf_of`, `update`, `change` (all `#[serde(default, skip_serializing_if = "Option::is_none")]`); `AuditUpdate`, `AuditServiceUpdate`, `AuditChange`; the `AuditAction` variants `image_update`, `image_rollback`, `image_hold`, `image_hold_apply`, `image_remove`, `update_interrupted`, `update_settings`, `update_policy`, `update_retry`, `watchtower_ack`;
   - `StackDetail.updates: Option<Vec<ServiceUpdate>>`;
