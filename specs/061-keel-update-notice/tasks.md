@@ -137,13 +137,13 @@ them, in the rollout order in quickstart.md.
 
 ### Tests
 
-- [ ] T040 [P] [US2] In `apps/keel/server/src/updates/mod.rs` tests, under `tokio::time::pause`, with a `FakeRegistry` and checks off: no checker task is spawned, no `oci_registry::Client` is built, and the fake's request log is empty after advancing 3 days; `CheckForUpdates` replies `OpError { code: "update_check_off" }`; `UpdateStatus.enabled` is false (FR-004, SC-001).
-- [ ] T041 [P] [US2] In `apps/keel/server/src/updates/scheduler.rs` tests (new file), with an injected counting check and a seeded jitter source: the first check falls in 60–120 s after start; later checks every interval ±5%; after a failure, one retry after 5 minutes, then the normal schedule; a manual check doesn't move the schedule (FR-005, contracts/config.md "Schedule").
+- [X] T040 [P] [US2] In `apps/keel/server/src/updates/mod.rs` tests, under `tokio::time::pause`, with a `FakeRegistry` and checks off: no checker task is spawned, no `oci_registry::Client` is built, and the fake's request log is empty after advancing 3 days; `CheckForUpdates` replies `OpError { code: "update_check_off" }`; `UpdateStatus.enabled` is false (FR-004, SC-001).
+- [X] T041 [P] [US2] In `apps/keel/server/src/updates/scheduler.rs` tests (new file), with an injected counting check and a seeded jitter source: the first check falls in 60–120 s after start; later checks every interval ±5%; after a failure, one retry after 5 minutes, then the normal schedule; a manual check doesn't move the schedule (FR-005, contracts/config.md "Schedule").
 - [ ] T042 [P] [US2] Write `apps/keel/web/tests/e2e/s061/update-notice.spec.ts`, first part: with checks off, the owner's System tab says update checks are off and how to turn them on (`KEEL_UPDATE_CHECK=true`), with no Check now button.
 
 ### Implementation
 
-- [ ] T043 [US2] Write `apps/keel/server/src/updates/scheduler.rs`: the schedule above, taking the check as a closure and the random source as a parameter. Spawn it from `apps/keel/server/src/serve.rs` only when `KEEL_UPDATE_CHECK` is true. Makes T040 and T041 pass.
+- [X] T043 [US2] Write `apps/keel/server/src/updates/scheduler.rs`: the schedule above, taking the check as a closure and the random source as a parameter. Spawn it from `apps/keel/server/src/serve.rs` only when `KEEL_UPDATE_CHECK` is true. Makes T040 and T041 pass.
 - [ ] T044 [US2] Implement `GetUpdateStatus` in `apps/keel/server/src/updates/commands.rs`: owners get `UpdateStatus`, admins get `UpdateStatusLine`, users get `Denied { reason: "admin_only" }`; and `CheckForUpdates` returning `update_check_off` when checks are off.
 - [X] T045 [P] [US2] Add `KEEL_UPDATE_CHECK`, `KEEL_UPDATE_INTERVAL`, `KEEL_UPDATE_IMAGE`, `KEEL_UPDATE_REGISTRY_USERNAME` and `KEEL_UPDATE_REGISTRY_PASSWORD_FILE` to the environment passthrough in `apps/keel/compose.yaml`, with the contract's commented example in the stack's `.env` example.
 - [ ] T046 [US2] Write `apps/keel/web/src/features/settings/UpdateCard.tsx` with the off state, load the status with `GetUpdateStatus` after `Me` in `apps/keel/web/src/features/settings/store.ts`, and render the card on the owner's System tab. Makes T042 pass.
@@ -160,8 +160,8 @@ them, in the rollout order in quickstart.md.
 
 ### Tests
 
-- [ ] T047 [P] [US3] In `apps/keel/server/src/updates/classify.rs` tests (new file), every row of research R1 step 5, plus `cant_tell` with `running_unknown` and `missing_labels`, and the R7 release-notes rule: a link only when the image has a version, its source is `https` and equals the running `KEEL_BUILD_SOURCE`; otherwise the `release_notes_note` text.
-- [ ] T048 [P] [US3] In `apps/keel/server/src/updates/check.rs` tests (new file), against `FakeRegistry`:
+- [X] T047 [P] [US3] In `apps/keel/server/src/updates/classify.rs` tests (new file), every row of research R1 step 5, plus `cant_tell` with `running_unknown` and `missing_labels`, and the R7 release-notes rule: a link only when the image has a version, its source is `https` and equals the running `KEEL_BUILD_SOURCE`; otherwise the `release_notes_note` text.
+- [X] T048 [P] [US3] In `apps/keel/server/src/updates/check.rs` tests (new file), against `FakeRegistry`:
   - same digest as running: `up_to_date`, the log holds HEADs only and `manifest_get = 0` (SC-005);
   - a new digest: one `resolve`, `pulls = 1`; the next check of the same digest is served from the cache, HEAD only;
   - the cache is "capped at 16 entries and evicting the oldest";
@@ -177,10 +177,10 @@ them, in the rollout order in quickstart.md.
 
 ### Implementation
 
-- [ ] T053 [US3] Write `apps/keel/server/src/updates/classify.rs`: classification and the release-notes URL (`<source>/releases/tag/keel-v<version>`), built server-side. Makes T047 pass.
-- [ ] T054 [US3] Write `apps/keel/server/src/updates/check.rs`: `head_digest` on the watched reference, the cache, `resolve(&watched.with_digest(d), &build.platform, &creds)` for a new digest, `ImageInfo` from the labels (data-model.md), `RegistryError::code()` into `last_error`, a 30 s bound on the whole check, and the check's `RequestCounts`. Makes T048 pass.
-- [ ] T055 [US3] In `apps/keel/server/src/telemetry.rs` and `check.rs`: the `keel.update_check` span with `keel.update.trigger`, `keel.update.outcome`, `keel.update.requests.head`, `keel.update.requests.get`, `keel.update.pulls`, `http.response.status_code` and `error.type`; the `keel.update.checks`, `keel.update.check.duration`, `keel.update.requests` (attribute `method`) and `keel.update.pulls` instruments as `static LazyLock`s (R9). Never the token, password or `Authorization`.
-- [ ] T056 [US3] In `apps/keel/server/src/updates/mod.rs`, plug `check::run` into the scheduler and into `CheckForUpdates` (owner-only, once a minute per instance, reply `state: checking` then a push), and publish every result on the `watch` channel.
+- [X] T053 [US3] Write `apps/keel/server/src/updates/classify.rs`: classification and the release-notes URL (`<source>/releases/tag/keel-v<version>`), built server-side. Makes T047 pass.
+- [X] T054 [US3] Write `apps/keel/server/src/updates/check.rs`: `head_digest` on the watched reference, the cache, `resolve(&watched.with_digest(d), &build.platform, &creds)` for a new digest, `ImageInfo` from the labels (data-model.md), `RegistryError::code()` into `last_error`, a 30 s bound on the whole check, and the check's `RequestCounts`. Makes T048 pass.
+- [X] T055 [US3] In `apps/keel/server/src/telemetry.rs` and `check.rs`: the `keel.update_check` span with `keel.update.trigger`, `keel.update.outcome`, `keel.update.requests.head`, `keel.update.requests.get`, `keel.update.pulls`, `http.response.status_code` and `error.type`; the `keel.update.checks`, `keel.update.check.duration`, `keel.update.requests` (attribute `method`) and `keel.update.pulls` instruments as `static LazyLock`s (R9). Never the token, password or `Authorization`.
+- [X] T056 [US3] In `apps/keel/server/src/updates/mod.rs`, plug `check::run` into the scheduler and into `CheckForUpdates` (owner-only, once a minute per instance, reply `state: checking` then a push), and publish every result on the `watch` channel.
 - [ ] T057 [US3] Implement `DismissUpdateDot` in `apps/keel/server/src/updates/commands.rs` (owner-only, writes `users.update_dot_dismissed`, replies `Me`), and fill `Me.update_dot_dismissed` for owners in `apps/keel/server/src/dispatch.rs`.
 - [ ] T058 [US3] In `apps/keel/server/src/ws.rs`, add the `select!` arm on the `watch::Receiver::changed()` future: re-read the caller's instance role, send `UpdateStatus` to owners and `UpdateStatusLine` to admins, nothing to users (R5). Makes T049 pass.
 - [ ] T059 [US3] In `apps/keel/web/src/features/settings/store.ts`, subscribe to `UpdateStatus` and `UpdateStatusLine` pushes, and add `CheckForUpdates` and `DismissUpdateDot`.
