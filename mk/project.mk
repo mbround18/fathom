@@ -28,7 +28,8 @@ help: ## Print this target list
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sort -u \
 	  | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
 
-build: ## Build the Rust crates (and the web app, if any)
+build: ## Build the Rust crates (and the web app, if any); runs the root's gc first
+	@$(MAKE) --no-print-directory -C $(ROOT) gc
 	cargo build $(CRATES)
 ifdef WEB_PKG
 	pnpm --filter $(WEB_PKG) build
