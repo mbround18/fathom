@@ -108,6 +108,7 @@ export const updateFixtures = {
       digest_compare: true,
       update_path: { kind: 'run' },
       update_run: null,
+      last_update_run: null,
       ...over,
     }
   },

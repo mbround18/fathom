@@ -65,6 +65,7 @@ export type * from "./JobSummary";
 export type * from "./KeelBuild";
 export type * from "./KnownHost";
 export type * from "./Label";
+export type * from "./LastUpdateRun";
 export type * from "./LogStream";
 export type * from "./ManifestProblem";
 export type * from "./Me";

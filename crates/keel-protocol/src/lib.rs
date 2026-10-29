@@ -73,6 +73,6 @@ pub use review::{
 // Build identity, the update notice and self-update (spec 061)
 pub mod update;
 pub use update::{
-    AvailableImage, KeelBuild, UpdateCheckState, UpdateError, UpdateOutcome, UpdatePath,
-    UpdateStatus, UpdateStatusLine,
+    AvailableImage, KeelBuild, LastUpdateRun, UpdateCheckState, UpdateError, UpdateOutcome,
+    UpdatePath, UpdateStatus, UpdateStatusLine,
 };

@@ -104,6 +104,7 @@ async fn full_status(app: &AppState) -> Result<UpdateStatus, sqlx::Error> {
     let mut conn = app.db.acquire().await?;
     let update_path = system::update_path(&mut conn, &app.updates.config.image, digest.as_deref()).await?;
     let update_run = system::update_run(&mut conn).await?;
+    let last_update_run = system::last_update_run(&mut conn).await?;
     Ok(UpdateStatus {
         enabled: s.enabled,
         image: s.image,
@@ -122,6 +123,7 @@ async fn full_status(app: &AppState) -> Result<UpdateStatus, sqlx::Error> {
         digest_compare: s.digest_compare,
         update_path,
         update_run,
+        last_update_run,
     })
 }
 

@@ -66,6 +66,12 @@ fn status(update_path: UpdatePath) -> UpdateStatus {
         digest_compare: false,
         update_path,
         update_run: Some(Uuid::from_u128(7)),
+        last_update_run: Some(LastUpdateRun {
+            run: Uuid::from_u128(6),
+            outcome: "failed".into(),
+            digest: DIGEST.into(),
+            ended_at: Some("2026-10-28T11:00:00Z".into()),
+        }),
     }
 }
 
@@ -144,6 +150,7 @@ fn events_round_trip() {
             }),
             available: None,
             update_run: None,
+            last_update_run: None,
             ..status(UpdatePath::Run)
         }),
         Event::UpdateStatusLine(UpdateStatusLine {
@@ -165,6 +172,7 @@ fn events_round_trip() {
     assert_eq!(v["data"]["outcome"], "update_available");
     assert_eq!(v["data"]["update_path"], json!({"kind": "run"}));
     assert_eq!(v["data"]["update_run"], Uuid::from_u128(7).to_string());
+    assert_eq!(v["data"]["last_update_run"]["outcome"], "failed");
 
     let v = round_trip(&events[3]);
     assert_eq!(v["data"]["update_path"]["kind"], "manual");

@@ -606,6 +606,31 @@ pub(crate) async fn update_path(
     })
 }
 
+/// The latest update run in the System workspace that ended: id, state, digest and end time.
+///
+/// # Errors
+///
+/// A database error.
+pub(crate) async fn last_update_run(
+    conn: &mut PgConnection,
+) -> Result<Option<keel_protocol::LastUpdateRun>, sqlx::Error> {
+    let row: Option<(Uuid, String, String, Option<time::OffsetDateTime>)> = sqlx::query_as(
+        "select id, state, params ->> 'keel_server_image_digest', ended_at from runs \
+         where workspace_id = (select workspace_id from system_config where id) \
+           and params ? 'keel_server_image_digest' \
+           and ended_at is not null \
+         order by ended_at desc limit 1",
+    )
+    .fetch_optional(conn)
+    .await?;
+    Ok(row.map(|(run, outcome, digest, ended_at)| keel_protocol::LastUpdateRun {
+        run,
+        outcome,
+        digest,
+        ended_at: ended_at.map(crate::governance::ts),
+    }))
+}
+
 /// A pending, queued or running update run in the System workspace (FR-018).
 ///
 /// # Errors

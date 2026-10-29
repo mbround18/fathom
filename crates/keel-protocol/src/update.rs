@@ -68,6 +68,19 @@ pub struct AvailableImage {
     pub release_notes_note: Option<String>,
 }
 
+/// The latest Keel update run that ended, so a failed update still shows after a reload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct LastUpdateRun {
+    #[ts(type = "string")]
+    pub run: Uuid,
+    /// The run's end state: `succeeded`, `failed`, `refused`, `cancelled`, `denied` or `expired`.
+    pub outcome: String,
+    /// The digest the run updated to.
+    pub digest: String,
+    /// RFC 3339 UTC.
+    pub ended_at: Option<String>,
+}
+
 /// How the update can be applied.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -107,6 +120,8 @@ pub struct UpdateStatus {
     /// A pending, queued or running update run.
     #[ts(type = "string | null")]
     pub update_run: Option<Uuid>,
+    /// The latest update run that ended.
+    pub last_update_run: Option<LastUpdateRun>,
 }
 
 /// What an admin who isn't an owner sees (FR-015, SC-006): nothing about the available image.

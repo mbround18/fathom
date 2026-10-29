@@ -66,7 +66,13 @@ UpdateStatus {                     // owners only
   digest_compare: bool,            // false: running digest unknown, compared by revision (R3)
   update_path: UpdatePath,
   update_run: Option<Uuid>,        // a pending, queued or running update run
+  last_update_run: Option<LastUpdateRun>,  // the latest update run that ended, so a failed
+                                   // update survives a reload
 }
+LastUpdateRun { run: Uuid, outcome: String,      // the run's end state: "succeeded" | "failed" | "refused"
+                                                 // | "cancelled" | "denied" | "expired"
+                digest: String,                  // what it updated to
+                ended_at: Option<String> }       // RFC 3339
 AvailableImage { digest: String, version: Option<String>, revision: Option<String>,
                  built_at: Option<String>, release_notes: Option<String>,
                  release_notes_note: Option<String> }   // why there's no link (R7)
