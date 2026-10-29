@@ -4,6 +4,7 @@
  */
 import type {
   AuditEntry,
+  ComposeWarning,
   Exclusion,
   LabelEffect,
   LabelRule,
@@ -20,6 +21,22 @@ import type {
   UpdateState,
   Weekday,
 } from '@/protocol/generated'
+
+/**
+ * The plan's note on a recreated service whose old image has no name left (hand-pulled): if the
+ * update fails, the old image may not come back. Information, not a compose finding.
+ */
+export const UNNAMED_IMAGE = 'unnamed_image'
+
+/** A plan's rollback notes, apart from its compose findings. */
+export function rollbackNotes(findings: readonly ComposeWarning[]): ComposeWarning[] {
+  return findings.filter((f) => f.code === UNNAMED_IMAGE)
+}
+
+/** A plan's compose findings, without the rollback notes. */
+export function composeFindings(findings: readonly ComposeWarning[]): ComposeWarning[] {
+  return findings.filter((f) => f.code !== UNNAMED_IMAGE)
+}
 
 export const STATE_LABEL: Record<UpdateState, string> = {
   not_checked: 'Not checked',

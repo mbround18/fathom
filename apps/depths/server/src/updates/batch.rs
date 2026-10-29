@@ -1,6 +1,10 @@
 //! What a batch preview shows and binds (contracts/protocol.md `PreviewUpdateBatch`): per stack,
 //! the services with a newer image, why the others are left, the steps, and the compose lint.
 //!
+//! A service whose image has no name left (hand-pulled, its tag moved by a pull) gets an `info`
+//! finding, [`UNNAMED_IMAGE`]: its rollback point is only the old image id, so putting the old tag
+//! back after a failed update may not work. The update still goes ahead once confirmed.
+//!
 //! A stack's [`StackJob`] binds its content hash and the digests shown, so the run installs what
 //! was previewed or skips the stack as stale. Blocking: it reads the stack store and runs
 //! `compose config` through [`Inputs`].
@@ -18,6 +22,9 @@ use super::Updates;
 use super::inputs::{Inputs, ServiceInput};
 use super::run::{ServicePin, StackJob, image_pins};
 use super::view;
+
+/// The finding code of a service whose rollback point is only an image id.
+pub const UNNAMED_IMAGE: &str = "unnamed_image";
 
 /// One stack's preview and what its confirm runs. `job` is `None` when nothing would change.
 #[derive(Debug, Clone)]
@@ -98,6 +105,15 @@ pub fn preview_stack(
         },
     );
     let escape = !lint.escape_codes().is_empty();
+    let mut findings: Vec<_> = lint.findings.iter().map(crate::security::warning).collect();
+    findings.extend(
+        pins.iter()
+            .filter(|p| {
+                live.iter()
+                    .any(|l| l.service == p.service && l.unnamed_image)
+            })
+            .map(|p| unnamed_image(&p.service)),
+    );
     let ctx = StackContext {
         stacks_root: store.root(),
         stack: &name,
@@ -138,12 +154,26 @@ pub fn preview_stack(
             services: shown,
             skipped,
             argv,
-            findings: lint.findings.iter().map(crate::security::warning).collect(),
+            findings,
             ack_required: lint.decision == LintDecision::NeedsAck,
         },
         job,
         escape,
     })
+}
+
+/// The note for a service whose old image may not come back: information, after the lint (worst
+/// first), and it neither holds nor asks for an acknowledgement.
+fn unnamed_image(service: &str) -> depths_protocol::ComposeWarning {
+    depths_protocol::ComposeWarning {
+        service: service.to_owned(),
+        code: UNNAMED_IMAGE.into(),
+        severity: depths_protocol::SecuritySeverity::Info,
+        message: "if this update fails, Depths may not be able to put the old image back. It \
+                  was pulled by hand and has no tag left."
+            .into(),
+        line: None,
+    }
 }
 
 /// The pin for one service, or why it is left as it is.

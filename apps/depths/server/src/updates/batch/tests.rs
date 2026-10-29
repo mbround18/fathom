@@ -217,6 +217,47 @@ fn escape_findings_need_an_acknowledgement() {
 }
 
 #[test]
+fn a_hand_pulled_image_is_updated_with_a_note_that_its_rollback_may_fail() {
+    let f = fx(COMPOSE);
+    f.seed(vec![
+        svc("app", "nginx:1", UpdateState::Available),
+        svc("db", "postgres:17", UpdateState::UpToDate),
+    ]);
+    let unnamed = |service: &str| ServiceInput {
+        unnamed_image: true,
+        ..live(service)
+    };
+    // `db` has no name left either, but it is not recreated: no note for it.
+    let p = f.preview(vec![unnamed("app"), unnamed("db")], Only::Available);
+    let job = p.job.expect("still updated, not skipped");
+    assert_eq!(job.pins[0].service, "app");
+    let notes: Vec<_> = p
+        .plan
+        .findings
+        .iter()
+        .filter(|w| w.code == UNNAMED_IMAGE)
+        .collect();
+    assert_eq!(notes.len(), 1, "{:?}", p.plan.findings);
+    assert_eq!(notes[0].service, "app");
+    assert_eq!(notes[0].severity, depths_protocol::SecuritySeverity::Info);
+    assert!(
+        notes[0]
+            .message
+            .starts_with("if this update fails, Depths may not be able to put the old image back"),
+        "{}",
+        notes[0].message
+    );
+    assert!(
+        !p.plan.ack_required && !p.escape,
+        "a note, not a finding to acknowledge"
+    );
+
+    // A named image gets no note.
+    let p = f.preview(vec![live("app")], Only::Available);
+    assert!(!p.plan.findings.iter().any(|w| w.code == UNNAMED_IMAGE));
+}
+
+#[test]
 fn apply_held_pins_only_the_held_service_at_the_held_digest() {
     let f = fx(COMPOSE);
     f.seed(vec![

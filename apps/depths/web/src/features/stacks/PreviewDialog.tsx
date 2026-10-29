@@ -25,6 +25,7 @@ import {
 import { useId, useState, type ReactNode } from 'react'
 
 import { useSession } from '@/app/session-store'
+import { RollbackNotes } from '@/features/updates/PlanNotes'
 import type { ComposeWarning, Preview, StackOp, Step } from '@/protocol/generated'
 
 import { argvLine, KIND_LABEL, refusalText } from './argv'
@@ -237,6 +238,7 @@ function PreviewBody({ preview, request }: { preview: Preview; request: PreviewR
   return (
     <>
       <Findings warnings={preview.warnings ?? []} />
+      <RollbackNotes findings={preview.warnings ?? []} />
       <section aria-label="Commands" className="flex min-w-0 flex-col gap-1">
         <h3 className="font-display text-xs font-semibold tracking-wider text-muted-foreground uppercase">
           {preview.steps.length === 1 ? 'Command' : `Commands, in order (${String(preview.steps.length)})`}

@@ -2,7 +2,8 @@
  * US2 (T050): the batch preview, then the run as it happens.
  *
  * - The preview lists each stack in the order it runs: the services to recreate with their old and
- *   new image, the services left alone and why, the steps, and the 051 findings to acknowledge.
+ *   new image, the services left alone and why, the steps, the 051 findings to acknowledge, and the
+ *   services whose old image may not come back if the update fails.
  * - With nothing to recreate it says everything is up to date, and why per stack: information,
  *   not an error.
  * - The run shows each stack's outcome and live output, and a summary naming every stack that did
@@ -14,7 +15,8 @@ import { useEffect, useRef } from 'react'
 
 import type { PasskeyRequest, StackUpdatePlan } from '@/protocol/generated'
 
-import { availableText, outcomeText, outcomeTone, runningText, triggerText } from './model'
+import { availableText, composeFindings, outcomeText, outcomeTone, runningText, triggerText } from './model'
+import { RollbackNotes } from './PlanNotes'
 import { useUpdates, type LiveRun } from './store'
 
 /** 054: the preview asks for a passkey on Confirm; `note` says why the last try did not go through. */
@@ -161,9 +163,10 @@ function PlanItem({ plan, order }: { plan: StackUpdatePlan; order: number }) {
           ))}
         </ul>
       )}
-      {plan.findings.length > 0 && (
+      <RollbackNotes findings={plan.findings} />
+      {composeFindings(plan.findings).length > 0 && (
         <ul data-field="findings" aria-label="Compose findings" className="flex flex-col gap-0.5">
-          {plan.findings.map((f) => (
+          {composeFindings(plan.findings).map((f) => (
             <li
               key={`${f.service}-${f.code}`}
               className={`min-w-0 break-words ${f.severity === 'escape' ? 'text-status-err' : 'text-status-warn'}`}

@@ -1192,6 +1192,19 @@ export class FakeBackend {
         if (!s.valid_name) return [{ type: 'Invalid', data: { reason: 'not a valid compose project name' } }]
         const busy = this.busy(stack)
         if (busy) return busy
+        const plan = op.kind === 'update' ? this.updateRuns.stackPlan(stack) : null
+        if (plan !== null) {
+          // 062 FR-026: the image-update plan, its findings and rollback notes as the preview's warnings.
+          if (plan.services.length === 0) {
+            const why = plan.skipped.map(([service, reason]) => `${service}: ${reason}`).join('; ')
+            return [{ type: 'Invalid', data: { reason: `nothing to update on ${stack}${why ? ` (${why})` : ''}` } }]
+          }
+          const steps = plan.argv.map((argv): Step => ({ argv, cwd: `/stacks/${stack}`, stdin: 'none' }))
+          const preview = this.makePreview(s, 'update', steps, null, false)
+          preview.warnings = plan.findings
+          preview.ack_required = plan.ack_required
+          return [{ type: 'Preview', data: this.passkeys.stamp(preview) }]
+        }
         const findings = ['up', 'update', 'service_up'].includes(op.kind) ? (this.lint[stack] ?? []) : []
         const blocked = this.blocked(findings, admin)
         if (blocked) return blocked

@@ -2,7 +2,10 @@
  * Spec 062 US2–US5 in the fake backend: batch previews and runs, and every `UpdateChange`.
  *
  * - `PreviewUpdateBatch` answers `UpdatePreview`, one plan per stack (newer services only, the
- *   rest skipped with a reason, the 051 findings of `lint`).
+ *   rest skipped with a reason, the 051 findings of `lint`, then an `unnamed_image` note per
+ *   recreated service in `unnamed`).
+ * - `stackPlan(stack)` is FR-026's one-stack plan for the stack page's Update, while checks are on
+ *   and the stack has update states.
  * - Its `Confirm` answers `UpdateRunStarted`, then pushes the run as the server does: per stack
  *   `OpStarted`, `OpOutput`, `OpFinished` and `UpdateStackDone` (a busy or stale stack gets no
  *   operation), then `UpdateRunFinished`. Each stack follows `scripts[stack]`; `pauseBefore` holds
@@ -110,6 +113,8 @@ export class FakeUpdates {
   stale = new Set<string>()
   /** The run waits before this stack's `OpFinished` until `resume()` or a `Cancel`. */
   pauseBefore: string | null = null
+  /** `stack/service` running a hand-pulled image with no name left: its rollback may not restore it. */
+  unnamed = new Set<string>()
 
   private readonly host: UpdatesHost
   private readonly pending = new Map<string, Pending>()
@@ -173,7 +178,20 @@ export class FakeUpdates {
     const skipped = view.services
       .filter((s) => s.stack === stack && s.state !== 'available')
       .map((s): [string, string] => [s.service, s.state === 'up_to_date' ? 'up to date' : (s.reason ?? s.state.replace('_', ' '))])
-    const findings = this.host.lint(stack)
+    const findings = [
+      ...this.host.lint(stack),
+      ...services
+        .filter((s) => this.unnamed.has(`${stack}/${s.service}`))
+        .map(
+          (s): ComposeWarning => ({
+            service: s.service,
+            code: 'unnamed_image',
+            severity: 'info',
+            message: 'if this update fails, Depths may not be able to put the old image back. It was pulled by hand and has no tag left.',
+            line: null,
+          }),
+        ),
+    ]
     const argv = [
       ...services.map((s) => ['docker', 'pull', `${s.reference.split(':')[0] ?? s.reference}@${s.available?.digest ?? ''}`]),
       ...services.map((s) => ['docker', 'image', 'tag', s.available?.digest ?? '', s.reference]),
@@ -187,6 +205,17 @@ export class FakeUpdates {
       findings,
       ack_required: this.host.enforce() && findings.some((f) => f.severity === 'escape'),
     }
+  }
+
+  /**
+   * FR-026: the stack page's Update. `null` while 050's pull-then-up still applies (updates off,
+   * checks off, or no service of the stack checked yet).
+   */
+  stackPlan(stack: string): StackUpdatePlan | null {
+    const view = this.host.view()
+    if (view === null || !view.settings.checks_enabled) return null
+    if (!view.services.some((s) => s.stack === stack && s.state !== 'not_checked')) return null
+    return this.plan(view, stack)
   }
 
   previewChange(change: UpdateChange): Event[] {

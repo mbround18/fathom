@@ -19,6 +19,7 @@ skipped: Array<[string, string]>,
  */
 argv: Array<Array<string>>, 
 /**
- * Compose lint of the stack, worst first.
+ * Compose lint of the stack, worst first, then an `info` `unnamed_image` note per recreated
+ * service whose old image has no name left (its rollback may not restore it).
  */
 findings: Array<ComposeWarning>, ack_required: boolean, };

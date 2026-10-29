@@ -2516,7 +2516,8 @@ pub struct StackUpdatePlan {
     pub skipped: Vec<(String, String)>,
     /// The steps, each an argv.
     pub argv: Vec<Vec<String>>,
-    /// Compose lint of the stack, worst first.
+    /// Compose lint of the stack, worst first, then an `info` `unnamed_image` note per recreated
+    /// service whose old image has no name left (its rollback may not restore it).
     pub findings: Vec<ComposeWarning>,
     pub ack_required: bool,
 }

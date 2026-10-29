@@ -10,6 +10,8 @@
  * - A stack another operation holds is skipped. Stop lets the stack in progress finish and skips
  *   the rest.
  * - A batch with nothing left to update says everything is up to date: information, not an error.
+ * - A hand-pulled image (no name left) is updated after a note that its old image may not come
+ *   back if the update fails, in the batch preview and on the stack page.
  */
 import type { Page } from '@playwright/test'
 
@@ -20,6 +22,10 @@ const row = (page: Page, id: string) => page.locator(`[data-update-row="${id}"]`
 const batch = (page: Page) => page.getByTestId('updates-batch-dialog')
 const run = (page: Page) => page.getByTestId('updates-run-dialog')
 const runStack = (page: Page, stack: string) => run(page).locator(`[data-run-stack="${stack}"]`)
+const stackPreview = (page: Page) => page.locator('[role="dialog"][data-preview="update"]')
+
+const ROLLBACK_NOTE =
+  'app: if this update fails, Depths may not be able to put the old image back. It was pulled by hand and has no tag left.'
 
 /** Three stacks with a newer image (web, blog, media) and the rest of the US1 fixture. */
 function seed(backend: FakeBackend): void {
@@ -211,4 +217,34 @@ test('a user sees no selection and no batch bar', async ({ page, backend }) => {
   await page.goto('/stacks/web')
   await expect(page.getByTestId('updates-batch-bar')).toHaveCount(0)
   await expect(page.locator('[data-select-stack]')).toHaveCount(0)
+})
+
+test('a hand-pulled image is updated, after a note that its old image may not come back', async ({ page, backend }) => {
+  seed(backend)
+  backend.updateRuns.unnamed.add('web/app')
+  await page.goto('/admin/updates')
+  await page.locator('[data-select-stack="web"]').first().check()
+  await page.locator('[data-action="preview-batch"]').click()
+
+  const web = batch(page).locator('[data-plan="web"]')
+  await expect(web.locator('[data-rollback-note="app"]')).toHaveText(ROLLBACK_NOTE)
+  // A note, not a compose finding: nothing to acknowledge.
+  await expect(web.locator('[data-field="findings"]')).toHaveCount(0)
+  await expect(batch(page).locator('[data-field="acknowledge"]')).toHaveCount(0)
+  await batch(page).locator('[data-action="confirm-batch"]').click()
+  await expect(run(page).locator('[data-field="run-summary"]')).toHaveText('1 of 1 updated.')
+})
+
+test("the stack page's Update shows the same note, and Confirm still runs it", async ({ page, backend }) => {
+  seed(backend)
+  backend.updateRuns.unnamed.add('web/app')
+  await page.goto('/stacks/web')
+  await page.locator('[role="toolbar"][aria-label="Stack actions"] [data-action="update"]').click()
+
+  await expect(stackPreview(page).locator('[data-rollback-note="app"]')).toHaveText(ROLLBACK_NOTE)
+  await expect(stackPreview(page).locator('[data-findings]')).toHaveCount(0)
+  await stackPreview(page).locator('[data-confirm]').click()
+  await backend.waitForCmd('Confirm')
+  await expect(stackPreview(page)).toHaveCount(0)
+  await expect(page.locator('[data-operation="update"]')).toBeVisible()
 })
