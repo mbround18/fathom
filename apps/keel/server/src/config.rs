@@ -906,7 +906,7 @@ impl Config {
         let interval = r.pick("update_interval", f.interval, "KEEL_UPDATE_INTERVAL");
         let interval = parse_duration("KEEL_UPDATE_INTERVAL", interval.as_deref().unwrap_or("6h"))?;
         if interval < MIN_INTERVAL {
-            return refuse("KEEL_UPDATE_INTERVAL: must be at least 1h");
+            return refuse("--update-interval / KEEL_UPDATE_INTERVAL: must be at least 1h");
         }
         let image = r.pick("update_image", f.image, "KEEL_UPDATE_IMAGE");
         let image_name = image
