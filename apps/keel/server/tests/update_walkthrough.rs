@@ -125,10 +125,20 @@ async fn until(s: &mut Socket, within: Duration, want: impl Fn(&Event) -> bool) 
 
 /// The next pushed `UpdateStatus` that has finished checking.
 async fn checked(s: &mut Socket, within: Duration) -> UpdateStatus {
+    checked_where(s, within, |_| true).await
+}
+
+/// The first checked status that `want` accepts. A check can be pushed more than once (the
+/// scheduled run, then a refresh), so a later step waits for its own result, not a leftover.
+async fn checked_where(
+    s: &mut Socket,
+    within: Duration,
+    want: impl Fn(&UpdateStatus) -> bool,
+) -> UpdateStatus {
     match until(
         s,
         within,
-        |e| matches!(e, Event::UpdateStatus(st) if st.state == UpdateCheckState::Checked),
+        |e| matches!(e, Event::UpdateStatus(st) if st.state == UpdateCheckState::Checked && want(st)),
     )
     .await
     {
@@ -216,7 +226,10 @@ async fn scenarios_6_to_9_against_the_fake_registry() {
     );
     fake.clear_requests();
     send(&mut owner, 2, &Cmd::CheckForUpdates).await;
-    let s = checked(&mut owner, Duration::from_secs(30)).await;
+    let s = checked_where(&mut owner, Duration::from_secs(30), |st| {
+        st.available.is_some()
+    })
+    .await;
     assert_eq!(s.outcome, Some(UpdateOutcome::UpdateAvailable), "{s:?}");
     let available = s.available.clone().expect("available");
     assert_eq!(available.digest, newer.index.to_string());
@@ -288,7 +301,11 @@ async fn scenarios_6_to_9_against_the_fake_registry() {
     );
     clock.advance(time::Duration::seconds(61));
     send(&mut owner, 6, &Cmd::CheckForUpdates).await;
-    let s = checked(&mut owner, Duration::from_secs(30)).await;
+    let want = third.index.to_string();
+    let s = checked_where(&mut owner, Duration::from_secs(30), |st| {
+        st.available.as_ref().is_some_and(|a| a.digest == want)
+    })
+    .await;
     assert_eq!(
         s.available.as_ref().map(|a| a.digest.clone()),
         Some(third.index.to_string())
@@ -299,7 +316,10 @@ async fn scenarios_6_to_9_against_the_fake_registry() {
     fake.set_status(TAG_PATH, 429);
     clock.advance(time::Duration::seconds(61));
     send(&mut owner, 7, &Cmd::CheckForUpdates).await;
-    let failed = checked(&mut owner, Duration::from_secs(30)).await;
+    let failed = checked_where(&mut owner, Duration::from_secs(30), |st| {
+        st.last_error.is_some()
+    })
+    .await;
     assert_eq!(failed.outcome, Some(UpdateOutcome::UpdateAvailable));
     assert_eq!(failed.available, s.available, "the last result stays");
     assert_eq!(failed.checked_at, s.checked_at);
