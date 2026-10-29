@@ -18,6 +18,7 @@ and switch back at any time.
 | [Migrating from Dockge](migrating-from-dockge.md) | Pointing Depths at Dockge's directory, what differs, switching back |
 | [Tabs, logs and shells](tabs-and-shells.md) | Logs, stats and shell tabs, panes, and what happens when a connection drops |
 | [Files in volumes](files.md) | Browsing a stack's volumes, editing config files, transfers, history and limits |
-| [Image updates](updates.md) | Seeing which services have a newer image, update checks, and what each state means |
+| [Image updates](updates.md) | Seeing which services have a newer image, updating stacks, unattended updates, rollback and cleanup |
+| [Migrating from Watchtower](migrating-from-watchtower.md) | The Watchtower labels Depths honours, what it doesn't run, and stopping Watchtower or keeping it monitor-only |
 
 Start with [Installing Depths](install.md), then set up one [sign-in provider](sign-in.md).

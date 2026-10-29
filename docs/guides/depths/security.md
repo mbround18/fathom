@@ -278,6 +278,29 @@ In order of preference:
 Depths reads the daemon's mode from `docker info` and rates root containers on rootless and
 userns-remapped daemons as ok.
 
+## Image updates and the way back
+
+An image update can change what runs as root, so the same checks apply as for any deploy
+(see [Image updates](updates.md#holds)):
+
+- An update whose new image would run as root, where the running container doesn't, is **held**
+  after the pull and before anything changes. Running it anyway is an admin's **Apply held**, with
+  a passkey, recorded in the audit log.
+- The compose file is linted again before every update, including unattended ones, so a file
+  edited after its stack was set to Auto is judged on what it says now.
+- Unattended updates are authorised by the admin who set the stack to Auto, with a passkey and
+  from a trusted network. If that person stops being an admin, the stack's Auto policy pauses.
+
+Depths keeps a way back under local tags, `depths-keep/<stack>:<service>-previous` (the image an
+update replaced) and `depths-keep/<stack>:<service>-held` (an image a hold stopped). They show in
+`docker images`, survive `docker image prune`, and move to the next image with every update.
+Removing one by hand removes that service's rollback target.
+
+**Remove old images** (off by default) removes only images Depths recorded as a service's previous
+image, and only once a newer previous image replaces them. It never removes the current rollback
+target or an image a container uses, never forces and never prunes. Every removal is in the audit
+log.
+
 ## What this does not cover
 
 - **The socket proxy does not filter exec.** With `DEPTHS_SOCKET_EXEC=1`, the proxy lets exec
