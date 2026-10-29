@@ -325,8 +325,29 @@ pub struct UpdateConfig {
     pub interval: Duration,
     /// Always a tag ([`parse_watched_image`]).
     pub image: ImageRef,
+    /// The watched reference exactly as configured (`KEEL_UPDATE_IMAGE`, trimmed), which is what
+    /// owners see. [`Self::image`]'s `Display` names the API host (`registry-1.docker.io/…`).
+    pub image_name: String,
     /// `Debug` never shows the password.
     pub credentials: Credentials,
+}
+
+impl UpdateConfig {
+    /// Anonymous settings watching `image`, for tests and tools that don't go through the
+    /// resolver.
+    ///
+    /// # Errors
+    ///
+    /// Why `image` isn't a reference to watch ([`parse_watched_image`]).
+    pub fn watching(check: bool, interval: Duration, image: &str) -> Result<Self, String> {
+        Ok(Self {
+            check,
+            interval,
+            image: parse_watched_image(image)?,
+            image_name: image.trim().to_owned(),
+            credentials: Credentials::Anonymous,
+        })
+    }
 }
 
 /// The watched reference: `oci_registry::ImageRef::parse`, plus Keel's own refusals
@@ -888,11 +909,13 @@ impl Config {
             return refuse("KEEL_UPDATE_INTERVAL: must be at least 1h");
         }
         let image = r.pick("update_image", f.image, "KEEL_UPDATE_IMAGE");
-        let image = image
+        let image_name = image
             .as_deref()
-            .unwrap_or("docker.io/mbround18/keel:latest");
-        let image = parse_watched_image(image)
-            .or_else(|why| refuse(format!("KEEL_UPDATE_IMAGE: `{image}` {why}")))?;
+            .unwrap_or("docker.io/mbround18/keel:latest")
+            .trim()
+            .to_owned();
+        let image = parse_watched_image(&image_name)
+            .or_else(|why| refuse(format!("KEEL_UPDATE_IMAGE: `{image_name}` {why}")))?;
 
         let username = r.pick_quiet(
             "update_registry_username",
@@ -928,6 +951,7 @@ impl Config {
                 check,
                 interval,
                 image,
+                image_name,
                 credentials,
             },
             build,
@@ -1504,6 +1528,7 @@ mod tests {
             c.update.image.to_string(),
             "registry-1.docker.io/mbround18/keel:latest"
         );
+        assert_eq!(c.update.image_name, "docker.io/mbround18/keel:latest");
         assert!(matches!(c.update.credentials, Credentials::Anonymous));
         assert_eq!(c.build.digest, None);
         assert_eq!(c.build.display(), "development build");
@@ -1548,6 +1573,7 @@ mod tests {
         let c = Config::resolve(flags, &env).unwrap();
         assert!(c.update.check);
         assert_eq!(c.update.image.to_string(), "localhost:5000/keel:latest");
+        assert_eq!(c.update.image_name, "localhost:5000/keel");
         assert_eq!(c.build.digest, Some(other));
         assert!(
             c.sources
