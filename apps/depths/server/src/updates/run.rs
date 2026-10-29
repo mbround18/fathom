@@ -39,8 +39,8 @@ use depths_core::updates::hold::{self, LintDecision, Trigger, UserCheck};
 use depths_core::updates::keep::{self, KeepKind};
 use depths_protocol::{
     Actor, AuditAction, AuditOutcome, AuditServiceUpdate, AuditUpdate, Event, EventEnvelope,
-    OpOutcome, OperationId, Provider, RunId, RunPhase, RunTrigger, ServiceChange, StackOutcome,
-    StackRun, UpdateRun,
+    OpOutcome, OperationId, Provider, RequestId, RunId, RunPhase, RunTrigger, ServiceChange,
+    StackOutcome, StackRun, UpdateRun,
 };
 use tokio::sync::mpsc;
 
@@ -89,6 +89,28 @@ pub struct ServicePin {
     pub replicas: u32,
 }
 
+/// The services a stack's pins recreate, and the plan's image pins (the preview's argv and the
+/// user `Update` path, FR-026, use the same).
+pub fn image_pins(pins: &[ServicePin]) -> (Vec<depths_core::ServiceName>, Vec<ImagePin>) {
+    let services = pins
+        .iter()
+        .filter_map(|p| depths_core::ServiceName::parse(&p.service).ok())
+        .collect();
+    let image = pins
+        .iter()
+        .map(|p| ImagePin {
+            pull: p.pull.clone(),
+            platform: p.platform.clone(),
+            image: p.to_image.clone().unwrap_or_else(|| p.pull.clone()),
+            reference: p.reference.clone(),
+            services: depths_core::ServiceName::parse(&p.service)
+                .into_iter()
+                .collect(),
+        })
+        .collect();
+    (services, image)
+}
+
 /// One stack of a run.
 #[derive(Debug, Clone)]
 pub struct StackJob {
@@ -110,6 +132,8 @@ pub struct Batch {
     pub jobs: Vec<StackJob>,
     /// Cancelling it stops the stack in progress and skips the rest.
     pub cancel: CancelToken,
+    /// The `Confirm` it answers: `UpdateRunStarted` is its reply.
+    pub reply_to: Option<RequestId>,
 }
 
 /// How the runner waits between health reads; tests pass a no-op.
@@ -250,14 +274,14 @@ impl Runner {
             .updates
             .store()
             .update_observed(|o| o.upsert_run(run.clone()));
-        send(
-            &tx,
-            Event::UpdateRunStarted {
+        let _ = tx.blocking_send(EventEnvelope {
+            reply_to: batch.reply_to,
+            event: Event::UpdateRunStarted {
                 run_id: run.run_id,
                 trigger: run.trigger.clone(),
                 stacks: batch.jobs.iter().map(|j| j.stack.clone()).collect(),
             },
-        );
+        });
         let daemon = self.runtime().daemon_mode().unwrap_or(DaemonMode::Rootful);
         let policy = self.ops.compose_policy();
         for (i, job) in batch.jobs.iter().enumerate() {
@@ -501,11 +525,7 @@ impl Runner {
         policy: ComposePolicy,
         cur: &mut Cur,
     ) -> Done {
-        let services: Vec<depths_core::ServiceName> = job
-            .pins
-            .iter()
-            .filter_map(|p| depths_core::ServiceName::parse(&p.service).ok())
-            .collect();
+        let (services, image_pins) = image_pins(&job.pins);
         let failed = |why: String, argv: &Vec<Vec<String>>| {
             Done::failed(
                 StackOutcome::Failed,
@@ -519,19 +539,6 @@ impl Runner {
         if let Err(e) = self.phase(run, i, RunPhase::Pulling) {
             return failed(e, &cur.argv);
         }
-        let image_pins: Vec<ImagePin> = job
-            .pins
-            .iter()
-            .map(|p| ImagePin {
-                pull: p.pull.clone(),
-                platform: p.platform.clone(),
-                image: p.to_image.clone().unwrap_or_else(|| p.pull.clone()),
-                reference: p.reference.clone(),
-                services: depths_core::ServiceName::parse(&p.service)
-                    .into_iter()
-                    .collect(),
-            })
-            .collect();
         let phases = plan::image_update_phases(&self.ctx(&cur.name), &services, &image_pins);
         for s in &phases.pulls {
             if let Err(e) = self.step(cur, s) {
@@ -546,15 +553,18 @@ impl Runner {
         let pulled: Vec<String> = job.pins.iter().map(|p| p.pull.clone()).collect();
         let infos = self.runtime().image_inspect(&pulled).unwrap_or_default();
         let new_id = |p: &ServicePin| -> (String, Option<String>) {
-            let info = infos
-                .iter()
-                .find(|i| i.repo_digests.iter().any(|d| d == &p.pull) || i.id == p.pull);
+            // Docker shortens `docker.io/library/x` to `x` in RepoDigests, so match the digest.
+            let at = format!("@{}", p.digest);
+            let info = infos.iter().find(|i| {
+                i.repo_digests
+                    .iter()
+                    .any(|d| d == &p.pull || d.ends_with(&at))
+                    || i.id == p.pull
+                    || p.to_image.as_deref() == Some(i.id.as_str())
+            });
             match info {
                 Some(i) if !i.id.is_empty() => (i.id.clone(), i.user.clone()),
-                _ => (
-                    p.to_image.clone().unwrap_or_else(|| p.pull.clone()),
-                    infos.first().and_then(|i| i.user.clone()),
-                ),
+                _ => (p.to_image.clone().unwrap_or_else(|| p.pull.clone()), None),
             }
         };
         let compose = self
