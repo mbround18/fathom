@@ -6931,6 +6931,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "oci-registry"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "oci-registry",
+ "reqwest 0.13.5",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "oci-spec"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

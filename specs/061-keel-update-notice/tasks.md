@@ -57,7 +57,7 @@ them, in the rollout order in quickstart.md.
   - `resolve` on a single manifest: `index_digest = None`, `manifest_get = 1`; a config for another architecture is `NoImageForPlatform`;
   - an index without the platform is `NoImageForPlatform`;
   - a config without labels gives empty `labels`;
-  - a 429 is `RateLimited`, and its HEAD is still counted;
+  - a 429 is `RateLimited { retry_after: None }`, and its HEAD is still counted; a 429 with `Retry-After: 120` gives `retry_after = Some(120 s)`;
   - a body whose digest doesn't match is `BadResponse`; a body over 4 MiB is `BadResponse`;
   - `resolve` on a tag is `NotByDigest` with no request made;
   - a 404 on the manifest is `NotFound`; a 401 after a token is `AuthFailed`.

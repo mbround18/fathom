@@ -1,0 +1,27 @@
+[package]
+name = "oci-registry"
+version = "0.1.0"
+description = "HEAD-first OCI distribution client shared by the suite's servers"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[features]
+# The in-process fake registry and the base-URL override. Tests only; no application enables it
+# outside its dev-dependencies.
+test-util = ["dep:axum", "tokio/net"]
+
+[dependencies]
+reqwest = { version = "0.13.5", features = ["json", "default-tls"] }   # as web-auth
+secrecy = "0.10"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11"
+thiserror = "2"
+tokio = { version = "1.54.1", features = ["time"] }
+tracing = "0.1.44"
+axum = { version = "0.8", optional = true }
+
+[dev-dependencies]
+oci-registry = { path = ".", features = ["test-util"] }
+tokio = { version = "1.54.1", features = ["full", "test-util"] }

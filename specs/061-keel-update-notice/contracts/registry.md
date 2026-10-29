@@ -122,7 +122,10 @@ pub enum RegistryError {
     NotByDigest,                // "not_by_digest"
     AuthFailed,                 // "auth_failed"
     NotFound,                   // "not_found"
-    RateLimited,                // "rate_limited"
+    // "rate_limited". `retry_after` comes from the 429's `Retry-After` header: delta-seconds, or
+    // an IMF-fixdate HTTP-date (a date in the past is zero). Absent or unparsable is `None`.
+    // Depths' backoff honours it; Keel ignores it.
+    RateLimited { retry_after: Option<std::time::Duration> },
     Timeout,                    // "timeout"
     Network,                    // "network"
     BadResponse(&'static str),  // "bad_response"; the str is a short reason for logs
@@ -222,7 +225,7 @@ So, for Keel's check:
    |---|---|
    | `AuthFailed` | 401 or 403 after a token, or a 401 with no Bearer challenge |
    | `NotFound` | 404 on a manifest |
-   | `RateLimited` | 429, or Docker Hub's `TOOMANYREQUESTS` error code |
+   | `RateLimited { retry_after }` | 429, or Docker Hub's `TOOMANYREQUESTS` error code; `retry_after` from `Retry-After` |
    | `Timeout` | The per-request timeout was reached |
    | `Network` | Connection or TLS failure |
    | `BadResponse` | Anything malformed, oversized, mismatched, or an unexpected status |
@@ -253,7 +256,7 @@ Fixture builders cover:
 - an index without the requested platform;
 - a single manifest whose config is for another architecture;
 - a config without labels;
-- a 429;
+- a 429, with or without a `Retry-After` header;
 - a HEAD without `Docker-Content-Digest`;
 - a body whose digest doesn't match.
 
