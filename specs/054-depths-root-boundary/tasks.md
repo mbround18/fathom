@@ -144,7 +144,7 @@ the risky-command classification, the guard-refusal parser, and the shared build
     SETPCAP, NET_BIND_SERVICE, SYS_CHROOT, KILL and AUDIT_WRITE.
   - Make `cap_reasons` use it so the lint and the guard share one list.
   - Unit tests: each default cap, `cap_` and lowercase forms, and `SYS_ADMIN` not default.
-- [ ] T011 [P] Add `pub fn step_up_needed(kind: CommandKind, escape_findings: bool) -> bool` to
+- [X] T011 [P] Add `pub fn step_up_needed(kind: CommandKind, escape_findings: bool) -> bool` to
   crates/depths-core/src/role.rs, beside `restricted_ok`, covering the FR-017 list:
   - shell open;
   - a stack save or deploy with escape findings;
@@ -496,12 +496,12 @@ verify. Owners recover through a host-only code.
 
 ### Tests for User Story 4 (write first)
 
-- [ ] T054 [P] [US4] Store tests in apps/depths/server/src/passkeys.rs:
+- [X] T054 [P] [US4] Store tests in apps/depths/server/src/passkeys.rs:
   - atomic write (temp, fsync, rename);
   - a corrupt file is moved aside (not deleted) and Depths starts empty, with this audited;
   - `name` is 1–64 characters, trimmed, and unique per user;
   - the last passkey cannot be removed except by recovery.
-- [ ] T055 [P] [US4] Ceremony tests in apps/depths/server/tests/passkeys.rs, using
+- [X] T055 [P] [US4] Ceremony tests in apps/depths/server/tests/passkeys.rs, using
   `webauthn-authenticator-rs` softpasskey:
   - register, then verify, sets `verified_at`;
   - a replayed assertion gives `PasskeyRefused { reason: replayed }`;
@@ -510,7 +510,7 @@ verify. Owners recover through a host-only code.
   - a ceremony older than 2 minutes gives `expired`;
   - a ceremony is single-use;
   - every outcome is audited.
-- [ ] T056 [P] [US4] Verification gate tests in apps/depths/server/tests/passkeys.rs:
+- [X] T056 [P] [US4] Verification gate tests in apps/depths/server/tests/passkeys.rs:
   - an admin with no passkey gets `PasskeyEnrolmentRequired` for admin actions and can only enrol;
   - an unverified admin with a passkey gets the restricted access set (the 052 path);
   - a verified admin gets admin access;
@@ -518,7 +518,7 @@ verify. Owners recover through a host-only code.
     (FR-022);
   - a second session (another browser) of the same admin is unverified;
   - a user promoted to admin must enrol before their next admin action.
-- [ ] T057 [P] [US4] Recovery tests in apps/depths/server/tests/passkeys.rs:
+- [X] T057 [P] [US4] Recovery tests in apps/depths/server/tests/passkeys.rs:
   - the CLI writes only the SHA-256 and prints the code once;
   - `RecoverPasskeys` with the code removes that person's passkeys and allows one `Register`
     without an assertion;
@@ -531,20 +531,20 @@ verify. Owners recover through a host-only code.
 
 ### Implementation for User Story 4
 
-- [ ] T059 [US4] Implement the passkey store in apps/depths/server/src/passkeys.rs:
+- [X] T059 [US4] Implement the passkey store in apps/depths/server/src/passkeys.rs:
   `<data_dir>/passkeys.json` `{ version: 1, users: { <user>: [ { id, name, created, last_used,
   credential } ] } }`, written in the `users.rs` atomic pattern, loaded at start. Run until T054
   passes.
-- [ ] T060 [US4] Implement ceremonies in apps/depths/server/src/passkeys.rs:
+- [X] T060 [US4] Implement ceremonies in apps/depths/server/src/passkeys.rs:
   - the `Webauthn` builder from `public_url` (RP id = host, origin = origin; `localhost` for
     loopback);
   - an in-memory ceremony table `{ id, session_handle, kind, state, expires (2 min) }` with sweep;
   - `begin_register`, `finish_register`, `begin_verify`, `finish_verify`;
   - `last_used` and counter update.
-- [ ] T061 [US4] `SessionMeta` gains `verified_at: Option<DateTime<Utc>>` in
+- [X] T061 [US4] `SessionMeta` gains `verified_at: Option<DateTime<Utc>>` in
   apps/depths/server/src/session_meta.rs. It is set on a successful Verify or StepUp, and dropped
   with the session.
-- [ ] T062 [US4] Wire the commands in apps/depths/server/src/ops.rs and apps/depths/server/src/ws.rs:
+- [X] T062 [US4] Wire the commands in apps/depths/server/src/ops.rs and apps/depths/server/src/ws.rs:
   - `GetVerification`;
   - `PasskeyBegin`/`PasskeyFinish`;
   - `ListPasskeys` (own only);
@@ -552,13 +552,13 @@ verify. Owners recover through a host-only code.
   - push `Verification` after sign-in and after any change.
 
   Run until T055 passes.
-- [ ] T063 [US4] Add the verification gate in apps/depths/server/src/step_up.rs, called from
+- [X] T063 [US4] Add the verification gate in apps/depths/server/src/step_up.rs, called from
   ops.rs after the 052 trust gate.
   - An admin or owner without `verified_at` is handled as `Role::User` with no stacks.
   - A person with no passkey gets `PasskeyEnrolmentRequired` for admin commands.
 
   Run until T056 passes.
-- [ ] T064 [US4] Recovery:
+- [X] T064 [US4] Recovery:
   - Add the subcommand `depths passkey-recovery --user <id>` in apps/depths/server/src/main.rs
     (parse argv before `run()`; it touches only the data dir and needs no runtime). It writes
     `<data_dir>/passkey-recovery.json` `{ user, code_sha256, expires, used }` and audits
@@ -614,7 +614,7 @@ confirm step, with one check covering the window.
 
 ### Tests for User Story 5 (write first)
 
-- [ ] T069 [P] [US5] Step-up tests in apps/depths/server/tests/passkeys.rs. With `verified_at`
+- [X] T069 [P] [US5] Step-up tests in apps/depths/server/tests/passkeys.rs. With `verified_at`
   older than the window:
   - `Preview` of a file write carries `step_up`;
   - `Confirm` without `assertion` gives `StepUpRequired` and changes nothing;
@@ -627,12 +627,12 @@ confirm step, with one check covering the window.
   - a deploy with them does;
   - `PutUser`, `RemoveUser` and whitelist changes need step-up;
   - a plain user with no passkey gets `PasskeyEnrolmentRequired` for a risky action (Q2 = A).
-- [ ] T070 [P] [US5] Window tests in apps/depths/server/tests/passkeys.rs: `DEPTHS_STEP_UP_WINDOW=30`
+- [X] T070 [P] [US5] Window tests in apps/depths/server/tests/passkeys.rs: `DEPTHS_STEP_UP_WINDOW=30`
   is honoured, using an injected clock rather than sleeps, so the test is deterministic.
 
 ### Implementation for User Story 5
 
-- [ ] T071 [US5] Implement the step-up gate in apps/depths/server/src/step_up.rs, using
+- [X] T071 [US5] Implement the step-up gate in apps/depths/server/src/step_up.rs, using
   `depths_core::role::step_up_needed`.
   - Fresh means within the window.
   - Otherwise verify the command's `assertion` against the ceremony issued with the preview or the
@@ -641,7 +641,7 @@ confirm step, with one check covering the window.
 
   Call it in apps/depths/server/src/ops.rs after role and stack access, and make `Preview` set
   `step_up` when confirming will need it.
-- [ ] T072 [US5] Apply step-up to `OpenShell` in apps/depths/server/src/ws/streams.rs: check before
+- [X] T072 [US5] Apply step-up to `OpenShell` in apps/depths/server/src/ws/streams.rs: check before
   `docker exec` is spawned, and on a stale session reply `StepUpRequired { request }`.
   - Tests in apps/depths/server/tests/ws.rs.
 - [ ] T073 [US5] Web confirm-step integration in
