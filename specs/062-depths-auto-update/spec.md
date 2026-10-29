@@ -13,7 +13,7 @@
 ### Session 2026-10-28
 
 - Q: Integrate a real Watchtower container, or do Watchtower-style updates natively? → A: Natively, and Watchtower-compatible. Depths runs the checks and updates itself, audited like any other operation, and reads Watchtower's labels so stacks already labelled for Watchtower behave the same. No second container needs the Docker socket, and the original Watchtower project is archived, so nothing depends on it.
-- Q: Can checks cost zero pulls? → A: Checks of unchanged tags count zero pulls. Each newly published image costs at most one counted pull, once (SC-007, FR-003).
+- Q: Can checks cost zero pulls? → A: Checks of unchanged tags count zero pulls. Each newly published image costs at most one counted pull, once; on the containerd image store the running image costs one more, once (SC-007, FR-003).
 - Q: How does Depths reach private registries? → A: Through a plain `config.json` mounted into the Depths container, with `DOCKER_CONFIG` pointing at it. Credential helpers are not supported (Assumptions).
 - Q: Who authorises an unattended update, when no one is signed in? → A: The administrator who set the stack to Auto, through that passkey-confirmed change. Their policies pause if they stop being an administrator (FR-025).
 - Q: Are the `depths-keep/…` image tags acceptable? → A: Yes. They are visible in `docker images` and documented (FR-028).
@@ -219,7 +219,7 @@ After a successful update, Depths can remove the image the service used before. 
 - **SC-004**: A deliberately broken image on an Auto stack is rolled back within the health timeout plus 1 minute, and is not retried in the next window.
 - **SC-005**: An update that would turn a non-root service into a root one is applied 0 times without an administrator.
 - **SC-006**: Stacks already labelled for Watchtower need no file changes. Their effective policy matches Watchtower's behaviour for `enable`, `monitor-only` and `scope` in 100% of the compatibility test cases.
-- **SC-007**: Over a week of 6-hourly checks across 30 stacks, checks of unchanged tags count zero image pulls against registry limits, and each newly published image costs at most one counted pull, once.
+- **SC-007**: Over a week of 6-hourly checks across 30 stacks, checks of unchanged tags count zero image pulls against registry limits, and each newly published image costs at most one counted pull, once. On Docker's containerd image store, the image a service was already running costs one more counted pull, once, the first time its tag moves (contracts/registry.md "Request budget").
 
 ## Assumptions
 
