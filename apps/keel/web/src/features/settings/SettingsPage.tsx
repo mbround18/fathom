@@ -1,6 +1,6 @@
 /**
- * System Settings (spec 060), at `/settings/:tab`. Owners and admins see Enrollment, Tokens and
- * Identity; owners also see System. An unknown or forbidden tab is replaced by Enrollment; anyone
+ * System Settings (spec 060), at `/settings/:tab`. Owners and admins see Enrollment, Tokens,
+ * Identity and System; the System tab is shaped by role (spec 061 FR-024). An unknown or forbidden tab is replaced by Enrollment; anyone
  * else is told the page is for owners and admins (the server refuses its reads anyway).
  *
  * Changes go through the governance confirm dialog; a Roll from Tokens opens the Enroll dialog's

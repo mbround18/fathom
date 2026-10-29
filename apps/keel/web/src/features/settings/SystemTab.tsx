@@ -1,6 +1,12 @@
 /**
- * Settings → System (spec 060 US7, owners only): the System workspace, `keel-system`, where Keel
- * manages its own hosts.
+ * Settings → System, shaped by role (spec 061 FR-024):
+ *
+ * - Owners: the running build (spec 061), the update card, then spec 060's System workspace.
+ * - Admins: the running build and the read-only update line only. The tab never sends `GetSystem`
+ *   or any other System workspace command for them.
+ *
+ * The System workspace (spec 060 US7, owners only), `keel-system`, is where Keel manages its own
+ * hosts.
  *
  * Not configured: an empty state with Set up, which creates it allowing the `base` profile.
  * Configured: the profiles it allows (saved with the version they were edited from; a conflict
@@ -15,13 +21,17 @@ import { Link } from '@/app/Link'
 import { NewBinding } from '@/features/bindings/BindingsPage'
 import { ErrorLine, PreviewDialog } from '@/features/bindings/parts'
 import { useRepos } from '@/features/bindings/store'
+import { useSession } from '@/app/session-store'
 import { useEnroll } from '@/features/hosts/enroll-store'
 import { RefusalText } from '@/features/teams/parts'
 import { EmptyState } from '@/ui/EmptyState'
 import { LoadState } from '@/ui/LoadState'
 
+import { BuildPanel } from './BuildPanel'
 import { ConflictBanner } from './EnrollmentTab'
 import { useSettings, type SystemInfo } from './store'
+import { UpdateCard } from './UpdateCard'
+import { UpdateLine } from './UpdateLine'
 
 /** The System workspace's slug, typed to confirm Remove. */
 const SYSTEM_SLUG = 'keel-system'
@@ -221,7 +231,8 @@ function Configured({ system }: { system: SystemInfo }) {
   )
 }
 
-export function SystemTab() {
+/** Spec 060's System workspace, for owners only. */
+function SystemWorkspace() {
   const { value, refusal } = useSettings((s) => s.system)
   const conflict = useSettings((s) => s.systemConflict)
   const load = useSettings((s) => s.loadSystem)
@@ -230,7 +241,7 @@ export function SystemTab() {
     load()
   }, [load])
   return (
-    <div className="flex min-w-0 flex-col gap-3">
+    <div id="system-workspace" className="flex min-w-0 scroll-mt-2 flex-col gap-3">
       {conflict && <ConflictBanner what="the System workspace" onReload={load} />}
       <LoadState loading={value === null} error={refusal && <RefusalText refusal={refusal} />} label="Loading the System workspace…">
         {value &&
@@ -257,6 +268,23 @@ export function SystemTab() {
             </EmptyState>
           ))}
       </LoadState>
+    </div>
+  )
+}
+
+export function SystemTab() {
+  const role = useSession((s) => s.me?.instance_role)
+  return (
+    <div className="flex min-w-0 flex-col gap-3">
+      <BuildPanel />
+      {role === 'owner' ? (
+        <>
+          <UpdateCard />
+          <SystemWorkspace />
+        </>
+      ) : (
+        <UpdateLine />
+      )}
     </div>
   )
 }

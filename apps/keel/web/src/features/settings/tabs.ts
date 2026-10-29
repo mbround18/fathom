@@ -1,7 +1,9 @@
 /**
  * System Settings' tabs and who sees them (spec 060, contracts/web-ui.md "Navigation"): owners and
- * admins see Enrollment, Tokens and Identity; only owners see System. An unknown or forbidden tab
- * goes to Enrollment. The server decides again on every command; this only decides what to draw.
+ * admins see Enrollment, Tokens, Identity and System. The System tab is owner and admin since spec
+ * 061 (FR-024), with sections shaped by role: admins see the build panel and the read-only update
+ * line, owners also see the update card and spec 060's System workspace. An unknown or forbidden
+ * tab goes to Enrollment. The server decides again on every command; this only decides what to draw.
  */
 import type { InstanceRole } from '@/protocol/wire'
 
@@ -24,9 +26,7 @@ export function canSeeSettings(role: InstanceRole | null | undefined): boolean {
 /** The tabs `role` sees, in order. */
 export function visibleTabs(role: InstanceRole | null | undefined): SettingsTab[] {
   if (!canSeeSettings(role)) return []
-  const tabs: SettingsTab[] = ['enrollment', 'tokens', 'identity']
-  if (role === 'owner') tabs.push('system')
-  return tabs
+  return ['enrollment', 'tokens', 'identity', 'system']
 }
 
 /** `tab` when `role` may see it, else the default tab. */

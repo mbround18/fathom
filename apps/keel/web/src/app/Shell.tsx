@@ -1,5 +1,6 @@
 import {
   CaretDownIcon,
+  CubeIcon,
   FingerprintIcon,
   KeyIcon,
   ListIcon,
@@ -21,6 +22,7 @@ import { lazy, Suspense, type ReactNode } from 'react'
 import { BRAND_GLYPH, BRAND_NAME } from '@/brand'
 import { usePasskeys } from '@/features/passkeys/store'
 import { canSeeSettings } from '@/features/settings/tabs'
+import { showDot, useUpdates } from '@/features/settings/updates'
 
 import { Link } from './Link'
 import { ACCOUNT_PASSKEYS, HOME, SECTIONS, SETTINGS, type Section } from './nav'
@@ -40,12 +42,29 @@ const NAV_LINK =
   'hover:text-foreground focus-visible:ring-1 focus-visible:ring-accent-neon focus-visible:outline-none ' +
   'aria-[current=page]:border-accent-neon aria-[current=page]:text-primary md:border-b-0 md:border-l md:aria-[current=page]:bg-accent-neon/5'
 
-function NavLink({ section: { path: to, label, icon: Icon }, path, className = '' }: { section: Section; path: string; className?: string }) {
+function NavLink({
+  section: { path: to, label, icon: Icon },
+  path,
+  className = '',
+  dot = false,
+}: {
+  section: Section
+  path: string
+  className?: string
+  /** A newer Keel is available (spec 061 FR-012); owners only, see `showDot`. */
+  dot?: boolean
+}) {
   const current = path === to || path.startsWith(`${to}/`)
   return (
     <Link to={to} aria-current={current ? 'page' : undefined} className={`${NAV_LINK} ${className}`}>
       <Icon aria-hidden className="size-3.5 shrink-0" />
       {label}
+      {dot && (
+        <>
+          <span aria-hidden data-update-dot className="size-1.5 shrink-0 rounded-full bg-accent-neon shadow-[0_0_6px_var(--color-accent-neon)]" />
+          <span className="sr-only"> (update available)</span>
+        </>
+      )}
     </Link>
   )
 }
@@ -53,6 +72,8 @@ function NavLink({ section: { path: to, label, icon: Icon }, path, className = '
 function Nav() {
   const path = usePath()
   const role = useSession((s) => s.me?.instance_role)
+  const me = useSession((s) => s.me)
+  const dot = useUpdates((s) => showDot(me, s.status))
   return (
     <nav
       aria-label="Sections"
@@ -63,7 +84,7 @@ function Nav() {
       ))}
       {/* Pinned to the bottom of the column on desktop; last in the strip on a phone. */}
       {canSeeSettings(role) && (
-        <NavLink section={SETTINGS} path={path} className="md:mt-auto md:border-t md:border-border" />
+        <NavLink section={SETTINGS} path={path} dot={dot} className="md:mt-auto md:border-t md:border-border" />
       )}
     </nav>
   )
@@ -103,6 +124,12 @@ function AccountMenu() {
             Verify it’s you
           </DropdownMenuItem>
         )}
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-[11px] font-normal tracking-wider text-muted-foreground uppercase">About</DropdownMenuLabel>
+        <div data-keel-version className="flex items-center gap-1.5 px-2 pb-1.5 text-xs">
+          <CubeIcon aria-hidden className="size-3.5 text-muted-foreground" />
+          Keel {me.keel_version ?? 'version unknown'}
+        </div>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => void signOut()}>
           <SignOutIcon aria-hidden className="size-3.5" />

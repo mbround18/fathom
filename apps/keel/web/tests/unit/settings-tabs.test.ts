@@ -6,8 +6,8 @@ describe('settings tabs', () => {
   it('owners see every tab, System last', () => {
     expect(visibleTabs('owner')).toEqual(['enrollment', 'tokens', 'identity', 'system'])
   })
-  it('admins see every tab but System', () => {
-    expect(visibleTabs('admin')).toEqual(['enrollment', 'tokens', 'identity'])
+  it('admins see every tab, System included (spec 061 FR-024)', () => {
+    expect(visibleTabs('admin')).toEqual(['enrollment', 'tokens', 'identity', 'system'])
   })
   it('users and nobody see none, and no nav entry', () => {
     expect(visibleTabs('user')).toEqual([])
@@ -18,7 +18,8 @@ describe('settings tabs', () => {
   })
   it('an unknown or forbidden tab goes to Enrollment', () => {
     expect(resolveTab('system', 'owner')).toBe('system')
-    expect(resolveTab('system', 'admin')).toBe('enrollment')
+    expect(resolveTab('system', 'admin')).toBe('system')
+    expect(resolveTab('system', 'user')).toBe('enrollment')
     expect(resolveTab('tokens', 'admin')).toBe('tokens')
     expect(resolveTab('nope', 'owner')).toBe('enrollment')
     expect(resolveTab(undefined, 'owner')).toBe('enrollment')

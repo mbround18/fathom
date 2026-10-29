@@ -38,7 +38,9 @@ export const SECTIONS: readonly Section[] = [
 
 /**
  * System Settings: pinned to the bottom of the nav, for owners and admins only
- * (`canSeeSettings`). `/settings` opens its first tab.
+ * (`canSeeSettings`). `/settings` opens its first tab. For owners it carries a dot while a newer
+ * Keel is available and they haven't hidden it for that digest (spec 061 FR-012, FR-014; the rule
+ * is `showDot` in features/settings/updates.ts, hidden from the update card).
  */
 export const SETTINGS: Section = { path: '/settings', label: 'System Settings', icon: GearSixIcon }
 
