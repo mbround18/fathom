@@ -26,6 +26,11 @@ pub trait Registry: Send + Sync {
         digest: &'a str,
         p: &'a Platform,
     ) -> RegistryFuture<'a, Resolution>;
+    /// The `Retry-After` of the last rate-limited answer from `registry`, when it sent one. The
+    /// scheduler's backoff honours it; without one the backoff is its own (research R5).
+    fn retry_after(&self, _registry: &str) -> Option<std::time::Duration> {
+        None
+    }
 }
 
 /// The host's platform, as `docker info` reports it, normalised to OCI names.
@@ -63,6 +68,9 @@ pub enum RegistryError {
     NoImageForPlatform,
     /// A credential helper or identity token in `config.json`: "can't check".
     CredentialsUnsupported(String),
+    /// Docker reaches the registry over plain http (loopback or `insecure-registries`); update
+    /// checks speak https only: "can't check".
+    PlainHttp,
 }
 
 impl RegistryError {
@@ -82,6 +90,7 @@ impl RegistryError {
             Self::NoDigestHeader => "no_digest_header",
             Self::NoImageForPlatform => "no_image_for_platform",
             Self::CredentialsUnsupported(_) => "credentials_unsupported",
+            Self::PlainHttp => "plain_http",
         }
     }
 }
@@ -99,6 +108,9 @@ impl fmt::Display for RegistryError {
             }
             Self::NoImageForPlatform => f.write_str("the image has no build for this host"),
             Self::CredentialsUnsupported(why) => write!(f, "can't check: {why}"),
+            Self::PlainHttp => f.write_str(
+                "can't check: the registry is reached over plain http, which update checks don't use",
+            ),
         }
     }
 }
@@ -249,6 +261,7 @@ mod tests {
             RegistryError::NoDigestHeader,
             RegistryError::NoImageForPlatform,
             RegistryError::CredentialsUnsupported("helper".into()),
+            RegistryError::PlainHttp,
         ];
         assert!(backs_off.iter().all(RegistryError::starts_backoff));
         assert!(!does_not.iter().any(RegistryError::starts_backoff));

@@ -2148,6 +2148,7 @@ dependencies = [
  "hyper-util",
  "maxminddb",
  "notify",
+ "oci-registry",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",

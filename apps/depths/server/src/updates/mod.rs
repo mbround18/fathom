@@ -8,6 +8,8 @@
 //! Registries are reached only through depths-core's [`Registry`] port; the adapter over the
 //! shared `oci-registry` crate is built by the caller and handed in.
 
+pub mod creds;
+pub mod registry;
 pub mod store;
 
 use std::sync::Arc;
