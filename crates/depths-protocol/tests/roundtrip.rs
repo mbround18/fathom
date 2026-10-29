@@ -2457,12 +2457,30 @@ fn old_shape_confirm_and_open_shell_still_parse() {
         "type": "Confirm", "data": { "preview_id": "00000000-0000-0000-0000-000000000001" }
     }))
     .unwrap();
-    assert!(matches!(c, Cmd::Confirm { assertion: None, .. }), "{c:?}");
+    assert!(
+        matches!(
+            c,
+            Cmd::Confirm {
+                assertion: None,
+                ..
+            }
+        ),
+        "{c:?}"
+    );
     let s: Cmd = serde_json::from_value(json!({
         "type": "OpenShell", "data": { "container": "x", "cols": 80, "rows": 24 }
     }))
     .unwrap();
-    assert!(matches!(s, Cmd::OpenShell { assertion: None, .. }), "{s:?}");
+    assert!(
+        matches!(
+            s,
+            Cmd::OpenShell {
+                assertion: None,
+                ..
+            }
+        ),
+        "{s:?}"
+    );
 }
 
 /// 054 T009: the passkey part of an audit entry holds names and reasons only. Every field it
