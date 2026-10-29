@@ -129,6 +129,9 @@ pub struct RunContext {
     pub job: String,
     /// The quorum Keel asked for (0 when Keel did not say).
     pub assign_quorum: u32,
+    /// The job params the run was assigned (spec 061); empty when it has none. They are part of
+    /// the challenge, so an approval made without them does not verify for a run with them.
+    pub params: BTreeMap<String, String>,
 }
 
 /// Which step of the verification an approval failed.
@@ -301,9 +304,7 @@ fn verify_one<'a>(
         target: target.clone(),
         hosts: approval.hosts.clone(),
         expires_at: approval.expires_at.clone(),
-        // Runs with job params (spec 061) are rebuilt with them once the runner applies params.
-        // Until then an approval bound to params doesn't match here, so it is refused.
-        params: BTreeMap::new(),
+        params: run.params.clone(),
     };
     let challenge = scope.challenge().map_err(ApprovalProblem::Scope)?;
 

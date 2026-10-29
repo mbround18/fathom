@@ -11,6 +11,7 @@
 //! verify and append. A ledger that does not verify refuses every run (`ledger_corrupt`); the
 //! executor never truncates or rewrites it.
 
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Write as _;
 use std::os::fd::AsRawFd as _;
@@ -61,13 +62,15 @@ pub fn load_trust(trust_dir: &Path, policy: &Policy) -> Result<Trust, String> {
 }
 
 /// The run as keel-trust sees it, from `Assign`. A missing quorum counts as 0, so the host's own
-/// quorum applies; keel-trust takes the larger of the two.
+/// quorum applies; keel-trust takes the larger of the two. The assigned params (spec 061) join
+/// the rebuilt challenge, so an approval made without them does not verify.
 pub fn run_context(
     workspace: &str,
     binding: &str,
     run_id: &str,
     job: &str,
     quorum: Option<u32>,
+    params: &BTreeMap<String, String>,
 ) -> RunContext {
     RunContext {
         workspace: workspace.to_owned(),
@@ -75,6 +78,7 @@ pub fn run_context(
         run: run_id.to_owned(),
         job: job.to_owned(),
         assign_quorum: quorum.unwrap_or(0),
+        params: params.clone(),
     }
 }
 

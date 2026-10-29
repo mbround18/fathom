@@ -95,6 +95,7 @@ impl RunFile {
             run: self.run.clone(),
             job: self.job.clone(),
             assign_quorum: self.assign_quorum,
+            params: Default::default(),
         }
     }
 }

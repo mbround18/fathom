@@ -457,7 +457,14 @@ fn authorize(
         Err(e) => (Vec::new(), Some(e)),
     };
     let objects = store.objects().map_err(|e| fail(e.to_string()))?;
-    let run = signed::run_context(&a.workspace, &a.binding, &a.run_id, &a.job, a.quorum);
+    let run = signed::run_context(
+        &a.workspace,
+        &a.binding,
+        &a.run_id,
+        &a.job,
+        a.quorum,
+        &BTreeMap::new(),
+    );
     let now = i64::try_from(crate::runner::unix_now()).unwrap_or(i64::MAX);
     let req = keel_trust::RunRequest {
         ledger: &text,
