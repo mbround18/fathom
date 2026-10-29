@@ -14,6 +14,10 @@
  *   tab says why it ended and offers a new session.
  * - Stats are watched only while some stats tab is on screen and the page is visible. The protocol
  *   has one watch per socket (`UnwatchStats` takes no target), so the union of targets is sent.
+ * - A shell that needs a fresh passkey check (054 T074, `StepUpRequired`) asks for it in the passkey
+ *   dialog and resends `OpenShell` with the assertion; a cancelled check ends the tab with a "New
+ *   session" button. `PasskeyEnrolmentRequired` ends it too, and the passkey store opens the enrol
+ *   dialog for a plain user.
  */
 import { create } from 'zustand'
 
@@ -22,7 +26,9 @@ import { RingBuffer, DEFAULT_RING_CAPACITY, type TerminalStream } from '@compani
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
 import { useSession } from '@/app/session-store'
 import { useStacks } from '@/features/stacks/store'
-import type { LogTarget, RequestId, StatsTarget, StreamCloseReason, StreamId, UsageSample } from '@/protocol/generated'
+import type { LogTarget, PasskeyAssertion, PasskeyRequest, RequestId, StatsTarget, StreamCloseReason, StreamId, UsageSample } from '@/protocol/generated'
+
+import { REFUSED_MESSAGES } from '@/features/passkeys/messages'
 
 import type { TabSpec } from './layout'
 import { lineTime } from './logtext'
@@ -298,16 +304,36 @@ function openShell(tab: Extract<TabSpec, { kind: 'shell' }>): void {
     offerNew: false,
   }
   useStreams.setState((s) => ({ shells: { ...s.shells, [tab.id]: stream } }))
+  sendOpenShell(tab, gen)
+}
+
+function sendOpenShell(tab: Extract<TabSpec, { kind: 'shell' }>, gen: number, assertion?: PasskeyAssertion): void {
   const { cols, rows } = sizes.get(tab.id) ?? DEFAULT_SIZE
   const id = sendCmd({
     type: 'OpenShell',
-    data: tab.shell ? { container: tab.container, shell: tab.shell, cols, rows } : { container: tab.container, cols, rows },
+    data: {
+      container: tab.container,
+      ...(tab.shell ? { shell: tab.shell } : {}),
+      cols,
+      rows,
+      ...(assertion ? { assertion } : {}),
+    },
   })
   if (id === null) unsent.add(tab.id)
   else {
     unsent.delete(tab.id)
     opening.set(id, { tab: tab.id, gen })
   }
+}
+
+/** `StepUpRequired` for a shell: ask for the passkey, then open it again with the assertion. */
+async function stepUpShell(ref: Ref, request: PasskeyRequest): Promise<void> {
+  const { usePasskeys } = await import('@/features/passkeys/store')
+  const assertion = await usePasskeys.getState().requestStepUp('Opening a shell', request)
+  const spec = tabSpec(ref.tab)
+  if (gens.get(ref.tab) !== ref.gen || !known.has(ref.tab) || spec?.kind !== 'shell') return
+  if (assertion) sendOpenShell(spec, ref.gen, assertion)
+  else offerShell(ref.tab, 'Not confirmed, no shell opened.', Date.now())
 }
 
 /** A shell tab that shows why it ended and offers a new session, without starting one. */
@@ -535,9 +561,24 @@ onServerEvent(({ reply_to, event }) => {
           ? event.data.reason
           : event.data.reason === 'feature_disabled'
             ? 'The shell is turned off on this server.'
-            : 'You are not permitted to see this.'
+            : (event.data.detail ?? 'You are not permitted to see this.')
       if (useStreams.getState().logs[asked.tab]) setLog(asked.tab, { phase: 'denied', reason })
       else setShell(asked.tab, { status: 'error', reason, endedAt: Date.now() })
+      return
+    }
+    case 'StepUpRequired': {
+      if (!asked || gens.get(asked.tab) !== asked.gen || useStreams.getState().logs[asked.tab]) return
+      void stepUpShell(asked, event.data.request)
+      return
+    }
+    case 'PasskeyRefused': {
+      if (!asked || gens.get(asked.tab) !== asked.gen || useStreams.getState().logs[asked.tab]) return
+      offerShell(asked.tab, `${REFUSED_MESSAGES[event.data.reason]} No shell opened.`, Date.now())
+      return
+    }
+    case 'PasskeyEnrolmentRequired': {
+      if (!asked || gens.get(asked.tab) !== asked.gen || useStreams.getState().logs[asked.tab]) return
+      offerShell(asked.tab, 'Opening a shell needs a passkey. Register one, then start a new session.', Date.now())
       return
     }
     case 'LogChunk': {
