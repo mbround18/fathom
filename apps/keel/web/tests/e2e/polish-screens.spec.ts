@@ -13,13 +13,15 @@ import { HEAD, NOW, PROJECT, WORKSPACE } from '../support/fake-repos'
 import { FakeReviews } from '../support/fake-reviews'
 import { FakeRuns, runInfo, stats } from '../support/fake-runs'
 import { FakeSettings } from '../support/fake-settings'
+import { AVAILABLE_DIGEST, updateFixtures } from '../support/fake-updates'
+import type { LastUpdateRun, UpdateStatus } from '../../src/protocol/wire'
 
 const URL = 'https://git.example.com/platform-operations/infrastructure-ansible-playbooks.git'
 
-/** An owner with an admin grant on `ops`, a recent passkey check, and something in every section. */
-function seed(backend: FakeBackend): void {
+/** An owner (or an admin, for the System tab's admin line) with an admin grant on `ops`, a recent passkey check, and something in every section. */
+function seed(backend: FakeBackend, instance_role: 'owner' | 'admin' = 'owner'): void {
   backend.me = fixtures.me({
-    instance_role: 'owner',
+    instance_role,
     grants: [{ workspace: WORKSPACE, workspace_slug: 'ops', role: 'ws_admin', profiles: [] }],
     verification: fixtures.verification({ verified: true, enrolled: true, at: '2026-10-27T11:59:00Z' }),
   })
@@ -204,6 +206,71 @@ const SCREENS: Screen[] = [
   { name: 'settings-system', path: '/settings/system', ready: h1('System Settings') },
 ]
 
+/** A watched image with a long, realistic reference, so the card's status line has to wrap. */
+const LONG_IMAGE = 'registry.git.example.com/platform-operations/keel-server-builds:release-candidate'
+const FAILED_RUN: LastUpdateRun = { run: 'run-update-0008', outcome: 'failed', digest: AVAILABLE_DIGEST, ended_at: '2026-10-28T11:00:00Z' }
+
+interface SystemState {
+  name: string
+  role: 'owner' | 'admin'
+  status: () => UpdateStatus
+  /** What shows once the card (or the admin's line) has its state. */
+  ready: (page: Page) => Promise<void>
+}
+
+const cardIn = (state: string, marker?: string) => async (page: Page) => {
+  const card = page.locator(`[data-update-card="${state}"]`)
+  await expect(card).toBeVisible()
+  if (marker !== undefined) await expect(card.locator(marker)).toBeVisible()
+}
+
+/**
+ * Spec 061 T084: Settings → System with the build panel and the update card in each state the
+ * owner can see, and the admin's read-only line.
+ */
+const SYSTEM_STATES: SystemState[] = [
+  { name: 'off', role: 'owner', status: () => updateFixtures.off(), ready: cardIn('off') },
+  { name: 'not checked', role: 'owner', status: () => updateFixtures.notChecked(), ready: cardIn('not_checked') },
+  { name: 'checking', role: 'owner', status: () => ({ ...updateFixtures.status('up_to_date'), state: 'checking' }), ready: cardIn('checking') },
+  { name: 'up to date', role: 'owner', status: () => updateFixtures.status('up_to_date'), ready: cardIn('up_to_date') },
+  { name: 'update available', role: 'owner', status: () => updateFixtures.status('update_available'), ready: cardIn('update_available', '[data-build="available"]') },
+  {
+    name: 'update by hand',
+    role: 'owner',
+    status: () => updateFixtures.status('update_available', { update_path: updateFixtures.manualPath('job_missing_param') }),
+    ready: cardIn('update_available', '[data-update-manual="job_missing_param"]'),
+  },
+  { name: 'older build', role: 'owner', status: () => updateFixtures.status('older_build'), ready: cardIn('older_build') },
+  { name: 'rebuilt', role: 'owner', status: () => updateFixtures.status('rebuilt'), ready: cardIn('rebuilt') },
+  {
+    name: 'cannot tell',
+    role: 'owner',
+    status: () => updateFixtures.status('cant_tell', { digest_compare: false, running: updateFixtures.running({ digest: null }) }),
+    ready: cardIn('cant_tell', '[data-compared-by="revision"]'),
+  },
+  { name: 'failed check', role: 'owner', status: () => updateFixtures.failed('rate_limited'), ready: cardIn('up_to_date', '[data-update-error="rate_limited"]') },
+  {
+    name: 'update in progress',
+    role: 'owner',
+    status: () => updateFixtures.status('update_available', { update_run: 'run-update-0009' }),
+    ready: cardIn('update_available', '[data-update-run="in_progress"]'),
+  },
+  {
+    name: 'failed update',
+    role: 'owner',
+    status: () => updateFixtures.status('update_available', { last_update_run: FAILED_RUN }),
+    ready: cardIn('update_available', '[data-update-run="failed"]'),
+  },
+  {
+    name: 'admin line',
+    role: 'admin',
+    status: () => updateFixtures.status('update_available'),
+    ready: async (page) => {
+      await expect(page.locator('[data-update-line]')).toBeVisible()
+    },
+  },
+]
+
 const WIDTHS = [360, 1280] as const
 const THEMES = ['dark', 'light'] as const
 
@@ -223,6 +290,21 @@ for (const theme of THEMES) {
           const { doc, main, offenders } = await widths(page)
           expect(doc[0], `${screen.path}: the page is ${String(doc[0] - doc[1])} px wider than the viewport`).toBeLessThanOrEqual(doc[1])
           expect(main[0], `${screen.path}: the section scrolls ${String(main[0] - main[1])} px sideways: ${offenders.join('; ')}`).toBeLessThanOrEqual(main[1])
+        })
+      }
+
+      for (const state of SYSTEM_STATES) {
+        test(`settings-system (${state.name}) fits the viewport`, async ({ page, backend }) => {
+          seed(backend, state.role)
+          backend.updates.status = { ...state.status(), image: LONG_IMAGE }
+          await page.goto('/settings/system')
+          await page.evaluate((dark) => document.documentElement.classList.toggle('dark', dark), theme === 'dark')
+          await expect(page.locator('[data-build-panel]')).toBeVisible()
+          await state.ready(page)
+          await page.evaluate(() => document.fonts.ready)
+          const { doc, main, offenders } = await widths(page)
+          expect(doc[0], `${state.name}: the page is ${String(doc[0] - doc[1])} px wider than the viewport`).toBeLessThanOrEqual(doc[1])
+          expect(main[0], `${state.name}: the section scrolls ${String(main[0] - main[1])} px sideways: ${offenders.join('; ')}`).toBeLessThanOrEqual(main[1])
         })
       }
     })
