@@ -407,7 +407,14 @@ pub struct Observed {
     pub journal: Vec<UpdateRun>,
     #[serde(default)]
     pub keep: Vec<KeepRecord>,
+    /// Digests each `<stack>/<service>` ran before, newest last, at most [`MAX_HISTORY`]: a tag
+    /// that points back to one is `moved_back` (research R1 step 7).
+    #[serde(default)]
+    pub history: BTreeMap<String, Vec<String>>,
 }
+
+/// Digests kept per service in [`Observed::history`].
+pub const MAX_HISTORY: usize = 10;
 
 impl Default for Observed {
     fn default() -> Self {
@@ -418,6 +425,7 @@ impl Default for Observed {
             backoff: BTreeMap::new(),
             journal: Vec::new(),
             keep: Vec::new(),
+            history: BTreeMap::new(),
         }
     }
 }

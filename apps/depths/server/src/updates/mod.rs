@@ -9,10 +9,13 @@
 //! shared `oci-registry` crate is built by the caller and handed in.
 
 pub mod creds;
+pub mod inputs;
 pub mod registry;
+pub mod scheduler;
 pub mod store;
+pub mod view;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use depths_core::updates::registry::Registry;
@@ -37,6 +40,12 @@ pub struct Updates {
     store: Store,
     registry: Arc<dyn Registry>,
     clock: Arc<dyn Clock>,
+    /// Wakes the scheduler: Check now, or a settings change.
+    wake: tokio::sync::Notify,
+    /// Check now: when it last ran and what is waiting.
+    check_now: Mutex<scheduler::CheckNow>,
+    /// Fires after every change to what `ListUpdates` shows.
+    changed: tokio::sync::broadcast::Sender<()>,
 }
 
 impl Updates {
@@ -61,6 +70,9 @@ impl Updates {
             store,
             registry: registry(),
             clock,
+            wake: tokio::sync::Notify::new(),
+            check_now: Mutex::new(scheduler::CheckNow::default()),
+            changed: tokio::sync::broadcast::channel(16).0,
         })))
     }
 
@@ -100,7 +112,7 @@ pub fn startup_line(cfg: &UpdatesConfig, updates: Option<&Updates>) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use depths_core::updates::reference::ImageRef;
     use depths_core::updates::registry::{Platform, RegistryError, RegistryFuture, Resolution};
@@ -121,7 +133,7 @@ mod tests {
         }
     }
 
-    fn config(dir: &std::path::Path, updates: &str) -> Config {
+    pub(super) fn config(dir: &std::path::Path, updates: &str) -> Config {
         let stacks = dir.join("stacks");
         std::fs::create_dir_all(&stacks).unwrap();
         let env: std::collections::HashMap<&str, String> = [
