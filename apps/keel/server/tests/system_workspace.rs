@@ -166,6 +166,9 @@ async fn configure_creates_once_and_reserves_the_slug() {
     h.finish().await;
 }
 
+/// Spec 061 FR-024 (T023): the update notice opens the System tab to admins, but the System
+/// workspace itself stays owner-only: hidden from their lists, and `GetSystem`,
+/// `PreviewSystemConfigure` and `PreviewSystemRemove` still refuse them `owner_only`.
 #[tokio::test]
 async fn admins_never_see_or_use_it() {
     let Some(h) = Harness::new("system_admins").await else {
