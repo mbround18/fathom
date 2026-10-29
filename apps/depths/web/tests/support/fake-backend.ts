@@ -84,9 +84,11 @@ import type {
 } from '../../src/protocol/generated'
 import { CloseCode, PROTOCOL_VERSION } from '../../src/protocol/generated/constants'
 import { FakeFiles, FILE_LIMITS, fakeMount, type FileHttpReply } from './fake-files'
+import { FakePasskeys } from './fake-passkeys'
 
 export { expect }
 export { DIR_PAGE_SIZE, FakeFiles, FILE_LIMITS, mountId, type RefusalTarget } from './fake-files'
+export { FakePasskeys } from './fake-passkeys'
 
 export type CmdType = Cmd['type']
 export type CmdOf<T extends CmdType> = Extract<Cmd, { type: T }>
@@ -607,6 +609,12 @@ export class FakeBackend {
   readonly files: FakeFiles = new FakeFiles(
     () => this.me,
     () => `pv-${String(++this.seq)}`,
+  )
+
+  /** 054: passkeys and step-up, off until `passkeys.enable(...)`. */
+  readonly passkeys: FakePasskeys = new FakePasskeys(
+    () => this.me,
+    () => String(++this.seq),
   )
 
   readonly sockets: FakeSocket[] = []
@@ -1133,6 +1141,10 @@ export class FakeBackend {
     const denied = (reason: DenyReason = 'not_permitted'): Event[] => [{ type: 'Denied', data: { reason } }]
     const find = (name: string): Stack | undefined => this.stacks.stacks.find((s) => s.name === name)
 
+    // 054: the passkey commands, the unverified-admin refusal and the step-up asks.
+    const passkeys = this.passkeys.respond(cmd) ?? this.passkeys.gate(cmd)
+    if (passkeys) return passkeys
+
     switch (cmd.type) {
       case 'ListStacks':
         return [{ type: 'Stacks', data: this.visibleStacks(me) }]
@@ -1162,7 +1174,8 @@ export class FakeBackend {
         const findings = ['up', 'update', 'service_up'].includes(op.kind) ? (this.lint[stack] ?? []) : []
         const blocked = this.blocked(findings, admin)
         if (blocked) return blocked
-        return [{ type: 'Preview', data: this.withFindings(this.makePreview(s, op.kind, stepsFor(stack, op), null, isDestructive(op)), findings) }]
+        const preview = this.withFindings(this.makePreview(s, op.kind, stepsFor(stack, op), null, isDestructive(op)), findings)
+        return [{ type: 'Preview', data: this.passkeys.stamp(preview) }]
       }
 
       case 'PreviewSave': {
@@ -1195,10 +1208,14 @@ export class FakeBackend {
         const findings = this.lint[draft.stack] ?? fakeLint(draft.compose)
         const blocked = this.blocked(findings, admin)
         if (blocked) return blocked
-        return [{ type: 'Preview', data: this.withFindings(this.makePreview(target, creating ? 'create' : 'save', steps, diff, false), findings) }]
+        const preview = this.withFindings(this.makePreview(target, creating ? 'create' : 'save', steps, diff, false), findings)
+        return [{ type: 'Preview', data: this.passkeys.stamp(preview) }]
       }
 
       case 'Confirm': {
+        // 054: a preview that asked for a step-up needs its assertion; a passkey removal ends here.
+        const stepped = this.passkeys.confirm(cmd)
+        if (stepped) return stepped
         // 051 FR-018: a preview with escape findings under `enforce` runs only acknowledged.
         if (this.files.owns(cmd.data.preview_id)) return this.files.confirm(cmd.data.preview_id, may)
         const settings = this.updatePreviews.get(cmd.data.preview_id)
@@ -1361,28 +1378,18 @@ export class FakeBackend {
         return [{ type: 'Users', data: this.users }]
       }
 
-      // Spec 054. No UI drives these yet: the fake answers as a server with no passkeys and no
-      // guard exceptions, and refuses every ceremony.
+      // Spec 054: the passkey commands are answered above; the guard has no UI yet.
       case 'GetVerification':
-        return [{
-          type: 'Verification',
-          data: { verified: false, at: null, window_secs: 300, enrolled: false, required: false, recovering: false },
-        }]
-
       case 'ListPasskeys':
-        return [{ type: 'Passkeys', data: { items: [] } }]
+      case 'PasskeyBegin':
+      case 'PasskeyFinish':
+      case 'PreviewPasskeyRemove':
+      case 'RecoverPasskeys':
+        return [{ type: 'Invalid', data: { reason: 'unreachable' } }]
 
       case 'GetGuardExceptions':
         if (!may(cmd.data.stack)) return denied()
         return [{ type: 'GuardExceptions', data: { stack: cmd.data.stack, items: [] } }]
-
-      case 'PasskeyBegin':
-      case 'PasskeyFinish':
-      case 'PreviewPasskeyRemove':
-        return [{ type: 'PasskeyRefused', data: { reason: 'invalid' } }]
-
-      case 'RecoverPasskeys':
-        return [{ type: 'PasskeyRefused', data: { reason: 'recovery_invalid' } }]
 
       // Spec 062 US1: the page, Check now and the settings change; batches come later.
       case 'ListUpdates':
@@ -1418,7 +1425,7 @@ export class FakeBackend {
         return [
           {
             type: 'Preview',
-            data: {
+            data: this.passkeys.stamp({
               preview_id,
               stack: '',
               kind: 'update',
@@ -1428,7 +1435,7 @@ export class FakeBackend {
               destructive: false,
               stack_hash: '',
               expires_at: '2026-10-28T12:05:00Z',
-            },
+            }),
           },
         ]
       }
