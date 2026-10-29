@@ -77,7 +77,11 @@ impl ImageRef {
         if !valid_registry(registry) {
             return Err(bad("registry"));
         }
-        let registry = if registry == "index.docker.io" { DOCKER_HUB } else { registry };
+        let registry = if registry == "index.docker.io" {
+            DOCKER_HUB
+        } else {
+            registry
+        };
         if path.is_empty() || !path.split('/').all(valid_component) {
             return Err(bad("repository"));
         }
@@ -94,7 +98,12 @@ impl ImageRef {
             (None, Some(_)) => None,
             (None, None) => Some("latest".to_owned()),
         };
-        Ok(Self { registry: registry.to_owned(), repository, tag, digest })
+        Ok(Self {
+            registry: registry.to_owned(),
+            repository,
+            tag,
+            digest,
+        })
     }
 
     /// The reference pins a digest: excluded `pinned_by_digest` (FR-004).
@@ -140,7 +149,9 @@ fn valid_registry(r: &str) -> bool {
     !host.is_empty()
         && host.split('.').all(|label| {
             !label.is_empty()
-                && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
                 && !label.starts_with('-')
                 && !label.ends_with('-')
         })
@@ -180,17 +191,23 @@ fn valid_tag(t: &str) -> bool {
     !b.is_empty()
         && b.len() <= 128
         && (b[0].is_ascii_alphanumeric() || b[0] == b'_')
-        && b.iter().all(|&x| x.is_ascii_alphanumeric() || matches!(x, b'_' | b'.' | b'-'))
+        && b.iter()
+            .all(|&x| x.is_ascii_alphanumeric() || matches!(x, b'_' | b'.' | b'-'))
 }
 
 fn valid_digest(d: &str) -> bool {
-    let Some((alg, hex)) = d.split_once(':') else { return false };
+    let Some((alg, hex)) = d.split_once(':') else {
+        return false;
+    };
     let len = match alg {
         "sha256" => 64,
         "sha512" => 128,
         _ => return false,
     };
-    hex.len() == len && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    hex.len() == len
+        && hex
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 #[cfg(test)]
@@ -213,17 +230,38 @@ mod tests {
         let host_digest = format!("host:5000/a/b@{D}");
         let both = format!("x:1@{D}");
         let cases: Vec<(&str, ImageRef)> = vec![
-            ("nginx", r("docker.io", "library/nginx", Some("latest"), None)),
-            ("nginx:1.27", r("docker.io", "library/nginx", Some("1.27"), None)),
-            ("library/nginx", r("docker.io", "library/nginx", Some("latest"), None)),
-            ("docker.io/nginx", r("docker.io", "library/nginx", Some("latest"), None)),
-            ("index.docker.io/library/nginx", r("docker.io", "library/nginx", Some("latest"), None)),
+            (
+                "nginx",
+                r("docker.io", "library/nginx", Some("latest"), None),
+            ),
+            (
+                "nginx:1.27",
+                r("docker.io", "library/nginx", Some("1.27"), None),
+            ),
+            (
+                "library/nginx",
+                r("docker.io", "library/nginx", Some("latest"), None),
+            ),
+            (
+                "docker.io/nginx",
+                r("docker.io", "library/nginx", Some("latest"), None),
+            ),
+            (
+                "index.docker.io/library/nginx",
+                r("docker.io", "library/nginx", Some("latest"), None),
+            ),
             ("ghcr.io/a/b:c", r("ghcr.io", "a/b", Some("c"), None)),
-            ("localhost:5000/x", r("localhost:5000", "x", Some("latest"), None)),
+            (
+                "localhost:5000/x",
+                r("localhost:5000", "x", Some("latest"), None),
+            ),
             ("localhost/x", r("localhost", "x", Some("latest"), None)),
             (&host_digest, r("host:5000", "a/b", None, Some(D))),
             (&both, r("docker.io", "library/x", Some("1"), Some(D))),
-            ("someone/app:v2", r("docker.io", "someone/app", Some("v2"), None)),
+            (
+                "someone/app:v2",
+                r("docker.io", "someone/app", Some("v2"), None),
+            ),
         ];
         for (input, want) in cases {
             assert_eq!(ImageRef::parse(input).as_ref(), Ok(&want), "{input}");
@@ -232,7 +270,11 @@ mod tests {
 
     #[test]
     fn digest_means_pinned() {
-        assert!(ImageRef::parse(&format!("host:5000/a/b@{D}")).unwrap().is_pinned());
+        assert!(
+            ImageRef::parse(&format!("host:5000/a/b@{D}"))
+                .unwrap()
+                .is_pinned()
+        );
         // Both a tag and a digest: the digest wins, and the service is excluded.
         assert!(ImageRef::parse(&format!("x:1@{D}")).unwrap().is_pinned());
         assert!(!ImageRef::parse("nginx:1.27").unwrap().is_pinned());
@@ -253,7 +295,10 @@ mod tests {
             "host:port/x",
             "nginx:-bad",
         ] {
-            assert!(ImageRef::parse(input).is_err(), "{input:?} should be refused");
+            assert!(
+                ImageRef::parse(input).is_err(),
+                "{input:?} should be refused"
+            );
         }
     }
 
@@ -263,11 +308,17 @@ mod tests {
             let parsed = ImageRef::parse(input).unwrap();
             assert_eq!(ImageRef::parse(&parsed.to_string()).unwrap(), parsed);
         }
-        assert_eq!(ImageRef::parse("nginx").unwrap().to_string(), "docker.io/library/nginx:latest");
+        assert_eq!(
+            ImageRef::parse("nginx").unwrap().to_string(),
+            "docker.io/library/nginx:latest"
+        );
         assert_eq!(
             ImageRef::parse(&format!("x:1@{D}")).unwrap().to_string(),
             format!("docker.io/library/x:1@{D}")
         );
-        assert_eq!(ImageRef::parse("ghcr.io/a/b:c").unwrap().name(), "ghcr.io/a/b");
+        assert_eq!(
+            ImageRef::parse("ghcr.io/a/b:c").unwrap().name(),
+            "ghcr.io/a/b"
+        );
     }
 }

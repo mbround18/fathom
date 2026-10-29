@@ -135,7 +135,10 @@ pub(crate) mod fake {
             digest: &str,
             answer: Result<Resolution, RegistryError>,
         ) {
-            self.resolutions.lock().unwrap().insert(digest.to_owned(), answer);
+            self.resolutions
+                .lock()
+                .unwrap()
+                .insert(digest.to_owned(), answer);
         }
 
         pub(crate) fn heads(&self) -> usize {
@@ -150,10 +153,13 @@ pub(crate) mod fake {
     impl Registry for FakeRegistry {
         fn head_digest<'a>(&'a self, r: &'a ImageRef) -> RegistryFuture<'a, String> {
             self.head_calls.fetch_add(1, Ordering::SeqCst);
-            let answer =
-                self.heads.lock().unwrap().get(&r.to_string()).cloned().unwrap_or(Err(
-                    RegistryError::NotFound,
-                ));
+            let answer = self
+                .heads
+                .lock()
+                .unwrap()
+                .get(&r.to_string())
+                .cloned()
+                .unwrap_or(Err(RegistryError::NotFound));
             Box::pin(async move { answer })
         }
 
@@ -194,7 +200,11 @@ mod tests {
     }
 
     fn platform() -> Platform {
-        Platform { os: "linux".into(), architecture: "amd64".into(), variant: None }
+        Platform {
+            os: "linux".into(),
+            architecture: "amd64".into(),
+            variant: None,
+        }
     }
 
     #[test]
@@ -214,9 +224,15 @@ mod tests {
 
         let port: Arc<dyn Registry> = reg.clone();
         assert_eq!(ready(port.head_digest(&nginx)), Ok("sha256:aa".into()));
-        assert_eq!(ready(port.resolve(&nginx, "sha256:aa", &platform())), Ok(res));
+        assert_eq!(
+            ready(port.resolve(&nginx, "sha256:aa", &platform())),
+            Ok(res)
+        );
         let other = ImageRef::parse("redis").unwrap();
-        assert_eq!(ready(port.head_digest(&other)), Err(RegistryError::NotFound));
+        assert_eq!(
+            ready(port.head_digest(&other)),
+            Err(RegistryError::NotFound)
+        );
         assert_eq!((reg.heads(), reg.resolves()), (2, 1));
     }
 
@@ -236,7 +252,11 @@ mod tests {
         ];
         assert!(backs_off.iter().all(RegistryError::starts_backoff));
         assert!(!does_not.iter().any(RegistryError::starts_backoff));
-        assert!(RegistryError::NoDigestHeader.to_string().starts_with("can't check"));
+        assert!(
+            RegistryError::NoDigestHeader
+                .to_string()
+                .starts_with("can't check")
+        );
         assert!(
             RegistryError::CredentialsUnsupported("credential helpers".into())
                 .to_string()
