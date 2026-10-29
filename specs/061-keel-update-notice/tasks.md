@@ -102,9 +102,9 @@ them, in the rollout order in quickstart.md.
 
 - [ ] T022 [P] [US1] Write a server DB test in `apps/keel/server/tests/updates.rs` (new): `GetKeelBuild` gives owners and admins the version, revision, `built_at` and digest, and users the version and `display` only (revision, date and digest null); `Me.keel_version` is set for every role; on start, the first run fills `keel_build_seen` without an audit entry, a start on a different digest or revision writes one `keel_updated` with `old_digest`, `new_digest`, `old_revision`, `new_revision`, `old_version`, `new_version` and actor `internal()`, and a start on the same build writes nothing.
 - [ ] T023 [P] [US1] Extend `apps/keel/server/tests/system_workspace.rs`: after this spec, an admin is still refused `owner_only` on `GetSystem`, `PreviewSystemConfigure` and `PreviewSystemRemove`, and still can't see the System workspace in any list (FR-024).
-- [ ] T024 [P] [US1] Extend `apps/keel/web/tests/unit/settings-tabs.test.ts`: `visibleTabs('admin')` now includes `system`; users get no tabs; `resolveTab('system', 'admin')` is `system`.
-- [ ] T025 [P] [US1] Write `apps/keel/web/tests/e2e/s061/update-build.spec.ts`: the build panel for an owner and an admin (version, short revision with the full one on copy, short digest with the full one on copy, build date); "development build" and "untagged build abc1234"; a missing digest reads "unknown" with the one-line pin hint; a user sees no System tab and sees the version under About.
-- [ ] T026 [P] [US1] Write `apps/keel/web/tests/e2e/s061/update-roles.spec.ts`, first part (FR-024): an admin opens System and sees the build panel and digest, and none of spec 060's sections (setup, configuration, binding, host, runs, Remove); the fake backend records that no `GetSystem` was sent for the admin; a user has no System tab and a direct `/settings/system` goes to the default tab.
+- [X] T024 [P] [US1] Extend `apps/keel/web/tests/unit/settings-tabs.test.ts`: `visibleTabs('admin')` now includes `system`; users get no tabs; `resolveTab('system', 'admin')` is `system`.
+- [X] T025 [P] [US1] Write `apps/keel/web/tests/e2e/s061/update-build.spec.ts`: the build panel for an owner and an admin (version, short revision with the full one on copy, short digest with the full one on copy, build date); "development build" and "untagged build abc1234"; a missing digest reads "unknown" with the one-line pin hint; a user sees no System tab and sees the version under About.
+- [X] T026 [P] [US1] Write `apps/keel/web/tests/e2e/s061/update-roles.spec.ts`, first part (FR-024): an admin opens System and sees the build panel and digest, and none of spec 060's sections (setup, configuration, binding, host, runs, Remove); the fake backend records that no `GetSystem` was sent for the admin; a user has no System tab and a direct `/settings/system` goes to the default tab.
 
 ### Implementation
 
@@ -114,10 +114,10 @@ them, in the rollout order in quickstart.md.
 - [X] T030 [P] [US1] In `apps/keel/Dockerfile`'s runtime stage only: add `ARG CREATED=`, change `ARG VERSION=0.0.0` to `ARG VERSION=`, add `LABEL org.opencontainers.image.created=$CREATED`, and `ENV KEEL_BUILD_VERSION=$VERSION KEEL_BUILD_REVISION=$REVISION KEEL_BUILD_DATE=$CREATED KEEL_BUILD_SOURCE=$SOURCE` (R2). The cargo-chef and build stages stay untouched.
 - [X] T031 [P] [US1] In `apps/keel/Makefile` `image`: `VERSION` from `git describe --exact-match --match 'keel-v*'` with the prefix stripped, else empty; `CREATED` from `date -u +%Y-%m-%dT%H:%M:%SZ`; pass both as build args. `image-push` keeps refusing a dirty tree.
 - [X] T032 [P] [US1] Add `KEEL_IMAGE_DIGEST` to the environment passthrough in `apps/keel/compose.yaml`.
-- [ ] T033 [US1] In `apps/keel/web/src/features/settings/tabs.ts`, open `system` to admins (`visibleTabs`), and update the header comment to say the System tab is owner and admin, with role-shaped sections (spec 061 FR-024). Makes T024 pass.
-- [ ] T034 [US1] Write `apps/keel/web/src/features/settings/BuildPanel.tsx` (a definition list: version, revision, digest, build date, with `CopyBlock` for the full values and the "unknown" hint), and load it with `GetKeelBuild` in `apps/keel/web/src/features/settings/store.ts`.
-- [ ] T035 [US1] Reshape `apps/keel/web/src/features/settings/SystemTab.tsx` by role: owners see `BuildPanel` above the existing spec 060 content; admins see `BuildPanel` only, and the tab never sends `GetSystem` or any System workspace command for them. Makes T025 and T026 pass.
-- [ ] T036 [P] [US1] Show `Me.keel_version` under About in the account menu in `apps/keel/web/src/app/Shell.tsx`.
+- [X] T033 [US1] In `apps/keel/web/src/features/settings/tabs.ts`, open `system` to admins (`visibleTabs`), and update the header comment to say the System tab is owner and admin, with role-shaped sections (spec 061 FR-024). Makes T024 pass.
+- [X] T034 [US1] Write `apps/keel/web/src/features/settings/BuildPanel.tsx` (a definition list: version, revision, digest, build date, with `CopyBlock` for the full values and the "unknown" hint), and load it with `GetKeelBuild` in `apps/keel/web/src/features/settings/store.ts`.
+- [X] T035 [US1] Reshape `apps/keel/web/src/features/settings/SystemTab.tsx` by role: owners see `BuildPanel` above the existing spec 060 content; admins see `BuildPanel` only, and the tab never sends `GetSystem` or any System workspace command for them. Makes T025 and T026 pass.
+- [X] T036 [P] [US1] Show `Me.keel_version` under About in the account menu in `apps/keel/web/src/app/Shell.tsx`.
 
 ### The owner's Ansible repository (FR-003; the owner lands these)
 
@@ -139,14 +139,14 @@ them, in the rollout order in quickstart.md.
 
 - [X] T040 [P] [US2] In `apps/keel/server/src/updates/mod.rs` tests, under `tokio::time::pause`, with a `FakeRegistry` and checks off: no checker task is spawned, no `oci_registry::Client` is built, and the fake's request log is empty after advancing 3 days; `CheckForUpdates` replies `OpError { code: "update_check_off" }`; `UpdateStatus.enabled` is false (FR-004, SC-001).
 - [X] T041 [P] [US2] In `apps/keel/server/src/updates/scheduler.rs` tests (new file), with an injected counting check and a seeded jitter source: the first check falls in 60–120 s after start; later checks every interval ±5%; after a failure, one retry after 5 minutes, then the normal schedule; a manual check doesn't move the schedule (FR-005, contracts/config.md "Schedule").
-- [ ] T042 [P] [US2] Write `apps/keel/web/tests/e2e/s061/update-notice.spec.ts`, first part: with checks off, the owner's System tab says update checks are off and how to turn them on (`KEEL_UPDATE_CHECK=true`), with no Check now button.
+- [X] T042 [P] [US2] Write `apps/keel/web/tests/e2e/s061/update-notice.spec.ts`, first part: with checks off, the owner's System tab says update checks are off and how to turn them on (`KEEL_UPDATE_CHECK=true`), with no Check now button.
 
 ### Implementation
 
 - [X] T043 [US2] Write `apps/keel/server/src/updates/scheduler.rs`: the schedule above, taking the check as a closure and the random source as a parameter. Spawn it from `apps/keel/server/src/serve.rs` only when `KEEL_UPDATE_CHECK` is true. Makes T040 and T041 pass.
 - [ ] T044 [US2] Implement `GetUpdateStatus` in `apps/keel/server/src/updates/commands.rs`: owners get `UpdateStatus`, admins get `UpdateStatusLine`, users get `Denied { reason: "admin_only" }`; and `CheckForUpdates` returning `update_check_off` when checks are off.
 - [X] T045 [P] [US2] Add `KEEL_UPDATE_CHECK`, `KEEL_UPDATE_INTERVAL`, `KEEL_UPDATE_IMAGE`, `KEEL_UPDATE_REGISTRY_USERNAME` and `KEEL_UPDATE_REGISTRY_PASSWORD_FILE` to the environment passthrough in `apps/keel/compose.yaml`, with the contract's commented example in the stack's `.env` example.
-- [ ] T046 [US2] Write `apps/keel/web/src/features/settings/UpdateCard.tsx` with the off state, load the status with `GetUpdateStatus` after `Me` in `apps/keel/web/src/features/settings/store.ts`, and render the card on the owner's System tab. Makes T042 pass.
+- [X] T046 [US2] Write `apps/keel/web/src/features/settings/UpdateCard.tsx` with the off state, load the status with `GetUpdateStatus` after `Me` in `apps/keel/web/src/features/settings/store.ts`, and render the card on the owner's System tab. Makes T042 pass.
 
 **Checkpoint**: with defaults, Keel makes no registry request; with checks on, the scheduler fires on time.
 
@@ -171,9 +171,9 @@ them, in the rollout order in quickstart.md.
   - a HEAD without `Docker-Content-Digest`: `no_digest_header`, and no GET;
   - the whole check is bounded at 30 s.
 - [ ] T049 [P] [US3] Extend `apps/keel/server/tests/updates.rs`: a status change pushes `UpdateStatus` to an owner socket and `UpdateStatusLine` to an admin socket, and nothing to a user socket; `UpdateStatusLine` serializes with only `update_available` and `checked_at` (SC-006); `CheckForUpdates` is owner-only and gives `update_check_too_soon` with the retry time within a minute (FR-007); `DismissUpdateDot` stores the digest, refuses a malformed one with `invalid_digest`, and `Me.update_dot_dismissed` is null for non-owners.
-- [ ] T050 [P] [US3] Write `apps/keel/web/tests/unit/updates.test.ts`: the status reducer for each `state` and `outcome`; the dot rule from data-model.md, verbatim: `role == owner && status.outcome == update_available && status.available.digest != me.update_dot_dismissed`; the admin line's wording.
-- [ ] T051 [P] [US3] Extend `apps/keel/web/tests/e2e/s061/update-notice.spec.ts`: "up to date" with the check time; a pushed `update_available` shows the dot and card without a reload; Check now and its "try again at …"; dismissing hides the dot, survives a reload, and returns for a new digest, while the card stays (FR-014); `older_build` and `rebuilt` wording; a failure shows the last result, the reason and the next attempt; release-notes link and "No release notes for untagged builds".
-- [ ] T052 [P] [US3] Extend `apps/keel/web/tests/e2e/s061/update-roles.spec.ts` (SC-006, FR-015): with an update available, an admin sees "A newer Keel is available; an owner can update it" and no dot, no available digest, version, revision or date, and no Check now or Update; a user sees nothing.
+- [X] T050 [P] [US3] Write `apps/keel/web/tests/unit/updates.test.ts`: the status reducer for each `state` and `outcome`; the dot rule from data-model.md, verbatim: `role == owner && status.outcome == update_available && status.available.digest != me.update_dot_dismissed`; the admin line's wording.
+- [X] T051 [P] [US3] Extend `apps/keel/web/tests/e2e/s061/update-notice.spec.ts`: "up to date" with the check time; a pushed `update_available` shows the dot and card without a reload; Check now and its "try again at …"; dismissing hides the dot, survives a reload, and returns for a new digest, while the card stays (FR-014); `older_build` and `rebuilt` wording; a failure shows the last result, the reason and the next attempt; release-notes link and "No release notes for untagged builds".
+- [X] T052 [P] [US3] Extend `apps/keel/web/tests/e2e/s061/update-roles.spec.ts` (SC-006, FR-015): with an update available, an admin sees "A newer Keel is available; an owner can update it" and no dot, no available digest, version, revision or date, and no Check now or Update; a user sees nothing.
 
 ### Implementation
 
@@ -183,10 +183,10 @@ them, in the rollout order in quickstart.md.
 - [X] T056 [US3] In `apps/keel/server/src/updates/mod.rs`, plug `check::run` into the scheduler and into `CheckForUpdates` (owner-only, once a minute per instance, reply `state: checking` then a push), and publish every result on the `watch` channel.
 - [ ] T057 [US3] Implement `DismissUpdateDot` in `apps/keel/server/src/updates/commands.rs` (owner-only, writes `users.update_dot_dismissed`, replies `Me`), and fill `Me.update_dot_dismissed` for owners in `apps/keel/server/src/dispatch.rs`.
 - [ ] T058 [US3] In `apps/keel/server/src/ws.rs`, add the `select!` arm on the `watch::Receiver::changed()` future: re-read the caller's instance role, send `UpdateStatus` to owners and `UpdateStatusLine` to admins, nothing to users (R5). Makes T049 pass.
-- [ ] T059 [US3] In `apps/keel/web/src/features/settings/store.ts`, subscribe to `UpdateStatus` and `UpdateStatusLine` pushes, and add `CheckForUpdates` and `DismissUpdateDot`.
-- [ ] T060 [US3] Complete `apps/keel/web/src/features/settings/UpdateCard.tsx`: up to date, update available (current and available version, revision, build date, digest, last check, release notes or the note), older build, rebuilt, can't tell with its reason, failure with the last result and next attempt, and Check now with its retry time. Stacks at 360 px.
-- [ ] T061 [P] [US3] Write `apps/keel/web/src/features/settings/UpdateLine.tsx` (the admin's read-only line) and render it on the admin's System tab in `SystemTab.tsx`.
-- [ ] T062 [US3] Add the dot to the System Settings entry in `apps/keel/web/src/app/nav.ts` and `apps/keel/web/src/app/Shell.tsx`, with the dot rule above and a dismiss action. Makes T050 to T052 pass.
+- [X] T059 [US3] In `apps/keel/web/src/features/settings/store.ts`, subscribe to `UpdateStatus` and `UpdateStatusLine` pushes, and add `CheckForUpdates` and `DismissUpdateDot`.
+- [X] T060 [US3] Complete `apps/keel/web/src/features/settings/UpdateCard.tsx`: up to date, update available (current and available version, revision, build date, digest, last check, release notes or the note), older build, rebuilt, can't tell with its reason, failure with the last result and next attempt, and Check now with its retry time. Stacks at 360 px.
+- [X] T061 [P] [US3] Write `apps/keel/web/src/features/settings/UpdateLine.tsx` (the admin's read-only line) and render it on the admin's System tab in `SystemTab.tsx`.
+- [X] T062 [US3] Add the dot to the System Settings entry in `apps/keel/web/src/app/nav.ts` and `apps/keel/web/src/app/Shell.tsx`, with the dot rule above and a dismiss action. Makes T050 to T052 pass.
 
 **Checkpoint**: the notice works end to end against the fake registry and the fake backend. This is the release the owner asked for.
 
@@ -210,7 +210,7 @@ them, in the rollout order in quickstart.md.
   - a status that moved between preview and confirm gives `digest_stale`;
   - the run finishing audits `keel_update_result` with `run`, `outcome`, `old_digest`, `new_digest`;
   - `RunInfo.params` carries the digest; older runs have `{}`.
-- [ ] T066 [P] [US4] Write `apps/keel/web/tests/e2e/s061/update-run.spec.ts`: Update opens a preview naming host, profile, current and new digest and the restart; `older_build` and `rebuilt` show the warning line; confirming asks for a passkey (the soft passkey); the run shows in Runs with its params; pressing Update again shows the existing run; a failed run leaves the card saying the update failed, with a link to the run; an admin and a user never see Update.
+- [X] T066 [P] [US4] Write `apps/keel/web/tests/e2e/s061/update-run.spec.ts`: Update opens a preview naming host, profile, current and new digest and the restart; `older_build` and `rebuilt` show the warning line; confirming asks for a passkey (the soft passkey); the run shows in Runs with its params; pressing Update again shows the existing run; a failed run leaves the card saying the update failed, with a link to the run; an admin and a user never see Update.
 
 ### Implementation
 
@@ -220,8 +220,8 @@ them, in the rollout order in quickstart.md.
 - [ ] T070 [US4] In `apps/keel/server/src/system.rs`, add `update_path()`: `UpdatePath::Run` when a System workspace exists, an enrolled host has the `keel-server` profile, `keel-server` is in `allowed_profiles`, and the bound repo's `keel-server` job declares `params.keel_server_image_digest`; otherwise `Manual` with `missing` set to the first failing code. Include it, and `update_run`, in `UpdateStatus`.
 - [ ] T071 [US4] Implement `PreviewKeelUpdate` and its confirm in `apps/keel/server/src/updates/commands.rs`: owner-only, session-only, step-up; the preview text per contracts/protocol.md (old and new version, revision and digest; workspace, host, job; approval policy; a warning line for `older_build` and `rebuilt`); every condition re-checked on confirm; the FR-018 query `select id from runs where workspace_id = $system and params ? 'keel_server_image_digest' and state in ('pending_approval', 'queued', 'running') for update` in the same transaction as the insert; every refusal audited as `keel_update_refused`. Audit the token refusal in `apps/keel/server/src/dispatch.rs` `authorize()`.
 - [ ] T072 [US4] When an update run finishes (success, failure, cancelled or `runner_lost`), write `keel_update_result` in `apps/keel/server/src/runs.rs`. Makes T065 pass.
-- [ ] T073 [US4] Add Update to `apps/keel/web/src/features/settings/UpdateCard.tsx` when `update_path.kind == "run"`: the preview and step-up flow through the existing preview components, the existing-run case, the in-progress state from `update_run`, and the failed state with a link to the run.
-- [ ] T074 [P] [US4] Show a run's params next to its commit in `apps/keel/web/src/features/runs/RunPage.tsx` and `parts.tsx`. Makes T066 pass.
+- [X] T073 [US4] Add Update to `apps/keel/web/src/features/settings/UpdateCard.tsx` when `update_path.kind == "run"`: the preview and step-up flow through the existing preview components, the existing-run case, the in-progress state from `update_run`, and the failed state with a link to the run.
+- [X] T074 [P] [US4] Show a run's params next to its commit in `apps/keel/web/src/features/runs/RunPage.tsx` and `parts.tsx`. Makes T066 pass.
 
 ### The owner's Ansible repository (after the rollout steps; the owner lands these)
 
@@ -242,12 +242,12 @@ them, in the rollout order in quickstart.md.
 ### Tests
 
 - [ ] T078 [P] [US5] Write a server DB test in `apps/keel/server/tests/update_manual.rs` (new): for each of `no_system_workspace`, `no_keel_host`, `profile_not_allowed` and `job_missing_param`, `UpdateStatus.update_path` is `Manual` with that `missing`, `digest_ref` is `mbround18/keel@sha256:…` for the available digest, and `steps` holds the deployment-repository step (`make keel-server KEEL_DIGEST=<digest>`) and the plain-compose steps (pin `image:` to the reference, `docker compose pull`, `docker compose up -d`).
-- [ ] T079 [P] [US5] Write `apps/keel/web/tests/e2e/s061/update-manual.spec.ts`: each missing prerequisite names itself; the digest reference and steps are copyable; there is no Update button; a link goes to the System tab setup (FR-021).
+- [X] T079 [P] [US5] Write `apps/keel/web/tests/e2e/s061/update-manual.spec.ts`: each missing prerequisite names itself; the digest reference and steps are copyable; there is no Update button; a link goes to the System tab setup (FR-021).
 
 ### Implementation
 
 - [ ] T080 [US5] Write `apps/keel/server/src/updates/manual.rs`: render `digest_ref` (repository from the watched reference, plus the available digest) and `steps`, server-side, and use it in `system.rs` `update_path()`. Makes T078 pass.
-- [ ] T081 [US5] Add the manual section to `apps/keel/web/src/features/settings/UpdateCard.tsx`: what is missing in one line, the steps in `CopyBlock`s, and the setup link. Makes T079 pass.
+- [X] T081 [US5] Add the manual section to `apps/keel/web/src/features/settings/UpdateCard.tsx`: what is missing in one line, the steps in `CopyBlock`s, and the setup link. Makes T079 pass.
 
 **Checkpoint**: every story works on its own against the fake backend.
 
