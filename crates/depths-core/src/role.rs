@@ -451,7 +451,11 @@ mod tests {
         assert_eq!(STEP_UP.len(), CommandKind::ALL.len());
         for (row, kind) in STEP_UP.iter().zip(CommandKind::ALL) {
             assert_eq!(row.0, kind, "table order follows ALL");
-            assert_eq!(step_up_needed(kind, false), row.1, "{kind:?} without findings");
+            assert_eq!(
+                step_up_needed(kind, false),
+                row.1,
+                "{kind:?} without findings"
+            );
             assert_eq!(step_up_needed(kind, true), row.2, "{kind:?} with findings");
         }
     }

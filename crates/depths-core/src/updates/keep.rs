@@ -61,7 +61,12 @@ pub fn repository(stack: &str) -> String {
 
 /// The keep tag of one service: `depths-keep/<stack>:<service>-<kind>`.
 pub fn tag(stack: &str, service: &str, kind: KeepKind) -> String {
-    format!("{}:{}-{}", repository(stack), sanitise(service), kind.as_str())
+    format!(
+        "{}:{}-{}",
+        repository(stack),
+        sanitise(service),
+        kind.as_str()
+    )
 }
 
 #[cfg(test)]
@@ -98,7 +103,11 @@ mod tests {
         assert!(t.starts_with("my-stack-1-"), "{t}");
         assert_eq!(
             tag("Media", "App", KeepKind::Previous),
-            format!("depths-keep/{}:{}-previous", sanitise("Media"), sanitise("App"))
+            format!(
+                "depths-keep/{}:{}-previous",
+                sanitise("Media"),
+                sanitise("App")
+            )
         );
     }
 
@@ -117,10 +126,9 @@ mod tests {
                 let r = super::super::reference::ImageRef::parse(&t).unwrap();
                 assert!(!r.is_pinned());
                 assert!(
-                    t.bytes()
-                        .all(|b| b.is_ascii_lowercase()
-                            || b.is_ascii_digit()
-                            || b".:/_-".contains(&b)),
+                    t.bytes().all(|b| b.is_ascii_lowercase()
+                        || b.is_ascii_digit()
+                        || b".:/_-".contains(&b)),
                     "{t}"
                 );
             }

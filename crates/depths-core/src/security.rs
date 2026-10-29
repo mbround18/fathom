@@ -262,6 +262,10 @@ pub struct InspectConfig {
     /// The image as the container was created from it (`ghcr.io/playit-cloud/playit-agent:1.0`).
     #[serde(default, deserialize_with = "nullable")]
     pub image: String,
+    /// The container's labels, including those it inherited from its image (spec 062: Watchtower
+    /// labels and detection).
+    #[serde(default, deserialize_with = "nullable")]
+    pub labels: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]

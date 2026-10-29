@@ -83,7 +83,9 @@ pub fn user_check(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trigger {
     /// A person's confirm; `acknowledged` is its `acknowledge_findings`.
-    Manual { acknowledged: bool },
+    Manual {
+        acknowledged: bool,
+    },
     Scheduled,
 }
 
@@ -129,9 +131,12 @@ pub fn lint_check(compose_text: &str, policy: ComposePolicy, trigger: Trigger) -
             (ComposePolicy::Enforce, _) => LintDecision::Refuse,
             (ComposePolicy::Warn, Trigger::Scheduled) => LintDecision::Hold,
             (ComposePolicy::Warn, Trigger::Manual { acknowledged: true }) => LintDecision::Proceed,
-            (ComposePolicy::Warn, Trigger::Manual { acknowledged: false }) => {
-                LintDecision::NeedsAck
-            }
+            (
+                ComposePolicy::Warn,
+                Trigger::Manual {
+                    acknowledged: false,
+                },
+            ) => LintDecision::NeedsAck,
         }
     };
     LintCheck { findings, decision }
