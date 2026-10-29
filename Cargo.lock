@@ -5799,6 +5799,7 @@ dependencies = [
  "keel-git",
  "keel-protocol",
  "keel-trust",
+ "oci-registry",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",

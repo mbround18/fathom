@@ -46,6 +46,8 @@ keel-exec = { path = "../../../crates/keel-exec" }
 keel-git = { path = "../../../crates/keel-git" }
 keel-protocol = { path = "../../../crates/keel-protocol" }
 keel-trust = { path = "../../../crates/keel-trust" }
+# The update check (spec 061): HEAD-first registry client shared with Depths.
+oci-registry = { path = "../../../crates/oci-registry" }
 opentelemetry = "0.33.1"
 opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "reqwest-blocking-client", "trace", "metrics"] }
 opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace", "metrics"] }
@@ -73,6 +75,8 @@ webauthn-rs = "0.5.5"
 # The fake runner for the run tests (no real ansible).
 keel-exec = { path = "../../../crates/keel-exec", features = ["fake"] }
 http-body-util = "0.1"
+# FakeRegistry for the update check tests (spec 061).
+oci-registry = { path = "../../../crates/oci-registry", features = ["test-util"] }
 tempfile = "3"
 # A throwaway certificate for the TLS listener test (ring, no OpenSSL).
 rcgen = "0.14"

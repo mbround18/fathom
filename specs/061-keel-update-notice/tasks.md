@@ -38,7 +38,7 @@ them, in the rollout order in quickstart.md.
 ## Phase 1: Setup
 
 - [X] T001 **(shared with 062)** Create `crates/oci-registry/Cargo.toml` exactly as in `specs/061-keel-update-notice/contracts/registry.md` ("Crate"): `reqwest = { version = "0.13.5", features = ["json", "default-tls"] }`, `secrecy = "0.10"`, `serde`, `serde_json = "1.0.154"`, `sha2 = "0.11"`, `thiserror = "2"`, `tokio` (`time`), `tracing`, optional `axum = "0.8"` behind feature `test-util = ["dep:axum", "tokio/net"]`, license Apache-2.0, `publish = false`. Add `crates/oci-registry/src/lib.rs` declaring `reference`, `auth`, `client`, `manifest`, `error` and `#[cfg(feature = "test-util")] testing`. Skip if 062 already created it. Confirm with `git diff Cargo.lock` that the only new package entry is `oci-registry`.
-- [ ] T002 Add `oci-registry = { path = "../../../crates/oci-registry" }` to `[dependencies]` and `oci-registry = { path = "../../../crates/oci-registry", features = ["test-util"] }` to `[dev-dependencies]` in `apps/keel/server/Cargo.toml`. Depends on T001.
+- [X] T002 Add `oci-registry = { path = "../../../crates/oci-registry" }` to `[dependencies]` and `oci-registry = { path = "../../../crates/oci-registry", features = ["test-util"] }` to `[dev-dependencies]` in `apps/keel/server/Cargo.toml`. Depends on T001.
 - [X] T003 [P] Add the `s061` project to `apps/keel/web/playwright.config.ts` (`{ name: 's061', testDir: './tests/e2e/s061', use: { ...devices['Desktop Chrome'] } }`) and create `apps/keel/web/tests/e2e/s061/`. Check that the `s060` `testMatch` doesn't pick up `update-*.spec.ts`.
 
 ---
