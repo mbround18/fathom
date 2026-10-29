@@ -134,11 +134,11 @@ function Recovery() {
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} data-testid="passkey-recovery" className="flex min-w-0 flex-col gap-1">
+    <form onSubmit={(e) => void submit(e)} data-testid="passkey-recovery" className="mt-2 flex min-w-0 flex-col gap-1">
       <label htmlFor={id} className="text-xs text-muted-foreground">
         Lost every passkey? Enter the recovery code your operator gave you, then register a new one.
       </label>
-      <div className="flex min-w-0 gap-2">
+      <div className="flex min-w-0 max-w-md gap-2">
         <Input
           id={id}
           value={code}
@@ -255,7 +255,7 @@ export default function PasskeysPanel() {
                 variant="ghost"
                 size="sm"
                 disabled={last || removal !== null}
-                title={last ? 'Your last passkey cannot be removed. Add another first.' : undefined}
+                title={last ? 'Your only passkey cannot be removed. Add another first.' : undefined}
                 aria-label={`Remove ${p.name}`}
                 onClick={() => void startRemove(p)}
               >
