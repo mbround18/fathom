@@ -7,3 +7,4 @@
 //! runner.
 
 pub mod reference;
+pub mod registry;
