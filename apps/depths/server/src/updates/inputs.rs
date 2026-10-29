@@ -301,7 +301,10 @@ mod tests {
             ..ImageInfo::default()
         };
         let images = [named.clone()];
-        assert_eq!(running_image(&images, "sha256:aaaa", "0"), (named.clone(), false));
+        assert_eq!(
+            running_image(&images, "sha256:aaaa", "0"),
+            (named.clone(), false)
+        );
         // Under the containerd store the id is the digest it was pulled by.
         assert_eq!(running_image(&images, "sha256:bbbb", "0"), (named, false));
 

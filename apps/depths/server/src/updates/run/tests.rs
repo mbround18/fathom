@@ -611,12 +611,17 @@ fn cancel_finishes_the_stack_in_progress_and_skips_the_rest() {
         cancel,
     );
     let o = outcomes(&run);
-    assert_eq!(o[0].1, StackOutcome::Updated, "the stack in progress finishes");
+    assert_eq!(
+        o[0].1,
+        StackOutcome::Updated,
+        "the stack in progress finishes"
+    );
     assert_eq!(o[1].1, skipped("cancelled"));
     assert_eq!(o[2].1, skipped("cancelled"));
     let ran = f.ran();
     assert!(
-        !ran.iter().any(|r| r.contains("depths-keep/b") || r.contains("depths-keep/c")),
+        !ran.iter()
+            .any(|r| r.contains("depths-keep/b") || r.contains("depths-keep/c")),
         "nothing ran for the queued stacks: {ran:#?}"
     );
 }
