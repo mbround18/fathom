@@ -51,6 +51,7 @@ use crate::users::{self, SignIn};
 use crate::watch::{Subscription, Update};
 
 mod streams;
+mod updates;
 pub use streams::{MAX_COLS, MAX_ROWS, SHELL_INPUT_QUEUE, STREAM_BUDGET, STREAM_QUEUE};
 
 pub const CLOSE_GOING_AWAY: u16 = 1001;
@@ -177,6 +178,8 @@ struct Conn {
     out: mpsc::Sender<EventEnvelope>,
     stacks: Option<Subscription>,
     users_feed: bool,
+    /// Spec 062: update changes, coalesced.
+    updates: updates::Feed,
     /// Log follows, shells and the stats watch. Dropped with the socket, which stops them all.
     streams: streams::Registry,
 }
@@ -323,6 +326,7 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
         return close(socket, CLOSE_TOO_MANY, "too_many_sockets").await;
     };
 
+    let feed = updates::Feed::open(&app, &app.users.access(&user));
     let (out_tx, mut out_rx) = mpsc::channel::<EventEnvelope>(OUT_QUEUE);
     let (registry, mut stream_rx) = streams::Registry::new();
     let mut conn = Conn {
@@ -333,9 +337,15 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
         out: out_tx,
         stacks: None,
         users_feed: false,
+        updates: feed,
         streams: registry,
         app: app.clone(),
     };
+    if let Some(badge) = conn.updates.initial(&app)
+        && !send(&mut socket, &badge).await
+    {
+        return;
+    }
     let commands = RateLimiter::<()>::new(WS_COMMANDS_PER_MINUTE, WS_COMMAND_BURST, 1);
     let keys = RateLimiter::<()>::new(WS_SHELL_PER_MINUTE, WS_SHELL_BURST, 1);
     let ping_every = app.ws.ping_every;
@@ -351,6 +361,7 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
                 .checked_sub(app.ws.expiring_lead)
                 .unwrap_or(deadline),
         };
+        let (updates_next, updates_due) = (conn.updates.next, conn.updates.pending);
         tokio::select! {
             msg = socket.recv() => {
                 let msg = match msg {
@@ -476,6 +487,19 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
                     }
                 }
                 for r in &evs {
+                    if !send(&mut socket, r).await {
+                        return;
+                    }
+                }
+            }
+            alive = updates::recv(&mut conn.updates) => {
+                if alive {
+                    conn.updates.pending = true;
+                }
+            }
+            () = tokio::time::sleep_until(updates_next), if updates_due => {
+                let access = conn.access();
+                for r in &conn.updates.flush(&app, &access) {
                     if !send(&mut socket, r).await {
                         return;
                     }
@@ -631,6 +655,10 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
                     blocking(move || files::confirm(&app, &who, preview_id).map(|e| vec![e]));
                 return answers(id, answer.await);
             }
+            // Spec 062: an update settings change.
+            if updates::owns(conn, preview_id) {
+                return vec![updates::confirm(conn, &access, id, preview_id)];
+            }
             // The preview was authorised when made; the network may have changed since.
             if let Some(k) = app.ops.preview_kind(&conn.session, preview_id)
                 && let Some(refused) = conn.untrusted(id, crate::ops::command_kind(k), "Confirm")
@@ -722,12 +750,14 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             DenyReason::FeatureDisabled,
             "passkeys and the runtime guard are not available yet (spec 054)".into(),
         )],
-        // Spec 062. Off (`DEPTHS_UPDATES=off`, research R10): refused, nothing constructed. On:
-        // served by the Updates service as its user stories land.
-        Cmd::ListUpdates
-        | Cmd::CheckUpdatesNow { .. }
-        | Cmd::PreviewUpdateBatch { .. }
-        | Cmd::PreviewUpdateChange(_) => vec![conn.deny_reason(
+        // Spec 062. Off (`DEPTHS_UPDATES=off`, research R10): refused, nothing constructed.
+        Cmd::ListUpdates => vec![updates::list(conn, &access, id)],
+        Cmd::CheckUpdatesNow { stacks } => vec![updates::check_now(conn, &access, id, stacks)],
+        Cmd::PreviewUpdateChange(change) => {
+            vec![updates::preview_change(conn, &access, id, change)]
+        }
+        // Batches come with US2.
+        Cmd::PreviewUpdateBatch { .. } => vec![conn.deny_reason(
             id,
             None,
             DenyReason::FeatureDisabled,
@@ -1089,7 +1119,14 @@ async fn get_stack(
     } else {
         None
     };
-    reply(id, Event::StackDetail(inventory::detail(stack, files)))
+    let mut detail = inventory::detail(stack, files);
+    // Spec 062: the states of this stack's services, for anyone who may see the stack.
+    detail.updates = conn
+        .app
+        .updates
+        .as_ref()
+        .map(|u| crate::updates::view::stack_services(u, name));
+    reply(id, Event::StackDetail(detail))
 }
 
 /// `LintCompose` (051 FR-016): the lint of an editor's text, for anyone who may see the stack.

@@ -8,6 +8,7 @@
 //! Registries are reached only through depths-core's [`Registry`] port; the adapter over the
 //! shared `oci-registry` crate is built by the caller and handed in.
 
+pub mod change;
 pub mod creds;
 pub mod inputs;
 pub mod registry;
@@ -46,6 +47,8 @@ pub struct Updates {
     check_now: Mutex<scheduler::CheckNow>,
     /// Fires after every change to what `ListUpdates` shows.
     changed: tokio::sync::broadcast::Sender<()>,
+    /// Settings changes waiting for their `Confirm`.
+    pending: Mutex<change::Pending>,
 }
 
 impl Updates {
@@ -73,6 +76,7 @@ impl Updates {
             wake: tokio::sync::Notify::new(),
             check_now: Mutex::new(scheduler::CheckNow::default()),
             changed: tokio::sync::broadcast::channel(16).0,
+            pending: Mutex::new(change::Pending::default()),
         })))
     }
 
