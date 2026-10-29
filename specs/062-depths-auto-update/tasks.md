@@ -84,14 +84,14 @@ check that the crate's API still matches that contract.
 
 ### Stores, flags, wiring
 
-- [ ] T024 [P] Write store tests in `apps/depths/server/src/updates/store.rs`. Validation of `updates.json`, quoted from data-model.md:
+- [X] T024 [P] Write store tests in `apps/depths/server/src/updates/store.rs`. Validation of `updates.json`, quoted from data-model.md:
   - "`interval_secs` ≥ 3600 (FR-002); default 21600."
   - "`health_timeout_secs` 30..=1800; default 120 (FR-014)."
   - "`window`: `start`/`end` are `HH:MM` 00:00–23:59; `days` non-empty, no duplicates; `end == start` is refused (an empty or 24 h window is ambiguous; a full day is `00:00`–`23:59`)."
   - "`scope`: `null` or 1..=64 chars `[A-Za-z0-9._-]`; the literal `none` has Watchtower's meaning."
   - "Unknown fields refused. An unreadable file is never rewritten: Depths runs with checks off and Auto paused, and Updates shows the path and the parse error (research R5)."
   Also: an unreadable `update-state.json` is moved aside to `update-state.json.unreadable-<ts>` and rebuilt; writes are atomic (temp 0600, fsync, rename, fsync dir) as in `users.rs`; the resolution cache is "Content addressed: never refreshed. Bounded to 2,000 entries, least recently used evicted."
-- [ ] T025 Implement `apps/depths/server/src/updates/store.rs` (`updates.json`, `update-state.json`: settings, policies, rejected, acks, per-service results, resolutions, backoff, journal, keep records) so T024 passes.
+- [X] T025 Implement `apps/depths/server/src/updates/store.rs` (`updates.json`, `update-state.json`: settings, policies, rejected, acks, per-service results, resolutions, backoff, journal, keep records) so T024 passes.
 - [ ] T026 [P] Add `--updates` / `DEPTHS_UPDATES`, `--updates-auto` / `DEPTHS_UPDATES_AUTO`, `--updates-check-min-gap` / `DEPTHS_UPDATES_CHECK_GAP` and the `DOCKER_CONFIG` read to `apps/depths/server/src/config.rs` through `Resolver::pick`, with resolver tests, and the one startup log line from contracts/config.md "Startup log" (never values from `config.json`).
 - [ ] T027 Write the `Updates` service in `apps/depths/server/src/updates/mod.rs`, held in `AppState`. With `DEPTHS_UPDATES=off`: no scheduler task, no registry client constructed, update commands answer `Unsupported`, `StackDetail.updates` is `None` (research R10). Add a test for the off path.
 - [ ] T028 [P] Add the spans and metrics from research R9 to `apps/depths/server/src/telemetry.rs`: `updates.check`, `updates.resolve`, `updates.run`, `updates.stack`, `updates.health_wait`; `depths.updates.registry_requests` {`registry`, `kind` = head|get|manifest_get}, `depths.updates.check_ms`, `depths.updates.outcomes`, `depths.updates.health_wait_ms`. Never credentials, paths or `auths` keys.
