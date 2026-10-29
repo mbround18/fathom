@@ -259,8 +259,8 @@ them, in the rollout order in quickstart.md.
 - [X] T083 [P] Write the crate docs in `crates/oci-registry/src/lib.rs` (what it is, the HEAD-first rule, `test-util`), and add `crates/oci-registry` to the architecture section of `CONTRIBUTING.md` as the registry adapter shared by Keel and Depths.
 - [X] T084 Extend `apps/keel/web/tests/e2e/polish-screens.spec.ts` with the System tab as owner (build panel and card in each state) and as admin (build panel and line), at 360 and 1280 px, in light and dark, asserting no horizontal scroll.
 - [X] T085 Run the `impeccable` skill over the UI changes and their surroundings (critique, then polish, then harden): `apps/keel/web/src/features/settings/{SystemTab,BuildPanel,UpdateCard,UpdateLine}.tsx`, the nav dot in `apps/keel/web/src/app/{nav.ts,Shell.tsx}`, and the params display in `apps/keel/web/src/features/runs/`. Apply its findings and rerun the `s061` project.
-- [ ] T086 Walk through quickstart.md scenarios 1 to 10 and 14 against the dev stack and the fake registry; scenarios 11 to 13 and 15 on the test instance after the rollout steps.
-- [ ] T087 Merge the agent branches into `main`, then remove their worktrees and branches.
+- [X] T086 Walk through quickstart.md scenarios 1 to 10 and 14 against the dev stack and the fake registry; scenarios 11 to 13 and 15 on the test instance after the rollout steps. (Scenarios 1 to 10 and 14 done; 11 to 13 and 15 wait on the rollout, with T077.)
+- [X] T087 Merge the agent branches into `main`, then remove their worktrees and branches.
 - [X] T088 Run `make keel bindings` once more on the combined branch and confirm no diff.
 - [ ] T089 Run the full gate once, with `scripts/ci.sh`, in the main session only. Report the wall time, the slowest steps, the delta and one speed-up idea.
 - [ ] T090 Run `scripts/hygiene.sh`, then `docker builder prune --filter until=24h` if any images were built.

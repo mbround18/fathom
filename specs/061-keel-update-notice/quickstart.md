@@ -84,7 +84,7 @@ so the `s060` pattern (`settings-*.spec.ts`) never picks them up. Each spec file
 |---|---|---|
 | 1 | Start Keel with default config. Watch outbound connections for a while (`ss -tnp`, or the fake registry's log). | No registry request. The System tab says checks are off (FR-004, SC-001). |
 | 2 | Start Keel with `KEEL_UPDATE_INTERVAL=30m`. | Refuses to start, naming `KEEL_UPDATE_INTERVAL` (FR-009). |
-| 3 | Run `make keel dev` with no `KEEL_BUILD_*`. Open System as owner. | "development build". Revision, date and digest are "unknown" (FR-001). |
+| 3 | Run `cargo run -p keel-server` with no `KEEL_BUILD_*`. Open System as owner. | "development build". Revision, date and digest are "unknown" (FR-001). |
 | 4 | Build with `make keel image` on an untagged commit and run it. | "untagged build <sha>", the build date, and no version. |
 | 5 | Sign in as admin, then as user. | Admin: the System tab with the build panel and digest, no update card, and none of spec 060's System workspace sections. User: no System tab, version under About (FR-002, FR-024). |
 | 6 | Turn checks on, pointed at the fake registry, with the same digest as running. | Within 2 min, "Up to date", and the request log shows HEAD only (SC-005). |
