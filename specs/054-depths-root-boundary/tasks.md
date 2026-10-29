@@ -525,7 +525,7 @@ verify. Owners recover through a host-only code.
   - a wrong code, an expired one (15 min) or a reused one gives `recovery_invalid`;
   - a new code replaces the old one;
   - both steps are audited, with no code in the audit.
-- [ ] T058 [P] [US4] Web codec tests in apps/depths/web/tests/unit/passkeys.test.ts: base64url
+- [x] T058 [P] [US4] Web codec tests in apps/depths/web/tests/unit/passkeys.test.ts: base64url
   round trips for empty, 1–3 byte tails and 64 KiB, padding refused, and the options and
   credential conversion to and from the protocol JSON.
 
@@ -566,24 +566,24 @@ verify. Owners recover through a host-only code.
   - Add `RecoverPasskeys { code }` in ops.rs.
 
   Run until T057 passes.
-- [ ] T065 [P] [US4] Web passkey module in apps/depths/web/src/features/passkeys/:
+- [x] T065 [P] [US4] Web passkey module in apps/depths/web/src/features/passkeys/:
   - `codec.ts` (base64url and option/credential conversion);
   - `api.ts` (`navigator.credentials.create`/`get`; cancellation maps to `cancelled`);
   - `store.ts` (verification state from `Verification` events).
 
   Run until T058 passes.
-- [ ] T066 [US4] Web enrol and verify gate in apps/depths/web/src/features/passkeys/PasskeyGate.tsx,
+- [x] T066 [US4] Web enrol and verify gate in apps/depths/web/src/features/passkeys/PasskeyGate.tsx,
   mounted in the app shell.
   - An admin or owner without a passkey is asked to register, with an admin-actions-locked banner.
   - With a passkey, a "Confirm it's you" prompt appears after sign-in.
   - If they cancel, they get the restricted view with a retry.
-- [ ] T067 [US4] Web account passkeys panel in
+- [x] T067 [US4] Web account passkeys panel in
   apps/depths/web/src/features/passkeys/PasskeysPanel.tsx, rendered on SessionsPage.tsx:
   - a list by name, created and last used;
   - add with a name;
   - remove through the preview dialog (disabled for the last one);
   - an "Enter recovery code" form.
-- [ ] T068 [US4] Fake backend passkey commands in apps/depths/web/tests/support/fake-backend.ts. It
+- [x] T068 [US4] Fake backend passkey commands in apps/depths/web/tests/support/fake-backend.ts. It
   accepts any well-formed credential, and is scriptable for refusals.
   - Playwright in apps/depths/web/tests/e2e/us7-passkeys/enrol.spec.ts and
     apps/depths/web/tests/e2e/us7-passkeys/manage.spec.ts, using the CDP
@@ -644,7 +644,7 @@ confirm step, with one check covering the window.
 - [X] T072 [US5] Apply step-up to `OpenShell` in apps/depths/server/src/ws/streams.rs: check before
   `docker exec` is spawned, and on a stale session reply `StepUpRequired { request }`.
   - Tests in apps/depths/server/tests/ws.rs.
-- [ ] T073 [US5] Web confirm-step integration in
+- [x] T073 [US5] Web confirm-step integration in
   apps/depths/web/src/features/stacks/PreviewDialog.tsx (and the files and users dialogs that reuse
   it):
   - when `preview.step_up` is set, pressing Confirm calls `navigator.credentials.get` and sends
@@ -652,10 +652,10 @@ confirm step, with one check covering the window.
   - cancelling keeps the dialog open with "Not confirmed, nothing changed".
 
   Unit tests in apps/depths/web/tests/unit/ops.test.ts.
-- [ ] T074 [US5] Web shell retry in apps/depths/web/src/features/tabs/ (shell open path): on
+- [x] T074 [US5] Web shell retry in apps/depths/web/src/features/tabs/ (shell open path): on
   `StepUpRequired`, prompt, then resend `OpenShell { assertion }`. Prompt for enrolment on
   `PasskeyEnrolmentRequired`.
-- [ ] T075 [US5] Fake backend step-up scripting in apps/depths/web/tests/support/fake-backend.ts.
+- [x] T075 [US5] Fake backend step-up scripting in apps/depths/web/tests/support/fake-backend.ts.
   - Playwright in apps/depths/web/tests/e2e/us7-passkeys/step-up.spec.ts:
     - a stale session asks inside the confirm dialog and then saves;
     - a second save within the window does not ask;
