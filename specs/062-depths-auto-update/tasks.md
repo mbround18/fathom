@@ -150,10 +150,10 @@ audited, holds applied. Needs 054's passkey step-up.
 
 ### Tests
 
-- [ ] T044 [P] [US2] Write keep-tag naming tests in `crates/depths-core/src/updates/keep.rs`: `depths-keep/<stack>:<service>-previous` and `…-held`; "Stack and service names are lowercased and any character outside `[a-z0-9._-]` becomes `-`, with an 8-hex hash suffix when that changed the name" (research R7).
-- [ ] T045 [P] [US2] Write hold tests in `crates/depths-core/src/updates/hold.rs`, per research R4: a service with `user:` set is never held; old non-root to new root on a rootful daemon holds (`security::is_root_user`, `Level::Root`); on rootless/userns it is shown as `Info` (`RootRemapped`), not held; `compose_lint::lint` is re-run on the current text, refusing under `DEPTHS_COMPOSE_POLICY=enforce` and listing findings under `warn`.
-- [ ] T046 [P] [US2] Write plan tests in `crates/depths-core/src/plan.rs` for `Operation::ImageUpdate` and `Operation::ImageRollback`: argv `docker pull <repo>@<D>` (with `--platform` when the service sets `platform:`), `docker image tag <new image id> <compose reference>`, `docker compose up -d --no-deps --pull never <services…>` with the usual `--env-file` handling and no `--remove-orphans`; one pull for an image shared by several services; with checks on and update states present, 050's `Update` builds the image-update plan, and with checks off it stays pull-then-up (FR-026).
-- [ ] T047 [P] [US2] Write runner tests in `apps/depths/server/src/updates/run.rs` against `Mock` and `Fx`:
+- [x] T044 [P] [US2] Write keep-tag naming tests in `crates/depths-core/src/updates/keep.rs`: `depths-keep/<stack>:<service>-previous` and `…-held`; "Stack and service names are lowercased and any character outside `[a-z0-9._-]` becomes `-`, with an 8-hex hash suffix when that changed the name" (research R7).
+- [x] T045 [P] [US2] Write hold tests in `crates/depths-core/src/updates/hold.rs`, per research R4: a service with `user:` set is never held; old non-root to new root on a rootful daemon holds (`security::is_root_user`, `Level::Root`); on rootless/userns it is shown as `Info` (`RootRemapped`), not held; `compose_lint::lint` is re-run on the current text, refusing under `DEPTHS_COMPOSE_POLICY=enforce` and listing findings under `warn`.
+- [x] T046 [P] [US2] Write plan tests in `crates/depths-core/src/plan.rs` for `Operation::ImageUpdate` and `Operation::ImageRollback`: argv `docker pull <repo>@<D>` (with `--platform` when the service sets `platform:`), `docker image tag <new image id> <compose reference>`, `docker compose up -d --no-deps --pull never <services…>` with the usual `--env-file` handling and no `--remove-orphans`; one pull for an image shared by several services; with checks on and update states present, 050's `Update` builds the image-update plan, and with checks off it stays pull-then-up (FR-026).
+- [x] T047 [P] [US2] Write runner tests in `apps/depths/server/src/updates/run.rs` against `Mock` and `Fx`:
   - stacks run in order, one at a time, each audited `image_update` with `AuditUpdate`;
   - busy → `Skipped { reason: "busy: <actor> <kind>" }`; content hash changed → `Skipped { reason: "stale: preview again" }`; a failure doesn't stop the rest; `Cancel` → the rest `Skipped { reason: "cancelled" }`;
   - only services with a newer image are recreated, and the compose file is byte-identical before and after (FR-009);
@@ -163,19 +163,19 @@ audited, holds applied. Needs 054's passkey step-up.
   - journal: "The phase is written (fsync) before each mutating step; an open stack run found at start becomes `Interrupted` (FR-018)", audited `update_interrupted`, with the stack's real images read from the runtime and nothing resumed or rolled back;
   - the journal "holds the open runs and the last 50 finished runs".
 - [ ] T048 [P] [US2] Add gate tests to `apps/depths/server/tests/updates_ws.rs`: `PreviewUpdateBatch` and its `Confirm` need admin, a trusted network and 054's step-up; a user's `PreviewOp { Update }` on an assigned stack gets the image-update plan (FR-026); `ApplyHeld` needs a passkey and is audited `image_hold_apply`; `Retry` removes the rejected entry, audited `update_retry`.
-- [ ] T049 [US2] Write the opt-in Docker test `apps/depths/server/tests/updates_docker.rs`, gated on `DEPTHS_IT_DOCKER=1` and skipped otherwise, per quickstart §2: a local `distribution` registry and `depths-it-upd-<random>` stacks, removed by name at the end. Cases for this story: unchanged tag is HEAD only (registry access log and `RequestCounts`) through `Client::with_base_url`; a pushed image gives one resolution and `Available`; multi-arch re-push, no update; update recreates only the changed service with the compose file byte-identical; an image that turns root is held with tag and container unchanged (SC-005); compose creates the replacement before stopping the old container (research R3); the same run on the containerd image store when `docker info` reports `driver-type io.containerd.snapshotter.v1`, skipped with a note otherwise. Run by the main session only.
+- [x] T049 [US2] Write the opt-in Docker test `apps/depths/server/tests/updates_docker.rs`, gated on `DEPTHS_IT_DOCKER=1` and skipped otherwise, per quickstart §2: a local `distribution` registry and `depths-it-upd-<random>` stacks, removed by name at the end. Cases for this story: unchanged tag is HEAD only (registry access log and `RequestCounts`) through `Client::with_base_url`; a pushed image gives one resolution and `Available`; multi-arch re-push, no update; update recreates only the changed service with the compose file byte-identical; an image that turns root is held with tag and container unchanged (SC-005); compose creates the replacement before stopping the old container (research R3); the same run on the containerd image store when `docker info` reports `driver-type io.containerd.snapshotter.v1`, skipped with a note otherwise. Run by the main session only.
 - [ ] T050 [P] [US2] Write the Playwright spec `apps/depths/web/tests/e2e/us10-update-batch/update-batch.spec.ts`: select stacks, preview (services, old and new digest, version labels, order, "only services with a newer image are recreated", 051 findings to acknowledge), step-up, per-stack live progress, a failed middle stack with the summary naming it, a hold with its reason and Apply anyway, a busy stack skipped.
 
 ### Implementation
 
-- [ ] T051 [P] [US2] Implement `crates/depths-core/src/updates/keep.rs` so T044 passes.
-- [ ] T052 [P] [US2] Implement `crates/depths-core/src/updates/hold.rs` so T045 passes. Use `depths-guard-core` for the guard check when it exists; until then rely on the `GuardRefusal` from `up` (research R4).
+- [x] T051 [P] [US2] Implement `crates/depths-core/src/updates/keep.rs` so T044 passes.
+- [x] T052 [P] [US2] Implement `crates/depths-core/src/updates/hold.rs` so T045 passes. Use `depths-guard-core` for the guard check when it exists; until then rely on the `GuardRefusal` from `up` (research R4).
 - [ ] T053 [US2] Add `Operation::ImageUpdate { services, pins }` and `Operation::ImageRollback` to `crates/depths-core/src/plan.rs`, and switch 050's `Update` to the image-update plan while checks are on (FR-026), so T046 passes.
-- [ ] T054 [US2] Implement the batch runner in `apps/depths/server/src/updates/run.rs` over the `Ops` lock: pull by digest, hold checks, keep tag `…-previous`, tag, `up`, health wait, rollback, rejected digests, journal and the start-up interruption pass, outcomes and audit. Record each keep tag set in `update-state.json → keep` with the image ID. T047 passes.
-- [ ] T055 [US2] Handle `PreviewUpdateBatch`, its `Confirm`, `Cancel`, `PreviewUpdateChange(Retry | ApplyHeld)` and the user `PreviewOp { Update }` path in `apps/depths/server/src/ws.rs` and `apps/depths/server/src/ops.rs`, emitting `UpdateRunStarted`, `OpStarted`/`OpOutput`/`OpFinished`, `UpdateStackDone` and `UpdateRunFinished`. T048 passes.
-- [ ] T056 [P] [US2] Amend 054's guard allowlist: add `POST /images/{name}/tag` to `specs/054-depths-root-boundary/contracts/guard.md`, and to the guard's allowlist code if 054's guard is in the tree (contracts/protocol.md "054 contract amendment").
+- [x] T054 [US2] Implement the batch runner in `apps/depths/server/src/updates/run.rs` over the `Ops` lock: pull by digest, hold checks, keep tag `…-previous`, tag, `up`, health wait, rollback, rejected digests, journal and the start-up interruption pass, outcomes and audit. Record each keep tag set in `update-state.json → keep` with the image ID. T047 passes.
+- [x] T055 [US2] Handle `PreviewUpdateBatch`, its `Confirm`, `Cancel`, `PreviewUpdateChange(Retry | ApplyHeld)` and the user `PreviewOp { Update }` path in `apps/depths/server/src/ws.rs` and `apps/depths/server/src/ops.rs`, emitting `UpdateRunStarted`, `OpStarted`/`OpOutput`/`OpFinished`, `UpdateStackDone` and `UpdateRunFinished`. T048 passes.
+- [x] T056 [P] [US2] Amend 054's guard allowlist: add `POST /images/{name}/tag` to `specs/054-depths-root-boundary/contracts/guard.md`, and to the guard's allowlist code if 054's guard is in the tree (contracts/protocol.md "054 contract amendment").
 - [ ] T057 [US2] Write the batch preview, progress and summary, held review with Apply anyway, and Retry in `apps/depths/web/src/features/updates/`, with the batch scripts in `apps/depths/web/tests/support/fake-backend.ts`. T050 passes.
-- [ ] T058 [P] [US2] Add "Updating stacks", holds, rollback, and the shared-tag exposure (spec Edge Cases) to `docs/guides/depths/updates.md`.
+- [x] T058 [P] [US2] Add "Updating stacks", holds, rollback, and the shared-tag exposure (spec Edge Cases) to `docs/guides/depths/updates.md`.
 
 **Checkpoint**: US1 and US2 work together; manual updates are safe without any Auto policy.
 
@@ -191,25 +191,25 @@ US4's Watchtower detection.
 
 ### Tests
 
-- [ ] T059 [P] [US3] Write scheduler window tests in `apps/depths/server/src/updates/scheduler.rs` with the fake clock and DST zone:
+- [x] T059 [P] [US3] Write scheduler window tests in `apps/depths/server/src/updates/scheduler.rs` with the fake clock and DST zone:
   - Auto candidates are Auto stacks with an update available, not held, not rejected, not busy, ordered by stack name, one at a time;
   - nothing starts outside the window; when the window closes the stack in progress finishes and the rest wait (FR-013);
   - a per-stack window replaces the host window;
   - a rejected digest is not retried in the next window; a newer digest is (SC-004, FR-015);
   - Auto is paused by `DEPTHS_UPDATES_AUTO=off`, by an unreadable `updates.json`, and by an unacknowledged Watchtower container;
   - FR-025: before each stack the policy's `set_by` must still be an administrator in `users.json`; otherwise the stack is skipped and listed in `paused_policies`, "author no longer an administrator", until another admin saves it.
-- [ ] T060 [P] [US3] Write scheduled-run tests in `apps/depths/server/src/updates/run.rs`: the actor is `Actor { provider: depths, subject: "scheduled", username: "Depths (scheduled)" }` with `on_behalf_of` the policy's `set_by` (FR-016); a busy refusal names "Depths (scheduled)"; a held Auto stack is never applied (SC-005); `RollbackFailed` waits for a person; an interrupted scheduled run is audited with the run's actor.
-- [ ] T061 [P] [US3] Add gate tests to `apps/depths/server/tests/updates_ws.rs`: `PreviewUpdateChange(Policy)` and the window and `health_timeout_secs` settings need admin, a trusted network and a passkey always, and are audited `update_policy` / `update_settings` with before and after (FR-017).
+- [x] T060 [P] [US3] Write scheduled-run tests in `apps/depths/server/src/updates/run.rs`: the actor is `Actor { provider: depths, subject: "scheduled", username: "Depths (scheduled)" }` with `on_behalf_of` the policy's `set_by` (FR-016); a busy refusal names "Depths (scheduled)"; a held Auto stack is never applied (SC-005); `RollbackFailed` waits for a person; an interrupted scheduled run is audited with the run's actor.
+- [x] T061 [P] [US3] Add gate tests to `apps/depths/server/tests/updates_ws.rs`: `PreviewUpdateChange(Policy)` and the window and `health_timeout_secs` settings need admin, a trusted network and a passkey always, and are audited `update_policy` / `update_settings` with before and after (FR-017).
 - [ ] T062 [P] [US3] Write the Playwright spec `apps/depths/web/tests/e2e/us11-update-auto/update-auto.spec.ts`: policy sheet (Off, Notify, Auto) with step-up; host window editor and per-stack override; the zone shown, with "windows are in UTC: mount /etc/localtime to use host time" when it is UTC; recent runs; rolled back, rollback failed in red with output, interrupted; a paused policy with "author no longer an administrator".
-- [ ] T063 [US3] Add the rollback case to `apps/depths/server/tests/updates_docker.rs`: an image whose healthcheck fails is rolled back within timeout + 1 min (SC-004), the tag points to the old image, `depths-keep/<stack>:<svc>-held` is present, the digest is rejected, and the next scheduled pass skips it. Run by the main session only.
+- [x] T063 [US3] Add the rollback case to `apps/depths/server/tests/updates_docker.rs`: an image whose healthcheck fails is rolled back within timeout + 1 min (SC-004), the tag points to the old image, `depths-keep/<stack>:<svc>-held` is present, the digest is rejected, and the next scheduled pass skips it. Run by the main session only.
 
 ### Implementation
 
-- [ ] T064 [US3] Add the window and Auto queue to `apps/depths/server/src/updates/scheduler.rs` (sleep until the next window opening, occurrence keys, `chrono::Local` as the `LocalZone`, paused policies computed each pass) so T059 passes.
-- [ ] T065 [US3] Run scheduled stacks through the US2 runner in `apps/depths/server/src/updates/run.rs` with the "Depths (scheduled)" actor and `on_behalf_of`, so T060 passes.
-- [ ] T066 [US3] Handle `PreviewUpdateChange(Policy)` and the window and health-timeout settings in `apps/depths/server/src/ws.rs`. Saving a policy makes the saver `set_by`, which lifts a pause. T061 passes.
+- [x] T064 [US3] Add the window and Auto queue to `apps/depths/server/src/updates/scheduler.rs` (sleep until the next window opening, occurrence keys, `chrono::Local` as the `LocalZone`, paused policies computed each pass) so T059 passes.
+- [x] T065 [US3] Run scheduled stacks through the US2 runner in `apps/depths/server/src/updates/run.rs` with the "Depths (scheduled)" actor and `on_behalf_of`, so T060 passes.
+- [x] T066 [US3] Handle `PreviewUpdateChange(Policy)` and the window and health-timeout settings in `apps/depths/server/src/ws.rs`. Saving a policy makes the saver `set_by`, which lifts a pause. T061 passes.
 - [ ] T067 [US3] Write the policy sheet, window editor, zone note, paused-policy and recent-runs views in `apps/depths/web/src/features/updates/`, with the scripts in `apps/depths/web/tests/support/fake-backend.ts`. T062 passes.
-- [ ] T068 [P] [US3] Add policies, windows, rollback limits (migrations aren't undone; keep such stacks on Notify) and scheduled authorisation to `docs/guides/depths/updates.md`.
+- [x] T068 [P] [US3] Add policies, windows, rollback limits (migrations aren't undone; keep such stacks on Notify) and scheduled authorisation to `docs/guides/depths/updates.md`.
 
 **Checkpoint**: US3 is complete, but Auto ships only once US4's Watchtower detection is merged.
 
@@ -224,16 +224,16 @@ Watchtower pauses Auto. The label rules themselves are in Phase 2 (T015–T018).
 
 ### Tests
 
-- [ ] T069 [P] [US4] Write detection tests in `apps/depths/server/src/updates/watchtower.rs` over the runtime snapshot: label `com.centurylinklabs.watchtower=true`; image `containrrr/watchtower` with any registry prefix, including `ghcr.io/containrrr/watchtower`, and the forks in research R6; an acknowledgement matches container ID plus image ID, so a recreated Watchtower raises the banner again; "Auto stays paused while any running Watchtower container has no matching acknowledgement"; Depths never stops or changes it (FR-021).
-- [ ] T070 [P] [US4] Write label-source tests in `apps/depths/server/src/updates/mod.rs`: labels read from the running container, and from `compose config --format json` when there is none; `label_only` and `scope` settings change the effective policy; changing them needs a passkey and is audited (FR-017).
+- [x] T069 [P] [US4] Write detection tests in `apps/depths/server/src/updates/watchtower.rs` over the runtime snapshot: label `com.centurylinklabs.watchtower=true`; image `containrrr/watchtower` with any registry prefix, including `ghcr.io/containrrr/watchtower`, and the forks in research R6; an acknowledgement matches container ID plus image ID, so a recreated Watchtower raises the banner again; "Auto stays paused while any running Watchtower container has no matching acknowledgement"; Depths never stops or changes it (FR-021).
+- [x] T070 [P] [US4] Write label-source tests in `apps/depths/server/src/updates/mod.rs`: labels read from the running container, and from `compose config --format json` when there is none; `label_only` and `scope` settings change the effective policy; changing them needs a passkey and is audited (FR-017).
 - [ ] T071 [P] [US4] Write the Playwright spec `apps/depths/web/tests/e2e/us12-watchtower/watchtower.spec.ts`: `enable=false`, `monitor-only=true`, `scope=media` and `no-pull=true` shown with their effective policy and source; hook and `depends-on` labels shown "not run" with the reason; the banner naming the container; acknowledging "stopped" or "monitor-only" with step-up lifts the pause.
 
 ### Implementation
 
-- [ ] T072 [US4] Implement `apps/depths/server/src/updates/watchtower.rs` (detection and acks, `PreviewUpdateChange(AckWatchtower)` audited `watchtower_ack`) so T069 passes.
-- [ ] T073 [US4] Feed labels into the effective policy in `apps/depths/server/src/updates/mod.rs`, and handle the `label_only` and `scope` settings in `apps/depths/server/src/ws.rs`, so T070 passes.
+- [x] T072 [US4] Implement `apps/depths/server/src/updates/watchtower.rs` (detection and acks, `PreviewUpdateChange(AckWatchtower)` audited `watchtower_ack`) so T069 passes.
+- [x] T073 [US4] Feed labels into the effective policy in `apps/depths/server/src/updates/mod.rs`, and handle the `label_only` and `scope` settings in `apps/depths/server/src/ws.rs`, so T070 passes.
 - [ ] T074 [US4] Write the label reasons, policy source and Watchtower banner in `apps/depths/web/src/features/updates/` and `apps/depths/web/src/features/stacks/`, with the scripts in `apps/depths/web/tests/support/fake-backend.ts`. T071 passes.
-- [ ] T075 [P] [US4] Write `docs/guides/depths/migrating-from-watchtower.md`: the label table, what is not run, stopping Watchtower or setting it to monitor-only. Link it from `docs/guides/depths/README.md`.
+- [x] T075 [P] [US4] Write `docs/guides/depths/migrating-from-watchtower.md`: the label table, what is not run, stopping Watchtower or setting it to monitor-only. Link it from `docs/guides/depths/README.md`.
 
 ---
 
@@ -245,15 +245,15 @@ Watchtower pauses Auto. The label rules themselves are in Phase 2 (T015–T018).
 
 ### Tests
 
-- [ ] T076 [P] [US5] Write cleanup tests in `apps/depths/server/src/updates/run.rs`: cleanup off removes nothing (FR-023); cleanup on runs `docker image rm <old previous image id>` without `-f` after the stack is healthy; a daemon refusal is a "kept: in use" note, not a failure; each removal is audited `image_remove` with the image ID and repo digests; Depths "never removes an image it did not record as a service's previous image. No `prune`" (FR-027); an image a keep tag records as a stack's current rollback target is never removed, including after a rollback (the image rolled back to, and the `held` image).
+- [x] T076 [P] [US5] Write cleanup tests in `apps/depths/server/src/updates/run.rs`: cleanup off removes nothing (FR-023); cleanup on runs `docker image rm <old previous image id>` without `-f` after the stack is healthy; a daemon refusal is a "kept: in use" note, not a failure; each removal is audited `image_remove` with the image ID and repo digests; Depths "never removes an image it did not record as a service's previous image. No `prune`" (FR-027); an image a keep tag records as a stack's current rollback target is never removed, including after a rollback (the image rolled back to, and the `held` image).
 - [ ] T077 [P] [US5] Write the Playwright spec `apps/depths/web/tests/e2e/us13-image-cleanup/image-cleanup.spec.ts`: the cleanup setting with step-up, removal entries in recent runs and the audit view, "kept: in use" notes.
-- [ ] T078 [US5] Add the cleanup case to `apps/depths/server/tests/updates_docker.rs`: two updates with cleanup on remove only the image from two updates ago; an image used by another container is kept. Run by the main session only.
+- [x] T078 [US5] Add the cleanup case to `apps/depths/server/tests/updates_docker.rs`: two updates with cleanup on remove only the image from two updates ago; an image used by another container is kept. Run by the main session only.
 
 ### Implementation
 
-- [ ] T079 [US5] Add the cleanup step to `apps/depths/server/src/updates/run.rs` and the `cleanup` setting to `PreviewUpdateChange(Settings)` in `apps/depths/server/src/ws.rs`, so T076 passes.
+- [x] T079 [US5] Add the cleanup step to `apps/depths/server/src/updates/run.rs` and the `cleanup` setting to `PreviewUpdateChange(Settings)` in `apps/depths/server/src/ws.rs`, so T076 passes.
 - [ ] T080 [US5] Write the cleanup setting and removal entries in `apps/depths/web/src/features/updates/`, with the scripts in `apps/depths/web/tests/support/fake-backend.ts`. T077 passes.
-- [ ] T081 [P] [US5] Document keep tags (visible in `docker images`, what they protect, when they move; FR-028) and cleanup in `docs/guides/depths/updates.md` and `docs/guides/depths/security.md`.
+- [x] T081 [P] [US5] Document keep tags (visible in `docker images`, what they protect, when they move; FR-028) and cleanup in `docs/guides/depths/updates.md` and `docs/guides/depths/security.md`.
 
 ---
 
