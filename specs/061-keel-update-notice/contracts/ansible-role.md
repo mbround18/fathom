@@ -71,7 +71,14 @@ params:
 ```
 
 Add it **only after** the deployed Keel and runner support params. An older parser rejects
-unknown keys. quickstart.md gives the order.
+unknown keys. The rest of this contract (variables, behaviour, rollback) does not depend on params
+and can land first. quickstart.md gives the order.
+
+The repository's own manifest check, `scripts/keel-manifest-check.py` (`make lint`), allows only
+the job keys in `JOB_KEYS` and reports any other as `unknown key`. In the same change that adds
+`params:`, add `params` to `JOB_KEYS` and check its shape the way Keel does (data-model.md, Job
+parameters): at most 8 entries, names matching `^[a-z_][a-z0-9_]{0,63}$` and not `ansible_*` or
+`keel_internal_*`, `kind` only `oci_digest`, and no name also in the job's `vars`.
 
 ## Tests in that repository
 
@@ -81,4 +88,6 @@ Its existing test pattern is `scripts/tests` with pytest. Cases:
 - repository derivation (`repo:tag`, `registry:5000/repo:tag`, refusing `repo@sha256:…`);
 - `digest.previous` written only on change;
 - the rendered compose `image:` always contains `@sha256:`;
-- check mode makes no pull.
+- check mode makes no pull;
+- `keel-manifest-check.py` accepts the `params:` block above and refuses each bad shape
+  (`scripts/tests/test_keel_manifest_check.py`).

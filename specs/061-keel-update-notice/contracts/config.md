@@ -34,17 +34,20 @@ Keel refuses to start, naming the setting (FR-009), when:
 - `KEEL_UPDATE_CHECK` isn't a boolean;
 - `KEEL_UPDATE_INTERVAL` doesn't parse, or is under `1h`;
 - `KEEL_UPDATE_IMAGE`:
-  - doesn't parse as a reference;
+  - doesn't parse as a reference with `oci_registry::ImageRef::parse` (contracts/registry.md,
+    which also refuses an upper-case repository and a tag over 128 characters);
   - carries a digest (`@sha256:…`): a digest never changes, so watching one is a mistake;
   - names an `http://` registry;
-  - has an upper-case repository;
-  - has a tag longer than 128 characters;
 - only one of the username and the password is set;
 - `KEEL_UPDATE_REGISTRY_PASSWORD` and `_FILE` are both set, or the file can't be read;
 - `KEEL_IMAGE_DIGEST` isn't `sha256:` followed by 64 lowercase hex characters;
 - `KEEL_BUILD_DATE` isn't RFC 3339;
 - `KEEL_BUILD_REVISION` isn't 7–40 hex characters, with an optional `-dirty`;
 - `KEEL_BUILD_SOURCE` isn't an `https` URL.
+
+The username and password become `oci_registry::Credentials::Basic`, with the password held as a
+`secrecy::SecretString` from the moment it is read. With neither set, Keel uses
+`Credentials::Anonymous`.
 
 The interval, image and registry settings are validated even when checks are off. A typo
 shouldn't wait for the day someone turns checks on.

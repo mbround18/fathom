@@ -6,6 +6,8 @@
 
 **Status**: Implemented
 
+**Amended by**: [061](../061-keel-update-notice/spec.md) opens the System tab to admins, who see only the build panel and the update line. The sections in this spec stay owner-only.
+
 **Input**: User description: "im the owner and no enroll hosts, can we add a screen from a button called Enroll that gives you the token and snippet? i also on the bottom of the left nav pane want a System Settings where you can set the snippet parts using like a good string formatter like %t for token or so so we can put our ansible stuff there and add optional instructions in markdown that also render on that enroll modal? and in the system settings offer the token management sub tab for revoke and roll kinda deal". Decided in conversation:
 - spec first;
 - the Markdown is rendered with a standard renderer with raw HTML off;

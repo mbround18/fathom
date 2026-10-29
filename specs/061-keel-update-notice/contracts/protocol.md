@@ -59,7 +59,8 @@ UpdateStatus {                     // owners only
   checked_at: Option<String>,
   next_check_at: Option<String>,
   manual_after: Option<String>,
-  last_error: Option<UpdateError>, // { code: String, at: String }
+  last_error: Option<UpdateError>, // { code: String, at: String }; code is
+                                   // oci_registry::RegistryError::code() (contracts/registry.md)
   running: KeelBuild,
   available: Option<AvailableImage>,
   digest_compare: bool,            // false: running digest unknown, compared by revision (R3)
@@ -76,15 +77,19 @@ UpdatePath =
       digest_ref: String,                              // "mbround18/keel@sha256:…"
       steps: Vec<String> }                             // FR-021, rendered by the server
 
-UpdateStatusLine {                 // admins who aren't owners (FR-015)
+UpdateStatusLine {                 // admins who aren't owners (FR-015, SC-006)
   update_available: bool,          // true only for outcome update_available
   checked_at: Option<String>,
-  available_version: Option<String>,
-}
+}                                  // nothing about the available image: no digest, version,
+                                   // revision or date
 ```
 
 The server pushes `UpdateStatus` or `UpdateStatusLine` to every connected socket whose session is
 an owner or admin at push time, whenever the status changes (R5). Users never receive either.
+
+`GetKeelBuild` is how admins get the running build for the System tab (FR-002, FR-024). The
+spec 060 System commands (`GetSystem`, `PreviewSystemConfigure`, `PreviewSystemRemove`) are
+unchanged and stay owner-only; the web never sends them for an admin.
 
 Changed events and types:
 
@@ -112,9 +117,10 @@ params: BTreeMap<String, String>,
   3. writes `params.json` (mode 0600) and passes it as `-e @params.json` after `secret_vars.yaml`
      and before `forced.json`.
 
-**Signed approvals**: when `params` is non-empty, the override challenge appends
-`params=<canonical JSON with sorted keys>` as a final line. With no params, the challenge is
-unchanged.
+**Signed approvals**: `OverrideScope` in `crates/keel-trust/src/challenge.rs` gains
+`params: BTreeMap<String, String>`. When non-empty, it is a `params` member of the JCS object the
+challenge hashes. When empty, the member is omitted, so every existing challenge hashes exactly as
+today (`keel-override-v1` is unchanged). The host rebuilds it from the params it was assigned.
 
 ## Manifest (`.keel/jobs.yaml`, keel-core)
 

@@ -4,42 +4,52 @@ Each section settles one question from planning. Code references are to the tree
 
 ## R1. The registry check
 
-**Decision**: a small client in `apps/keel/server/src/updates/registry.rs`, written on `reqwest`
-0.13. It speaks the OCI distribution API directly, and makes exactly the requests below. The full
-contract is in [contracts/registry.md](contracts/registry.md).
+**Decision**: a new shared crate, `crates/oci-registry`, used by Keel (this spec) and Depths (spec
+062). It is a HEAD-first OCI distribution client written on `reqwest` 0.13, an adapter with no Keel
+or Depths types. Keel calls it from `apps/keel/server/src/updates/check.rs`. The crate's API and
+the exact request set are in [contracts/registry.md](contracts/registry.md). Whichever spec is
+implemented first builds the crate.
 
-1. **Token.**
-   - Request `HEAD /v2/<repo>/manifests/<tag>` with no credentials.
-   - On a 401, parse `WWW-Authenticate: Bearer realm="…",service="…",scope="…"`, then
-     `GET <realm>?service=<service>&scope=repository:<repo>:pull`.
-   - Basic auth is sent only when credentials are configured, and only to an `https` realm.
-   - Cache the token in memory until `expires_in` (default 60 s) runs out.
-   - The registry's own 401 is the only way to find the realm. Nothing about Docker Hub is
-     hard-coded beyond the `docker.io` to `registry-1.docker.io` alias.
-2. **HEAD the tag.**
-   - Send `Accept` with the OCI image index, the Docker manifest list, the OCI manifest and the
-     Docker v2 manifest, in that order.
-   - Read `Docker-Content-Digest` (falling back to `ETag` when it is a digest) and `Content-Type`.
-   - A HEAD on a manifest does not count as a pull on Docker Hub. Because all four types are
-     accepted, the digest is the same one `docker pull <tag>` records in `RepoDigests`, which is
-     what the role pins (R3).
-3. **Same digest as running**: the result is `up_to_date`. The check is over, at zero pulls. This
+**What the crate provides** (summary; the contract is authoritative):
+
+- `ImageRef::parse`, with Docker Hub defaults: `docker.io` and `index.docker.io` map to
+  `registry-1.docker.io`, and a single-segment repository gets the `library/` prefix. A reference
+  holds a tag or a digest.
+- `Credentials`: `Anonymous`, or `Basic { username, password }` with the password a
+  `secrecy::SecretString`. `Debug` redacts the password, and nothing logs it.
+- The Bearer token challenge flow, anonymous or with basic credentials, with an in-memory token
+  cache until `expires_in` (default 60 s).
+- `head_digest(&ImageRef, &Credentials)`: HEAD only. It never falls back to GET. A response without
+  `Docker-Content-Digest` is `RegistryError::NoDigestHeader`.
+- `resolve(&ImageRef by digest, &Platform, &Credentials) -> Resolved`: GETs the index (if the
+  digest names one), then the platform manifest, then the config blob. `Resolved` holds the index
+  digest, the platform manifest digest, the config digest, and the config's labels, `User` and
+  `created`.
+- Every call returns its request counts by method (`RequestCounts { head, get, manifest_get }`),
+  so each app feeds its own OpenTelemetry counters.
+- A base-URL override, behind the crate's `test-util` feature, so tests point the client at the
+  in-process fake registry (an axum router in `oci-registry::testing`). No real network in tests.
+
+**How Keel uses it** (one check, in `updates/check.rs`):
+
+1. **HEAD the tag**: `head_digest(&watched, &credentials)`. Keel uses anonymous Docker Hub by
+   default, and `Basic` only when `KEEL_UPDATE_REGISTRY_USERNAME` and the password are configured.
+   The digest is the one `docker pull <tag>` records in `RepoDigests`, which is what the role pins
+   (R3), because the `Accept` header lists the index and manifest types.
+2. **Same digest as running**: the result is `up_to_date`. The check is over, at zero pulls. This
    is the steady state.
-4. **Different digest, already in the cache**: the result is reused, again at zero pulls. The
-   cache holds what was read for each remote digest, for the life of the process.
-5. **Different digest, not cached**: read the labels.
-   - `GET` the manifest by digest.
-   - If it is an index, pick the entry whose `platform` matches Keel's own `os`/`architecture`
-     (and `variant` for arm), skipping attestation entries (`unknown/unknown`, or
-     `vnd.docker.reference.type` annotations). Then `GET` that platform manifest by digest.
-   - `GET` the config blob, which never counts as a pull.
-   - Read `config.Labels["org.opencontainers.image.{version,revision,created,source}"]`, falling
-     back to the config's top-level `created` for the date.
-   - Docker Hub counts the index GET and the platform-manifest GET as one pull. So each newly
-     published digest costs one pull, once per process.
-   - An index with no entry for Keel's platform gives `cant_tell`, with the reason
+3. **Different digest, already in Keel's cache**: the result is reused, again at zero pulls. The
+   cache holds what was resolved for each remote digest, for the life of the process.
+4. **Different digest, not cached**: `resolve(&watched.with_digest(d), &Platform::current(), &creds)`.
+   - The crate picks the index entry for Keel's own `os`/`architecture` (and `variant` for arm),
+     skipping attestation entries, or checks a single manifest's config platform.
+   - Keel reads `labels["org.opencontainers.image.{version,revision,created,source}"]`, falling
+     back to `Resolved.created` for the date.
+   - Docker Hub counts up to two manifest GETs as one pull, so each newly published image costs one
+     pull, once per process.
+   - `RegistryError::NoImageForPlatform` gives `cant_tell` with the reason
      `no_image_for_platform`.
-6. **Classify** against the running build (R2):
+5. **Classify** against the running build (R2):
 
    | Remote vs running | Outcome |
    |---|---|
@@ -47,41 +57,53 @@ contract is in [contracts/registry.md](contracts/registry.md).
    | Same revision, different build date | `rebuilt` |
    | Remote build date older | `older_build` |
    | Remote build date newer | `update_available` |
-   | Either side missing revision or date | `cant_tell` (unless the digest alone is decisive, as in step 3) |
+   | Either side missing revision or date | `cant_tell` (unless the digest alone is decisive, as in step 2) |
 
-7. **Failures**:
-   - Any non-2xx response, timeout (10 s per request, 30 s per check), malformed header or body
-     over 4 MiB is a failure with a short reason code: `auth_failed`, `not_found`, `rate_limited`,
-     `timeout`, `bad_response` or `network`.
+6. **Failures**:
+   - The crate maps every failure to a `RegistryError` with a short code: `auth_failed`,
+     `not_found`, `rate_limited`, `timeout`, `network`, `bad_response` or `no_digest_header`. Keel
+     stores that code in `last_error`.
+   - Keel bounds the whole check at 30 s; the crate bounds each request at 10 s.
    - A failure keeps the last successful result (FR-010).
    - There is at most one retry per interval, after 5 minutes. Then the next regular check.
+7. **Counts**: Keel adds each call's `RequestCounts` into the check's span and metrics (R9). The
+   check's pull count is 1 when `manifest_get > 0`, else 0.
 
 **Rationale**:
-- Docker Hub's rules: a GET on `/v2/*/manifests/*` counts as a pull, a HEAD does not, and blob
-  GETs do not.
+- Docker Hub's rules: a GET on `/v2/*/manifests/*` counts as a pull (up to two GETs as one), a
+  HEAD does not, and blob GETs do not.
 - The only way to read labels is the config blob, and the only way to find the config blob is a
-  manifest GET. So "zero pulls" can't hold when a new digest is published. One pull per new digest
-  is the floor. See "Spec issues" in plan.md.
-- `reqwest` is already compiled into keel-server through `web-auth`, and is in the workspace
-  `Cargo.toml` at 0.13.5. Making it a direct dependency of keel-server adds nothing to the build.
-- In tests, the fake registry is an axum router served on `127.0.0.1:0`. axum is already a
-  dependency, so no test dependency is added. The client takes its base URL from its constructor,
-  so tests point it at plain `http`, while configuration only ever yields `https`.
+  manifest GET. So "zero pulls" holds while the tag is unchanged, and one pull per newly published
+  image is the floor. SC-005 says exactly that.
+- One crate for two apps: Depths (062) needs the same HEAD-first check across many images. A
+  shared adapter keeps the request set in one place, with one set of request-log tests.
+- `reqwest` 0.13.5 is already compiled into keel-server and depths-server through `web-auth`, so
+  the crate adds no new dependency edge. The workspace has no `[workspace.dependencies]` table:
+  the crate declares `reqwest = { version = "0.13.5", features = ["json", "default-tls"] }`, as
+  `web-auth` does. `secrecy` 0.10, `thiserror` 2, `serde_json` 1.0.154 and `sha2` 0.11 are already
+  used by sibling crates at those versions.
+- In tests, the fake registry is an axum router served on `127.0.0.1:0`. axum is already in the
+  lockfile, and is an optional dependency of the crate behind `test-util`. Only test-util clients
+  accept a plain `http` base URL; the normal constructor only ever talks `https`.
 
 **Alternatives considered**:
+- **A hand-rolled client inside keel-server** (this plan's first draft): Depths would write its own
+  second copy. Rejected by the owner in favour of the shared crate.
 - **`oci-client` 0.18** (already in the lockfile, used by Fathom's `src/backend/images.rs`).
   Rejected:
   - Its convenience calls (`pull_manifest_and_config`, `pull_manifest_and_config_and_list_digest`)
     always GET the manifest, so even an unchanged tag would count as a pull.
   - Its HEAD (`fetch_manifest_digest`) exists, but mixing it with our own caching and request
     budget means fighting the library's auth state.
-  - It would also add a second registry stack to Keel. SC-005 depends on knowing exactly which
-    requests go out, and 150 lines of our own code make that auditable.
+  - SC-005 depends on knowing exactly which requests go out, and a small crate of our own makes
+    that auditable.
 - **hyper-util directly**: no TLS or redirect handling we'd want to write ourselves. Rejected.
 - **Docker Hub's REST API** (`hub.docker.com/v2/repositories/…/tags/…`): it gives per-architecture
   digests without counting pulls, but no labels, and it is Docker Hub only. Rejected.
 - **Asking the local Docker daemon**: Keel runs distroless and nonroot, with no socket. Mounting
   the socket would be a large privilege grant for a notice. Rejected.
+- **Falling back to `ETag` or a GET when `Docker-Content-Digest` is missing**: a GET would count a
+  pull for an unchanged tag. Rejected: the crate reports `NoDigestHeader` instead.
 
 ## R2. Build metadata
 
@@ -104,6 +126,8 @@ contract is in [contracts/registry.md](contracts/registry.md).
     `git describe --exact-match --match 'keel-v*'` with the prefix stripped. Otherwise empty.
   - `CREATED`: `date -u +%Y-%m-%dT%H:%M:%SZ`.
   - `REVISION`: unchanged (sha, plus `-dirty`).
+  - No `keel-v*` tag exists yet, so every image is untagged until the first one is cut (a known
+    condition in the spec's Edge cases).
   - `image-push` keeps refusing a dirty tree.
 - **Display**, in this order:
   1. a version: `0.2.0`;
@@ -187,7 +211,8 @@ So FR-017 needs a new mechanism.
    - A run without params serializes exactly as today.
    - A run with params is refused by an old runner, because `Frame` is `deny_unknown_fields`. That
      fails closed.
-   - When the run's approvals are signed, params join the canonical challenge, and only when
+   - When the run's approvals are signed, params join the canonical challenge
+     (`OverrideScope` in `crates/keel-trust/src/challenge.rs`) as a `params` member, only when
      non-empty, so existing challenges are unchanged.
 4. **Runner**:
    - It re-reads the job from the pinned commit, as today.
@@ -209,8 +234,9 @@ So FR-017 needs a new mechanism.
   See Open risks in plan.md.
 
 **Ordering**:
-1. Keel and the runner ship params support.
-2. Only then does the owner's repo add `params:` to the `keel-server` job.
+1. Keel and the runner ship params support, and are deployed on Keel's host.
+2. Only then does the owner's repo add `params:` to the `keel-server` job. The role change itself
+   (contracts/ansible-role.md) can land earlier: it doesn't touch `.keel/jobs.yaml`.
 
 Done the other way round, a manifest with `params` fails to parse on an old Keel or runner
 (`deny_unknown_fields`). The run fails closed, but jobs.yaml sync would show the job as broken
@@ -242,7 +268,7 @@ until Keel is updated by hand. quickstart.md lists the order.
 - **Socket**: `ws.rs` adds a `select!` arm on the `watch::Receiver::changed()` future.
   - On change, it re-reads the caller's instance role, from the same per-command check that the
     `pushed` arm uses. Owners get `Event::UpdateStatus` (full). Admins get
-    `Event::UpdateStatusLine` (no digest). Users get nothing.
+    `Event::UpdateStatusLine` (nothing about the available image). Users get nothing.
   - A socket that connects later gets the current value in reply to `GetUpdateStatus`, which the
     web sends after `Me`.
 - **Commands**: see contracts/protocol.md.
@@ -354,8 +380,8 @@ exports only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, as today.
 - **Span** `keel.update_check`, from `tracing::info_span!`, with fields filled at the end:
   - `keel.update.trigger` (`scheduled` or `manual`);
   - `keel.update.outcome`;
-  - `keel.update.requests` (how many HTTP requests were made);
-  - `keel.update.pulls` (0 or 1);
+  - `keel.update.requests.head` and `keel.update.requests.get`, from the crate's `RequestCounts`;
+  - `keel.update.pulls` (0 or 1: 1 when `RequestCounts.manifest_get > 0`);
   - `http.response.status_code` of the last request;
   - `error.type` on failure.
   - The watched reference is recorded without credentials. Tokens, passwords and `Authorization`
@@ -364,7 +390,11 @@ exports only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, as today.
   following the Depths pattern:
   - `keel.update.checks` (counter, attribute `outcome`);
   - `keel.update.check.duration` (histogram, ms);
+  - `keel.update.requests` (counter, attribute `method`: `HEAD` or `GET`), fed from each call's
+    `RequestCounts`;
   - `keel.update.pulls` (counter). This one lets an operator verify SC-005 from their own metrics.
+- `oci-registry` itself records no metrics: it returns counts, and each app names its own
+  instruments.
 - **Resource**: add `service.version`, from `KEEL_BUILD_VERSION`, else the revision, else
   `CARGO_PKG_VERSION`.
 - The update run itself is an ordinary run, with the existing run telemetry.
@@ -374,9 +404,10 @@ check as a counter.
 
 ## R10. Who sees what on the System tab
 
-**Today**: spec 060 made the System tab owner-only (`features/settings/tabs.ts`).
+**Before this spec**: spec 060 made the System tab owner-only (`features/settings/tabs.ts`).
 
 **Spec 061 says**: admins see the running build (FR-002) and the read-only update line (FR-015).
+FR-024 opens the tab to admins and records this as an amendment to spec 060.
 
 **Decision**: open the System tab to admins, with role-shaped content:
 
@@ -384,15 +415,24 @@ check as a counter.
 |---|---|---|---|
 | Build panel (version, revision, build date) | yes | yes | no tab |
 | Running digest | yes | yes (FR-002) | no |
-| Update card (available digest, actions, Check now) | yes | no | no |
-| Read-only update line ("A newer Keel is available. Ask an owner.") | no | yes | no |
-| System workspace configuration (spec 060) | yes | no | no |
+| Update card (available image, actions, Check now) | yes | no | no |
+| Read-only update line ("A newer Keel is available; an owner can update it") | no | yes | no |
+| System workspace setup, configuration, binding, host, runs, Remove (spec 060) | yes | no | no |
 
 Users see the version only, under About in the account menu, from `Me.keel_version`.
 
-**Spec conflict**: FR-002 and US1 scenario 1 show admins the running digest, while SC-006 says
-admins never see "a digest". This plan reads SC-006 as "never the available digest, never an
-Update action", which matches FR-015. The spec should say so (plan.md, Spec issues).
+**Keeping 060's sections owner-only**:
+- The web renders the spec 060 sections only for owners, and never sends `GetSystem` or any
+  System workspace command for an admin.
+- The server is unchanged for those commands: `GetSystem`, `PreviewSystemConfigure`,
+  `PreviewSystemRemove` and every System workspace read stay `owner_only` for admins. A server test
+  asserts it again after this spec.
+- An end-to-end test signs in as an admin, opens the System tab, and asserts that no System
+  workspace section, host, run or action renders.
+
+**SC-006**: admins may see the running build, digest included, but never the available update's
+digest, details or actions. `UpdateStatusLine` therefore carries no version, revision, date or
+digest of the available image.
 
 **Alternatives considered**: a separate "About Keel" tab for admins. Rejected: one more tab for
 three lines.

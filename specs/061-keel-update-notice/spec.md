@@ -8,6 +8,10 @@
 
 **Input**: User description: "Keel: update notice and self-update for a Docker-deployed Keel server. Keel knows what it runs (version, revision, image digest); checks the registry for a newer image of its tag behind a runtime flag that is off by default; tells instance owners in System Settings; and lets an owner update through the System workspace with preview, passkey and audit. No silent updates. Without a System workspace, the notice shows manual instructions."
 
+**Revision** (2026-10-28, after plan review): the owner accepted the plan's review findings. SC-005 and SC-006 are reworded, FR-006 and FR-015 match them, the System tab opens to admins (FR-024, amending spec 060), run parameters are a requirement (FR-023) with a rollout order, and the plan's remaining spec issues are recorded below as known conditions.
+
+**Amends spec 060**: spec 060 made the System tab owner-only. This spec opens it to admins, with sections shaped by role (FR-024). Every section spec 060 made owner-only stays owner-only.
+
 ## Why
 
 Keel runs as a container image that is rebuilt often. Today nobody can tell from Keel which build is running, and nobody learns that a newer one exists unless they check the registry by hand. When they do update, it means a shell on the host, `docker compose pull`, and hoping `latest` meant what they thought it did.
@@ -18,7 +22,7 @@ Keel already has the pieces to do better. Spec 060 gave owners a System workspac
 
 ### User Story 1 - Keel says exactly what it is running (Priority: P1)
 
-An owner or admin opens System Settings → System and sees the running Keel's version, source revision, image digest and build date. The deployment pins Keel to an image digest rather than a moving tag, so the running build is unambiguous and the previous digest is all a rollback needs.
+An owner or admin opens System Settings → System and sees the running Keel's version, source revision, image digest and build date. Admins see this build panel and nothing of the System workspace (FR-024). The deployment pins Keel to an image digest rather than a moving tag, so the running build is unambiguous and the previous digest is all a rollback needs.
 
 **Why this priority**: Every other story compares against this. It is also useful on its own: support questions start with "which build?".
 
@@ -64,7 +68,7 @@ With checks on, Keel compares the digest its configured tag points to on the reg
 2. **Given** the watched tag points to a different image, **When** a check runs, **Then** connected owners are told at once, without reloading: a dot appears on the System Settings entry, and the System tab shows the update card.
 3. **Given** the new image carries a release version, **When** the card shows, **Then** it links to that version's release notes. **Given** it carries only a revision, **Then** the card shows the revision and says there are no release notes for untagged builds.
 4. **Given** an owner presses Check now, **When** the check finishes, **Then** the card updates. Check now is limited to once a minute per instance; extra presses show when the next check is allowed.
-5. **Given** an admin who isn't an owner, **When** an update is available, **Then** they see a read-only line "A newer Keel is available; an owner can update it", with no dot, no digest and no actions. **Given** a user, **Then** they see nothing.
+5. **Given** an admin who isn't an owner, **When** an update is available, **Then** they see a read-only line "A newer Keel is available; an owner can update it", with no dot, no actions, and nothing about the available image (no digest, version, revision or build date). **Given** a user, **Then** they see nothing.
 6. **Given** an owner dismisses the dot, **When** they reload, **Then** the dot stays dismissed for that digest and returns only when a different newer digest appears. The card on the System tab stays.
 7. **Given** a check fails (registry unreachable, rate-limited, the tag doesn't exist, credentials refused), **When** the owner opens the System tab, **Then** they see the last successful result, if any, the time and reason of the failure, and the next attempt time. A failure never shows an update as available.
 
@@ -102,7 +106,7 @@ When no System workspace is configured, the update card still shows, with what t
 **Acceptance Scenarios**:
 
 1. **Given** an available update and no System workspace, **When** an owner opens the System tab, **Then** the card shows the new digest and copyable steps for the deployment repository and for a plain compose install, and a link to set up the System tab.
-2. **Given** the System workspace exists but the Keel host isn't enrolled or `keel-server` isn't allowed, **When** the owner opens the card, **Then** it says which step is missing instead of showing a disabled button without reason.
+2. **Given** the System workspace exists but the Keel host isn't enrolled, `keel-server` isn't allowed, or the repository's `keel-server` job doesn't declare the digest parameter (FR-023), **When** the owner opens the card, **Then** it says which step is missing instead of showing a disabled button without reason.
 
 ---
 
@@ -111,8 +115,11 @@ When no System workspace is configured, the update card still shows, with what t
 - **Tag moved backwards**: the watched tag now points to an image older than the running one (by build date or version). The card says the tag points to an older build and does not offer it as an update. Owners can still see it.
 - **Running digest unknown**: Keel can't compare digests. It compares revisions instead, and says so; if those are also unknown, it reports "can't tell" rather than "update available".
 - **Multi-architecture images**: the comparison uses the digest for the architecture Keel runs on, or the index digest when the deployment pinned the index. Keel never reports an update only because another architecture's image changed.
+- **Single-architecture image (known condition)**: today the image is built with a plain `docker build`, for amd64 only. An arm64 Keel (built locally) reports "can't tell: no image for this platform" until the published image is built for arm64 too. It never reports an update it can't run.
 - **Same revision, new digest** (a rebuild of the same source): shown as "rebuilt", with the build dates, not as a new version.
-- **Registry rate limits**: checks use requests that do not count as image pulls, back off after a refusal, and never retry more than once per interval.
+- **Registry rate limits**: a check of an unchanged tag uses only requests that do not count as image pulls. Reading a newly published image's details counts as one pull, once per Keel process (SC-005). Checks back off after a refusal and never retry more than once per interval.
+- **Role pulls with `pull: missing` today (known condition)**: the owner's current `keel_server` role never refreshes a moving `latest` once any `latest` is present, even when run by hand. FR-003's digest pinning fixes this; until the role change lands, the manual steps on the card are the way to update.
+- **No release tags yet (known condition)**: there are no `keel-v*` tags yet, so every published image is an untagged build. Until the first one is cut, cards show revisions and say there are no release notes for untagged builds.
 - **Private registries**: credentials, when configured, come from deployment configuration and are never shown, logged or audited.
 - **Several Keel servers** (future): each checks and reports for itself. Out of scope beyond not breaking.
 - **Clock skew**: "last checked" and "next check" come from the server clock and are shown as relative times.
@@ -132,7 +139,7 @@ When no System workspace is configured, the update card still shows, with what t
 
 - **FR-004**: Keel MUST NOT contact any registry or release site unless the update check is turned on in deployment configuration. It MUST be off by default.
 - **FR-005**: With checks on, Keel MUST check shortly after start and then at a configurable interval, default 6 hours, minimum 1 hour. The watched image reference MUST be configurable, defaulting to the image Keel is published as.
-- **FR-006**: A check MUST compare the digest the watched tag resolves to (for Keel's architecture) with the running digest, using requests that do not count as image pulls. When they differ, it MUST read the new image's version, revision and build date.
+- **FR-006**: A check MUST compare the digest the watched tag resolves to with the running digest, using only requests that do not count as image pulls. Only when they differ, and this process has not already read that image, MAY it read the new image's version, revision and build date (for Keel's architecture); that read MUST count as at most one pull per newly published image, per process.
 - **FR-007**: Owners MUST be able to start a check on demand, at most once a minute per instance.
 - **FR-008**: Check results MUST be held in memory only. A restart MUST start from "not checked yet".
 - **FR-009**: Invalid check configuration MUST stop Keel from starting, naming the setting.
@@ -144,17 +151,22 @@ When no System workspace is configured, the update card still shows, with what t
 - **FR-012**: When a check finds an update, connected owners MUST be told without reloading. Owners MUST see a dot on the System Settings navigation entry and an update card on the System tab.
 - **FR-013**: The card MUST show current and available version, revision, build date and digest, the last check time, and a release-notes link when the new image carries a release version; otherwise it MUST say no release notes exist for untagged builds.
 - **FR-014**: An owner MUST be able to dismiss the dot per available digest, remembered across reloads for that owner. Dismissing MUST NOT hide the card.
-- **FR-015**: Admins who aren't owners MUST see at most a read-only line, without digest, dot or actions. Users MUST see nothing.
+- **FR-015**: Admins who aren't owners MUST see at most a read-only line, without the available image's digest or details, and without dot or actions. Users MUST see nothing.
 
 **Updating**
 
-- **FR-016**: With a configured System workspace, an enrolled Keel host and `keel-server` allowed, owners MUST be able to update from the card through preview and passkey step-up.
+- **FR-016**: With a configured System workspace, an enrolled Keel host, `keel-server` allowed, and the `keel-server` job declaring the digest parameter (FR-023), owners MUST be able to update from the card through preview and passkey step-up.
 - **FR-017**: The update MUST queue a `keel-server` run in the System workspace that pins the exact previewed digest. It MUST appear in Runs with the same review rules as any System run.
 - **FR-018**: Only one update run MAY be queued or running at a time; a second request MUST show the existing run.
 - **FR-019**: The update request, its outcome and the change of running digest MUST be audited with old and new digest. Refused requests MUST be audited.
 - **FR-020**: Only owners, from a session, MAY request an update. Admins, users and API tokens MUST be refused.
 - **FR-021**: Without the prerequisites of FR-016, the card MUST show manual steps (the digest to pin, commands to pull and restart) and name the missing step.
 - **FR-022**: Keel MUST NOT update itself without an owner's confirmation. There is no automatic update mode.
+- **FR-023**: Keel MUST pass the previewed digest to the update run only as a parameter that the System workspace's repository declares for its `keel-server` job, with a fixed shape (an image digest). Keel MUST NOT set any variable the repository doesn't declare, and the parameter MUST show in the run and its audit entries. A runner that doesn't understand parameters MUST refuse such a run rather than run it without the parameter.
+
+**Who sees the System tab**
+
+- **FR-024**: The System tab MUST open to owners and admins. Admins MUST see only the build panel (FR-002) and the read-only update line (FR-015). Every section spec 060 made owner-only (the System workspace's setup, configuration, binding, host, runs and Remove) MUST stay owner-only, both in what the web shows and in what the server answers. Users MUST NOT see the tab.
 
 ### Key Entities
 
@@ -162,6 +174,7 @@ When no System workspace is configured, the update card still shows, with what t
 - **Update check result**: watched reference, when checked, outcome (up to date, update available, older build, rebuilt, can't tell, failed with reason), the available image's version, revision, build date and digest, next check time. In memory only.
 - **Dot dismissal**: owner, dismissed digest. Per owner, so it survives reloads.
 - **Update request**: the owner, the previewed old and new digest, the run it queued. Recorded through the audit log and the run itself.
+- **Run parameter**: a named value a repository's job declares, with a fixed kind (here, an image digest), which Keel fills for one run. Stored with the run and shown with it.
 
 ## Success Criteria *(mandatory)*
 
@@ -171,22 +184,27 @@ When no System workspace is configured, the update card still shows, with what t
 - **SC-002**: With checks on, an owner connected to Keel sees a published update within one check interval, or within 30 seconds of pressing Check now.
 - **SC-003**: An owner can go from seeing the update card to Keel running the new image without opening a shell, in under 5 minutes plus the run's own duration.
 - **SC-004**: 100% of update requests, refusals and digest changes appear in the audit log with old and new digest.
-- **SC-005**: Over a week of checks every 6 hours, the update check counts zero image pulls against the registry's limits.
-- **SC-006**: Admins and users never see a digest or an Update action, verified by end-to-end tests for each role.
+- **SC-005**: Over a week of checks every 6 hours, the update check counts zero image pulls against the registry's limits while the watched tag is unchanged, and at most one counted pull per newly published image, per Keel process.
+- **SC-006**: Admins may see the running build, its digest included, but never the available update's digest, its details or its actions; users see only the version. Verified by end-to-end tests for each role.
 
 ## Assumptions
 
 - Keel is published as one image, `mbround18/keel`, on Docker Hub, with the version, revision and build date in its standard image labels (the Dockerfile already sets them). Other registries work the same way given the image reference.
 - Release notes live on the source repository's releases page and are found by the image's version. Images pushed without a release version have a revision but no release notes.
 - Admins see a read-only line rather than nothing, so they can tell an owner; they get no button because an update changes the host Keel runs on (spec 060 makes the System workspace owner-only for the same reason).
-- The default interval of 6 hours balances freshness against registry limits; checks that don't count as pulls make this safe.
+- The default interval of 6 hours balances freshness against registry limits. A check of an unchanged tag doesn't count as a pull, and a newly published image costs one pull once, which makes this safe.
 - Results are not stored: after a restart, the first check comes shortly after start, which is enough.
 - Dot dismissals are per owner and stored with the owner's preferences.
 - Silent automatic updates (Watchtower-style) are deliberately out of scope for Keel: every change to Keel's host goes through preview, passkey and audit. Watchtower support for Depths, which manages many stacks, is a separate spec.
 - `make keel-server` on the host stays the break-glass path and the way to roll back to a previous digest.
+- **Run parameters** (FR-023): the repository's `.keel/jobs.yaml` declares, per job, which parameters Keel may fill and their kind (`params:`); Keel stores the values with the run (`runs.params`) and sends them to the runner with the job (`Assign.params`). A Keel or runner without parameter support refuses a run or manifest that has them: it fails closed.
+- **Rollout order for run parameters**: Keel and the runner ship parameter support first, and are deployed (runner on Keel's host, then Keel itself, by hand once). Only then does the owner's Ansible repository add `params:` to its `keel-server` job. Until it does, the card shows the manual path and names the missing parameter.
+- **FR-003 lives in another repository**: the `keel_server` role is in the owner's Ansible repository. This spec defines what the role must do (plan: contracts/ansible-role.md); the owner lands it there. Nothing in this repository changes the role.
+- **The registry client is shared**: Keel reads the registry through a shared library (`crates/oci-registry`) that spec 062 (Depths image updates) also uses. Whichever spec is implemented first builds it.
 
 ## Dependencies
 
 - Spec 055: the audit log, passkey step-up and runs.
 - Spec 058: the owner's `keel_server` role, its deferred compose restart, and `make keel-server` as break-glass.
-- Spec 060: the owner-only System workspace and System tab (User Story 7), and the runner's replay of undelivered results.
+- Spec 060: the owner-only System workspace and System tab (User Story 7), and the runner's replay of undelivered results. This spec amends 060's System tab: it opens to admins, with only the build panel and the update line (FR-024).
+- Spec 062 (Depths image updates): shares the `crates/oci-registry` client. No ordering between the two specs; the first to be implemented builds the crate.

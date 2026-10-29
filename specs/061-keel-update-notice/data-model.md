@@ -57,15 +57,22 @@ A malformed value stops Keel at start, naming the variable. A missing value is `
 | `cant_tell_reason` | `Option<String>` | e.g. `no_image_for_platform`, `missing_labels`, `running_unknown` |
 | `checked_at` | `Option<OffsetDateTime>` | Last successful check |
 | `available` | `Option<ImageInfo>` | Set unless `up_to_date` |
-| `last_error` | `Option<{ code, at }>` | The last failure since the last success. Cleared on success (FR-010) |
+| `last_error` | `Option<{ code, at }>` | The last failure since the last success. Cleared on success (FR-010). `code` is `RegistryError::code()`: `auth_failed`, `not_found`, `rate_limited`, `timeout`, `network`, `bad_response` or `no_digest_header` |
 | `next_check_at` | `Option<OffsetDateTime>` | |
 | `manual_after` | `Option<OffsetDateTime>` | When Check now is allowed again (FR-007) |
 | `digest_compare` | `bool` | False when the running digest is unknown (R3) |
 
-`ImageInfo` holds `{ digest, version, revision, built_at, release_notes: Option<Url> }`.
+`ImageInfo` holds `{ digest, version, revision, built_at, release_notes: Option<Url> }`. It is
+built from `oci_registry::Resolved` (contracts/registry.md): `digest` is the HEAD digest of the
+tag, and `version`, `revision` and `built_at` come from the `org.opencontainers.image.*` labels,
+with `Resolved.created` as the fallback date. `NoImageForPlatform` becomes `cant_tell` with
+`no_image_for_platform`.
 
 Remote-digest cache: `HashMap<String, ImageInfo>`, capped at 16 entries and evicting the oldest.
 A cache hit makes no request beyond the HEAD.
+
+The admins' `UpdateStatusLine` is derived from this status and carries only `update_available`
+and `checked_at` (SC-006).
 
 ## Dot dismissal
 
