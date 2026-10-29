@@ -301,7 +301,8 @@ fn rfc3339(t: chrono::DateTime<chrono::Utc>) -> String {
 }
 
 /// `PreviewUpdateBatch`: per stack, what would be recreated, what is left and why, the steps
-/// and the compose findings. Its `Confirm` runs the stacks in this order.
+/// and the compose findings. Its `Confirm` runs the stacks in this order. When no service would
+/// be recreated the answer is `NothingToUpdate`: nothing is held, asked or audited.
 pub async fn preview_batch(
     conn: &Conn,
     access: &Access,
@@ -332,8 +333,11 @@ pub async fn preview_batch(
         Ok(p) => p,
         Err(why) => return invalid(id, why),
     };
+    let plans: Vec<StackUpdatePlan> = previews.iter().map(|p| p.plan.clone()).collect();
+    if previews.iter().all(|p| p.job.is_none()) {
+        return reply(id, Event::NothingToUpdate { stacks: plans });
+    }
     let escape = previews.iter().any(|p| p.escape);
-    let plans = previews.iter().map(|p| p.plan.clone()).collect();
     let jobs = previews.into_iter().filter_map(|p| p.job).collect();
     let preview_id = u.hold_change(change::PendingChange {
         session: conn.session.clone(),
@@ -1011,13 +1015,8 @@ pub async fn confirm(
                 reason: depths_protocol::PreviewVoidReason::Unknown,
             },
         )],
+        // `preview_batch` holds a batch only with a stack to update.
         Held::Batch { mut jobs, .. } => {
-            if jobs.is_empty() {
-                return vec![invalid(
-                    id,
-                    "nothing to update: every service shown is up to date or left as it is",
-                )];
-            }
             for j in &mut jobs {
                 j.acknowledged = acknowledged;
             }

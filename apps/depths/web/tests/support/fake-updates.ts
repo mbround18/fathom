@@ -161,6 +161,7 @@ export class FakeUpdates {
     const twice = stacks.find((s, i) => stacks.indexOf(s) !== i)
     if (twice) return [{ type: 'Invalid', data: { reason: `${twice} is listed twice` } }]
     const plans = stacks.map((stack) => this.plan(view, stack))
+    if (plans.every((x) => x.services.length === 0)) return [{ type: 'NothingToUpdate', data: { stacks: plans } }]
     const preview_id = this.previewId()
     this.pending.set(preview_id, { kind: 'batch', stacks, plans })
     const step_up = this.host.passkeys.stampId(preview_id)
@@ -274,8 +275,6 @@ export class FakeUpdates {
     if (p.kind === 'batch') {
       if (p.plans.some((x) => x.ack_required) && cmd.data.acknowledge_findings !== true)
         return [{ type: 'Denied', data: { reason: 'compose_blocked', detail: 'acknowledge the findings to update' } }]
-      if (p.plans.every((x) => x.services.length === 0))
-        return [{ type: 'Invalid', data: { reason: 'nothing to update: every service shown is up to date or left as it is' } }]
       return this.start(p.stacks, { kind: 'manual', actor: this.host.actor() })
     }
     return this.apply(view, p.change)

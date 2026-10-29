@@ -231,6 +231,12 @@ pub enum Event {
         #[ts(optional)]
         step_up: Option<PasskeyRequest>,
     },
+    /// The answer to a batch preview in which no service would be recreated: each stack shown
+    /// is up to date or left as it is, and why. Information, not a refusal: nothing is held and
+    /// nothing is audited.
+    NothingToUpdate {
+        stacks: Vec<StackUpdatePlan>,
+    },
     UpdateRunStarted {
         run_id: RunId,
         trigger: RunTrigger,

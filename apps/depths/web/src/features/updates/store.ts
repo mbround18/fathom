@@ -73,6 +73,8 @@ export type BatchFlow =
   | { kind: 'idle' }
   | { kind: 'previewing'; stacks: string[] }
   | ({ kind: 'preview' | 'verifying' | 'confirming'; preview: BatchPreview; acknowledged: boolean } & StepUp)
+  /** No service would be recreated: information, with each stack's reasons, not a refusal. */
+  | { kind: 'up_to_date'; stacks: StackUpdatePlan[] }
   | { kind: 'refused'; reason: string }
 
 export interface RunStack {
@@ -497,6 +499,7 @@ onServerEvent(({ reply_to, event }) => {
             note: null,
           },
         })
+      else if (event.type === 'NothingToUpdate') useUpdates.setState({ batch: { kind: 'up_to_date', stacks: event.data.stacks } })
       else if (event.type === 'Invalid') useUpdates.setState({ batch: { kind: 'refused', reason: event.data.reason } })
       else if (event.type === 'Denied') useUpdates.setState({ batch: { kind: 'refused', reason: deniedText(event) } })
       else if (event.type === 'PasskeyEnrolmentRequired')

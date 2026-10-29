@@ -491,7 +491,7 @@ async fn a_batch_needs_an_admin_and_a_trusted_network() {
 }
 
 #[tokio::test]
-async fn a_batch_is_previewed_per_stack_and_refuses_an_empty_or_repeated_list() {
+async fn a_batch_with_nothing_to_update_says_so_and_refuses_an_empty_or_repeated_list() {
     let a = updates_app();
     seed(&a);
     let (mut ws, server, _) = open(&a, OWNER).await;
@@ -510,25 +510,20 @@ async fn a_batch_is_previewed_per_stack_and_refuses_an_empty_or_repeated_list() 
     .await;
     assert_eq!(r["event"]["type"], "Invalid", "{r}");
 
+    // The seeded state has no digest to pin, so nothing would run: that is information, with
+    // each stack's reasons, not a refusal, and nothing is audited.
+    let audited = a.audit_entries().len();
     let r = ask(
         &mut ws,
         3,
         cmd("PreviewUpdateBatch", json!({ "stacks": ["web", "db"] })),
     )
     .await;
-    assert_eq!(r["event"]["type"], "UpdatePreview", "{r}");
+    assert_eq!(r["event"]["type"], "NothingToUpdate", "{r}");
     let stacks = r["event"]["data"]["stacks"].as_array().unwrap();
     assert_eq!(stacks.len(), 2, "{r}");
     assert_eq!(stacks[0]["stack"], "web", "in the order asked: {r}");
-    // The seeded state has no digest to pin, so nothing would run: Confirm says so.
-    let id = r["event"]["data"]["preview_id"].clone();
-    let r = confirm(&mut ws, 4, &id).await;
-    assert_eq!(r["event"]["type"], "Invalid", "{r}");
-    assert!(
-        a.audit_entries()
-            .iter()
-            .all(|e| e.action != AuditAction::ImageUpdate)
-    );
+    assert_eq!(a.audit_entries().len(), audited);
     server.abort();
 }
 

@@ -1455,6 +1455,9 @@ fn all_events() -> Vec<Event> {
             stacks: vec![stack_update_plan()],
             step_up: Some(passkey_request()),
         },
+        Event::NothingToUpdate {
+            stacks: vec![stack_update_plan()],
+        },
         Event::UpdateRunStarted {
             run_id: run_id(),
             trigger: RunTrigger::Manual { actor: actor() },
@@ -1530,13 +1533,14 @@ fn event_covered(event: &Event) -> &'static str {
         Event::CheckStarted => "CheckStarted",
         Event::CheckBusy { .. } => "CheckBusy",
         Event::UpdatePreview { .. } => "UpdatePreview",
+        Event::NothingToUpdate { .. } => "NothingToUpdate",
         Event::UpdateRunStarted { .. } => "UpdateRunStarted",
         Event::UpdateStackDone { .. } => "UpdateStackDone",
         Event::UpdateRunFinished { .. } => "UpdateRunFinished",
     }
 }
 
-const EVENT_VARIANTS: usize = 52;
+const EVENT_VARIANTS: usize = 53;
 
 #[test]
 fn every_event_roundtrips_in_an_envelope() {

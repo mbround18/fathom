@@ -3,6 +3,8 @@
  *
  * - The preview lists each stack in the order it runs: the services to recreate with their old and
  *   new image, the services left alone and why, the steps, and the 051 findings to acknowledge.
+ * - With nothing to recreate it says everything is up to date, and why per stack: information,
+ *   not an error.
  * - The run shows each stack's outcome and live output, and a summary naming every stack that did
  *   not update. Stop lets the stack in progress finish (or roll back) and skips the rest.
  */
@@ -45,7 +47,9 @@ export function BatchDialog() {
   const cancel = useUpdates((s) => s.cancelBatch)
   const open = flow.kind !== 'idle'
   const shown = flow.kind === 'preview' || flow.kind === 'verifying' || flow.kind === 'confirming' ? flow : null
-  const count = shown?.preview.stacks.length ?? (flow.kind === 'previewing' ? flow.stacks.length : 0)
+  const count =
+    shown?.preview.stacks.length ?? (flow.kind === 'previewing' || flow.kind === 'up_to_date' ? flow.stacks.length : 0)
+  const done = flow.kind === 'refused' || flow.kind === 'up_to_date'
   const blockedByAck = shown !== null && shown.preview.ackRequired && !shown.acknowledged
   return (
     <Dialog open={open} onOpenChange={(o) => !o && cancel()}>
@@ -66,6 +70,8 @@ export function BatchDialog() {
           <p role="alert" data-refusal className="text-xs text-status-err">
             {flow.reason}
           </p>
+        ) : flow.kind === 'up_to_date' ? (
+          <UpToDate stacks={flow.stacks} />
         ) : shown ? (
           <>
             <ol className="flex flex-col gap-2">
@@ -91,7 +97,7 @@ export function BatchDialog() {
         ) : null}
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={cancel}>
-            {flow.kind === 'refused' ? 'Close' : 'Cancel'}
+            {done ? 'Close' : 'Cancel'}
           </Button>
           {shown && (
             <Button size="sm" data-action="confirm-batch" disabled={shown.kind !== 'preview' || blockedByAck} onClick={confirm}>
@@ -101,6 +107,25 @@ export function BatchDialog() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function UpToDate({ stacks }: { stacks: readonly StackUpdatePlan[] }) {
+  return (
+    <div className="flex flex-col gap-1 text-xs">
+      <p role="status" data-up-to-date>
+        Everything is up to date.
+      </p>
+      <ul aria-label="Left as they are" className="flex flex-col gap-0.5 text-muted-foreground">
+        {stacks.flatMap((p) =>
+          p.skipped.map(([service, why]) => (
+            <li key={`${p.stack}/${service}`} data-plan-skipped={`${p.stack}/${service}`} className="min-w-0 break-words">
+              {p.stack}/{service}: {why}
+            </li>
+          )),
+        )}
+      </ul>
+    </div>
   )
 }
 

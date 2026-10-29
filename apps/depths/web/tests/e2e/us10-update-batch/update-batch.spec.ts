@@ -9,6 +9,7 @@
  * - A held image (a breaking-change label) shows its reason and "Apply anyway".
  * - A stack another operation holds is skipped. Stop lets the stack in progress finish and skips
  *   the rest.
+ * - A batch with nothing left to update says everything is up to date: information, not an error.
  */
 import type { Page } from '@playwright/test'
 
@@ -138,6 +139,24 @@ test('a busy stack is skipped and named in the summary', async ({ page, backend 
   await expect(run(page).locator('[data-field="run-summary"]')).toHaveText(
     '2 of 3 updated. Not updated: media (Skipped: busy: alice deploy).',
   )
+})
+
+test('a batch with nothing left to update says everything is up to date', async ({ page, backend }) => {
+  seed(backend)
+  await page.goto('/admin/updates')
+  await page.locator('[data-select-stack="web"]').first().check()
+  // Updated elsewhere since the page last heard: the server has nothing left to recreate.
+  const view = backend.updates
+  if (view === null) throw new Error('no updates view')
+  view.services = view.services.map((s) => (s.stack === 'web' ? { ...s, state: 'up_to_date', available: null } : s))
+  await page.locator('[data-action="preview-batch"]').click()
+
+  await expect(batch(page).locator('[data-up-to-date]')).toHaveText('Everything is up to date.')
+  await expect(batch(page).locator('[role="alert"]')).toHaveCount(0)
+  await expect(batch(page).locator('[data-action="confirm-batch"]')).toHaveCount(0)
+  await expect(batch(page).locator('[data-plan-skipped]').first()).toContainText('up to date')
+  await batch(page).getByRole('button', { name: 'Close' }).first().click()
+  await expect(batch(page)).toHaveCount(0)
 })
 
 test('findings must be acknowledged before the batch starts', async ({ page, backend }) => {
