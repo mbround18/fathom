@@ -109,7 +109,7 @@ impl ImageRef {
         })
     }
 
-    /// API host[:port], e.g. `registry-1.docker.io`.
+    /// API `host[:port]`, e.g. `registry-1.docker.io`.
     pub fn registry(&self) -> &str {
         &self.registry
     }

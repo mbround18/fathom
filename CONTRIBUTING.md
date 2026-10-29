@@ -21,6 +21,7 @@ One Cargo workspace (`Cargo.toml`) and one pnpm workspace (`pnpm-workspace.yaml`
 | `crates/container-runtime` | Docker and Compose runtime shared by the suite: CLI runner, argv previews, streams, wire types |
 | `crates/web-auth` | Browser sign-in for the suite's servers: OIDC, GitHub, Discord, sessions, CSRF |
 | `crates/audit-log` | Append-only JSON-lines audit log with size rotation |
+| `crates/oci-registry` | Adapter: the HEAD-first OCI registry client Keel and Depths use to spot newer images. Feature `test-util` adds an in-process fake registry |
 | `crates/depths-core` | Depths' domain: stacks, status, roles, operation planning. No I/O |
 | `crates/depths-stacks-fs` | Adapter: the Dockge-compatible stacks directory on disk |
 | `crates/depths-runtime-cli` | Adapter: the `docker` CLI, argv only, never a shell |
@@ -70,6 +71,11 @@ The shared crates are shared because they know nothing about either app.
 
 - `container-runtime` must not depend on `kube`, `tauri` or any `fathom` crate.
 - `web-auth` and `audit-log` must not depend on `kube` or any `fathom` crate.
+- `oci-registry` holds no Keel or Depths types and depends on no app crate. Each app maps its
+  results into its own model and names its own metrics. It may make only the registry requests
+  listed in `specs/061-keel-update-notice/contracts/registry.md`: `HEAD` to learn a tag's
+  digest, and a manifest `GET` (which registries count as a pull) only by digest, for an image
+  the caller hasn't seen.
 - App-specific behaviour goes behind a trait the app implements (Fathom's cluster impact is a
   `ClusterImpact` that Depths passes as `None`), not behind a dependency on the app.
 
