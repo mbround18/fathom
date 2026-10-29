@@ -31,12 +31,12 @@ import { useSession } from '@/app/session-store'
 import { RefusalText } from '@/features/teams/parts'
 import type { AvailableImage, KeelBuild, UpdatePath, UpdateStatus } from '@/protocol/wire'
 import { CopyBlock } from '@/ui/CopyBlock'
+import { H2 } from '@/ui/form'
 import { LoadState } from '@/ui/LoadState'
 
-import { Row, ShortCopy, Time } from './build-parts'
+import { Row, ShortCopy, Time, Unknown } from './build-parts'
 import { canUpdate, cardState, failedRunId, shortDigest, shortRevision, showDot, useUpdates, when, type CardState } from './updates'
 
-const H2 = 'font-display text-xs font-semibold tracking-wider uppercase'
 const MUTED = 'text-xs text-muted-foreground'
 
 /** Why a check failed, by `RegistryError::code()` (contracts/registry.md). */
@@ -119,7 +119,7 @@ function Off() {
 
 function Times({ status }: { status: UpdateStatus }) {
   return (
-    <p className={`flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 ${MUTED}`}>
+    <p className={`flex min-w-0 flex-col gap-0.5 sm:flex-row sm:flex-wrap sm:gap-x-3 sm:[&>*+*]:border-l sm:[&>*+*]:border-border sm:[&>*+*]:pl-3 ${MUTED}`}>
       {status.checked_at && (
         <span data-checked-at>
           Checked <Time at={status.checked_at} />
@@ -156,21 +156,22 @@ function Failure({ status }: { status: UpdateStatus }) {
 }
 
 function Build({ title, data, build }: { title: string; data: string; build: KeelBuild | AvailableImage }) {
+  const version = build.version ?? ('display' in build ? build.display : null)
   return (
     <div data-build={data} className="flex min-w-0 flex-1 basis-56 flex-col gap-1 border border-border p-2">
       <h3 className="text-[11px] tracking-wider text-muted-foreground uppercase">{title}</h3>
-      <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 text-xs">
+      <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-0.5 text-xs">
         <Row term="Version" data="version">
-          <span className="font-mono">{build.version ?? ('display' in build ? build.display : 'untagged')}</span>
+          {version !== null ? <span className="font-mono">{version}</span> : <Unknown text="untagged" />}
         </Row>
         <Row term="Revision" data="revision">
-          {build.revision ? <ShortCopy label={`${data} revision`} short={shortRevision(build.revision)} value={build.revision} /> : 'unknown'}
+          {build.revision ? <ShortCopy label={`${data} revision`} short={shortRevision(build.revision)} value={build.revision} /> : <Unknown />}
         </Row>
         <Row term="Built" data="built">
-          {build.built_at ? <Time at={build.built_at} /> : 'unknown'}
+          {build.built_at ? <Time at={build.built_at} /> : <Unknown />}
         </Row>
         <Row term="Digest" data="digest">
-          {build.digest ? <ShortCopy label={`${data} digest`} short={shortDigest(build.digest)} value={build.digest} /> : 'unknown'}
+          {build.digest ? <ShortCopy label={`${data} digest`} short={shortDigest(build.digest)} value={build.digest} /> : <Unknown />}
         </Row>
       </dl>
     </div>
@@ -202,7 +203,7 @@ function ReleaseNotes({ image }: { image: AvailableImage }) {
 
 function Manual({ path }: { path: Extract<UpdatePath, { kind: 'manual' }> }) {
   return (
-    <div data-update-manual={path.missing} className="flex min-w-0 flex-col gap-2 border border-border p-2">
+    <div data-update-manual={path.missing} className="flex min-w-0 flex-col gap-2 border-t border-border pt-3">
       <h3 className="text-[11px] tracking-wider text-muted-foreground uppercase">Update by hand</h3>
       <p data-missing className="text-xs text-status-warn">
         {MISSING_TEXT[path.missing] ?? `Keel cannot run its own update (${path.missing}).`}
@@ -249,6 +250,8 @@ function UpdateAction({ status }: { status: UpdateStatus }) {
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Button
             size="sm"
+            // Moving to an older build or a rebuild is offered, not recommended (FR-011).
+            variant={status.outcome === 'update_available' ? 'default' : 'outline'}
             onClick={() => {
               update(available.digest)
             }}
@@ -282,22 +285,23 @@ function Card({ status }: { status: UpdateStatus }) {
           Updates
         </h2>
         <span className="flex-1" />
+        {status.enabled && (
+          <Button variant="outline" size="xs" disabled={state === 'checking'} onClick={checkNow}>
+            <ArrowClockwiseIcon aria-hidden />
+            Check now
+          </Button>
+        )}
         {showDot(me, status) && available && (
           <Button
             variant="ghost"
             size="xs"
+            className="text-muted-foreground hover:text-foreground"
             onClick={() => {
               dismissDot(available.digest)
             }}
           >
             <EyeSlashIcon aria-hidden />
             Hide the navigation dot
-          </Button>
-        )}
-        {status.enabled && (
-          <Button variant="outline" size="xs" disabled={state === 'checking'} onClick={checkNow}>
-            <ArrowClockwiseIcon aria-hidden />
-            Check now
           </Button>
         )}
       </div>
@@ -309,7 +313,9 @@ function Card({ status }: { status: UpdateStatus }) {
       ) : (
         actionRefusal && <RefusalText refusal={actionRefusal} />
       )}
-      <Headline state={state} status={status} />
+      <div aria-live="polite" className="min-w-0">
+        <Headline state={state} status={status} />
+      </div>
       {state === 'off' ? <Off /> : <Times status={status} />}
       <Failure status={status} />
       {!status.digest_compare && status.enabled && status.outcome !== null && (

@@ -41,6 +41,8 @@ export function ShortCopy({ label, short, value }: { label: string; short: strin
         type="button"
         variant="ghost"
         size="xs"
+        className="text-muted-foreground hover:text-foreground"
+        title={`Copy full ${label}`}
         aria-label={`Copy full ${label}`}
         onClick={() => {
           void copyText(value).then(setCopied)
@@ -55,12 +57,20 @@ export function ShortCopy({ label, short, value }: { label: string; short: strin
   )
 }
 
-/** A definition list's row. */
+/** A value Keel doesn't have, said plainly and quieter than a real one. */
+export function Unknown({ text = 'unknown' }: { text?: string }) {
+  return <span className="text-muted-foreground">{text}</span>
+}
+
+/**
+ * A definition list's row. Every value sits in a row as tall as the Copy button, so rows with and
+ * without one line up on the same rhythm.
+ */
 export function Row({ term, children, data }: { term: string; children: ReactNode; data?: string }) {
   return (
     <>
-      <dt className="text-muted-foreground">{term}</dt>
-      <dd data-field={data} className="min-w-0">
+      <dt className="flex min-h-6 items-center self-start text-muted-foreground">{term}</dt>
+      <dd data-field={data} className="flex min-h-6 min-w-0 items-center">
         {children}
       </dd>
     </>

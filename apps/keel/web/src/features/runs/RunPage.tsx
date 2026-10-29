@@ -40,7 +40,7 @@ const TONE: Record<string, string> = {
 function Param({ name, value }: { name: string; value: string }) {
   return (
     <>
-      <dt className="font-mono text-muted-foreground">{name}</dt>
+      <dt className="min-w-0 font-mono break-all text-muted-foreground">{name}</dt>
       <dd data-param={name} title={value} className="min-w-0 font-mono break-all">
         {value}
       </dd>
@@ -165,11 +165,6 @@ function Header({ run }: { run: RunInfo }) {
       <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
         <dt className="text-muted-foreground">Commit</dt>
         <dd className="font-mono">{short(run.commit)}</dd>
-        {Object.entries(run.params)
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([name, value]) => (
-            <Param key={name} name={name} value={value} />
-          ))}
         <dt className="text-muted-foreground">Inventory</dt>
         <dd>{run.inventory}</dd>
         <dt className="text-muted-foreground">Trigger</dt>
@@ -179,6 +174,18 @@ function Header({ run }: { run: RunInfo }) {
         <dt className="text-muted-foreground">Ended</dt>
         <dd className="tabular-nums">{run.ended_at ?? '—'}</dd>
       </dl>
+      {/* Params get their own list: a name like keel_server_image_digest and a full digest would
+          otherwise widen the label column of every field above. On a phone the value sits under its
+          name. */}
+      {Object.keys(run.params).length > 0 && (
+        <dl aria-label="Parameters" className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-0.5 text-xs sm:grid-cols-[auto_minmax(0,1fr)] sm:gap-y-1">
+          {Object.entries(run.params)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([name, value]) => (
+              <Param key={name} name={name} value={value} />
+            ))}
+        </dl>
+      )}
     </>
   )
 }

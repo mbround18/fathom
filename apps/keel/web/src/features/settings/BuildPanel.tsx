@@ -8,19 +8,19 @@ import { CubeIcon } from '@phosphor-icons/react'
 import { useEffect } from 'react'
 
 import { RefusalText } from '@/features/teams/parts'
+import { H2 } from '@/ui/form'
 import { LoadState } from '@/ui/LoadState'
 import type { KeelBuild } from '@/protocol/wire'
 
-import { Row, ShortCopy, Time } from './build-parts'
+import { Row, ShortCopy, Time, Unknown } from './build-parts'
 import { shortDigest, shortRevision, useUpdates } from './updates'
 
-const H2 = 'font-display text-xs font-semibold tracking-wider uppercase'
 const DEV = 'development build'
 
 function Values({ build }: { build: KeelBuild }) {
   const dev = build.version === null && build.revision === null
   return (
-    <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-1 text-xs">
+    <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-0.5 text-xs">
       <Row term="Version" data="version">
         <span className="font-mono">{build.version ?? build.display}</span>
       </Row>
@@ -28,15 +28,15 @@ function Values({ build }: { build: KeelBuild }) {
         {build.revision ? (
           <ShortCopy label="revision" short={shortRevision(build.revision)} value={build.revision} />
         ) : (
-          <span className="text-muted-foreground">{dev ? DEV : 'unknown'}</span>
+          <Unknown text={dev ? DEV : 'unknown'} />
         )}
       </Row>
       <Row term="Digest" data="digest">
         {build.digest ? (
           <ShortCopy label="digest" short={shortDigest(build.digest)} value={build.digest} />
         ) : (
-          <span className="flex min-w-0 flex-col">
-            <span className="text-muted-foreground">unknown</span>
+          <span className="flex min-w-0 flex-col py-1">
+            <Unknown />
             <span data-hint="pin-digest" className="text-[11px] text-status-warn">
               Deploy Keel pinned to an image digest and pass it as KEEL_IMAGE_DIGEST, so a rollback can name it.
             </span>
@@ -44,7 +44,7 @@ function Values({ build }: { build: KeelBuild }) {
         )}
       </Row>
       <Row term="Built" data="built">
-        {build.built_at ? <Time at={build.built_at} /> : <span className="text-muted-foreground">{dev ? DEV : 'unknown'}</span>}
+        {build.built_at ? <Time at={build.built_at} /> : <Unknown text={dev ? DEV : 'unknown'} />}
       </Row>
     </dl>
   )

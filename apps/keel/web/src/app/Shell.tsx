@@ -61,7 +61,7 @@ function NavLink({
       {label}
       {dot && (
         <>
-          <span aria-hidden data-update-dot className="size-1.5 shrink-0 rounded-full bg-accent-neon shadow-[0_0_6px_var(--color-accent-neon)]" />
+          <span aria-hidden data-update-dot className="size-1.5 shrink-0 rounded-full bg-accent-neon shadow-[var(--glow)]" />
           <span className="sr-only"> (update available)</span>
         </>
       )}
