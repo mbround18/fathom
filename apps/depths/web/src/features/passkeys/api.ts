@@ -43,8 +43,8 @@ function current(): Authenticator | null {
 
 /** Why the authenticator did not answer. */
 export class PasskeyFailure extends Error {
-  readonly reason: 'cancelled' | 'unsupported' | 'invalid'
-  constructor(reason: 'cancelled' | 'unsupported' | 'invalid') {
+  readonly reason: 'cancelled' | 'unsupported' | 'invalid' | 'exists'
+  constructor(reason: 'cancelled' | 'unsupported' | 'invalid' | 'exists') {
     super(reason)
     this.reason = reason
   }
@@ -60,7 +60,9 @@ async function run<T>(body: (a: Authenticator) => Promise<CredentialLike | null>
     // Options the codec cannot read are the server's fault, not the person's.
     if (e instanceof PasskeyFailure) throw e
     if (e instanceof Error && /passkey options|base64url/.test(e.message)) throw new PasskeyFailure('invalid')
-    // NotAllowedError (cancelled or timed out), AbortError, InvalidStateError and the like.
+    // Registering on a device that already holds one of the person's passkeys.
+    if (e instanceof Error && e.name === 'InvalidStateError') throw new PasskeyFailure('exists')
+    // NotAllowedError (cancelled or timed out), AbortError and the like.
     throw new PasskeyFailure('cancelled')
   }
   if (!c) throw new PasskeyFailure('cancelled')
@@ -92,7 +94,8 @@ export async function stepUpAssertion(
   try {
     return { ok: true, assertion: await signRequest(request) }
   } catch (e) {
-    if (e instanceof PasskeyFailure && e.reason !== 'cancelled') return { ok: false, refusal: { kind: 'passkey', reason: e.reason } }
+    if (e instanceof PasskeyFailure && e.reason !== 'cancelled')
+      return { ok: false, refusal: { kind: 'passkey', reason: e.reason === 'exists' ? 'invalid' : e.reason } }
     return { ok: false, refusal: { kind: 'not_confirmed' } }
   }
 }

@@ -188,6 +188,23 @@ describe('passkeys store', () => {
     expect(usePasskeys.getState().phase).toBe('done')
   })
 
+  it('registering on a device that already holds a passkey says so', async () => {
+    const exists = Object.assign(new Error('The authenticator already holds a credential.'), { name: 'InvalidStateError' })
+    setAuthenticator({ create: () => Promise.reject(exists), get: () => Promise.resolve(null) })
+    usePasskeys.getState().openEnrol()
+    const done = usePasskeys.getState().enrol('Phone')
+    const options = {
+      rp: { id: 'localhost', name: 'Depths' },
+      user: { id: toB64Url(bytes(1)), name: 'ada', displayName: 'Ada' },
+      challenge: toB64Url(bytes(2)),
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+    }
+    emit({ type: 'PasskeyChallenge', data: { ceremony: 'c-1', options } }, bus.sent.length)
+    await done
+    expect(usePasskeys.getState().phase).toBe('refused')
+    expect(usePasskeys.getState().error).toMatch(/already holds one of your passkeys/)
+  })
+
   it('a cancelled prompt leaves the dialog open with the message', async () => {
     setAuthenticator({ create: () => Promise.resolve(null), get: () => Promise.resolve(null) })
     usePasskeys.getState().openVerify()

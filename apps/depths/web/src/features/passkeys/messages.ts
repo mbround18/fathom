@@ -15,6 +15,7 @@ export const REFUSED_MESSAGES: Record<PasskeyRefusedReason, string> = {
   last_passkey: 'This is your last passkey, so it cannot be removed. Add another first.',
 }
 
+export const ALREADY_ON_DEVICE = 'This device already holds one of your passkeys. Use another device or a security key.'
 export const NO_AUTHENTICATOR = 'This browser cannot use passkeys.'
 export const OFFLINE = 'Depths is not connected. Wait for it to reconnect, then try again.'
 export const NOT_CONFIRMED = 'Not confirmed, nothing changed.'

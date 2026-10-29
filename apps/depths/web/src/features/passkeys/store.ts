@@ -33,7 +33,7 @@ import type {
 } from '@/protocol/generated'
 
 import { createCredential, getAssertion, PasskeyFailure } from './api'
-import { NO_AUTHENTICATOR, OFFLINE, REFUSED_MESSAGES, STEP_UP_AGAIN } from './messages'
+import { ALREADY_ON_DEVICE, NO_AUTHENTICATOR, OFFLINE, REFUSED_MESSAGES, STEP_UP_AGAIN } from './messages'
 
 export type PasskeyDialog =
   | { kind: 'enrol'; required: boolean }
@@ -101,7 +101,11 @@ export function refusalMessage(event: Event): string {
 }
 
 function failure(e: unknown): string {
-  if (e instanceof PasskeyFailure) return e.reason === 'unsupported' ? NO_AUTHENTICATOR : REFUSED_MESSAGES[e.reason === 'invalid' ? 'invalid' : 'cancelled']
+  if (e instanceof PasskeyFailure) {
+    if (e.reason === 'unsupported') return NO_AUTHENTICATOR
+    if (e.reason === 'exists') return ALREADY_ON_DEVICE
+    return REFUSED_MESSAGES[e.reason]
+  }
   return e instanceof Error ? e.message : String(e)
 }
 
