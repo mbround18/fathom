@@ -15,6 +15,8 @@
 
 pub mod check;
 pub mod classify;
+pub mod commands;
+pub mod manual;
 pub mod scheduler;
 
 use std::collections::{HashMap, VecDeque};
@@ -348,6 +350,66 @@ impl Updates {
         })
     }
 }
+
+/// Records the build Keel started as in `keel_build_seen` (FR-019, data-model.md). A start on a
+/// different digest or revision than the stored row writes one `keel_updated`, actor System; the
+/// first start after migration 0011 only fills the row, as there is nothing to compare against.
+/// Returns whether `keel_updated` was written.
+///
+/// # Errors
+///
+/// A database error.
+pub async fn record_build_seen(db: &sqlx::PgPool, build: &BuildInfo) -> Result<bool, sqlx::Error> {
+    use crate::audit::{self, Actor, Decision, Entry};
+    let mut tx = db.begin().await?;
+    let seen: Option<(Option<String>, Option<String>, Option<String>)> =
+        sqlx::query_as("select digest, revision, version from keel_build_seen where id for update")
+            .fetch_optional(&mut *tx)
+            .await?;
+    let changed = match &seen {
+        None => false,
+        Some((digest, revision, _)) => *digest != build.digest || *revision != build.revision,
+    };
+    if seen.is_some() && !changed {
+        return Ok(false);
+    }
+    sqlx::query(
+        "insert into keel_build_seen (id, digest, revision, version, seen_at) \
+         values (true, $1, $2, $3, now()) \
+         on conflict (id) do update set digest = excluded.digest, revision = excluded.revision, \
+         version = excluded.version, seen_at = excluded.seen_at",
+    )
+    .bind(&build.digest)
+    .bind(&build.revision)
+    .bind(&build.version)
+    .execute(&mut *tx)
+    .await?;
+    if let Some((old_digest, old_revision, old_version)) = seen {
+        audit::record(
+            &mut tx,
+            Entry {
+                actor: &Actor::System,
+                action: "keel_updated",
+                workspace: None,
+                target: serde_json::json!({}),
+                decision: Decision::Allowed,
+                reason: None,
+                context: serde_json::json!({
+                    "old_digest": old_digest,
+                    "new_digest": build.digest,
+                    "old_revision": old_revision,
+                    "new_revision": build.revision,
+                    "old_version": old_version,
+                    "new_version": build.version,
+                }),
+            },
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(changed)
+}
+
 
 #[cfg(test)]
 mod tests {

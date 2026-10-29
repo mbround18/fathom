@@ -257,6 +257,11 @@ async fn serve(cfg: Config, tls: Option<tokio_rustls::TlsAcceptor>, exporting: b
     if let Err(e) = app.load_system_workspace().await {
         return refuse(&format!("system workspace: {e}"));
     }
+    // A start on a different build than last time is audited as `keel_updated` (spec 061
+    // FR-019). Only logged on failure: the build record must never keep Keel from starting.
+    if let Err(e) = keel_server::updates::record_build_seen(&app.db, &app.updates.build).await {
+        tracing::error!(error = %e, "recording the running build failed");
+    }
     let runners = match runner_listener::spawn(app.clone(), runner_listener) {
         Ok(t) => t,
         Err(e) => return refuse(&format!("runner listener: {e}")),

@@ -501,3 +501,124 @@ pub async fn disallowed_profile(
             .await?;
     Ok(allowed.and_then(|(allowed,)| profiles.iter().find(|p| !allowed.contains(p)).cloned()))
 }
+
+// ---- the update run's prerequisites (spec 061 FR-016, T070) ----------------------------------
+
+/// The profile Keel's own host serves, and the job that deploys Keel.
+pub const KEEL_SERVER: &str = "keel-server";
+/// The job param the update run fills with the new digest.
+pub const DIGEST_PARAM: &str = "keel_server_image_digest";
+
+/// Where an update run goes: the System workspace's `keel-server` job.
+#[derive(Debug, Clone)]
+pub(crate) struct UpdateTarget {
+    pub workspace: Uuid,
+    pub binding: Uuid,
+    pub job: Uuid,
+    pub job_name: String,
+    pub def: keel_core::manifest::JobDefinition,
+    /// The binding's last synced commit.
+    pub commit: String,
+    pub signed_mode: bool,
+}
+
+/// The update run's target, or the first missing prerequisite, in the order of FR-016:
+/// `no_system_workspace`, `no_keel_host`, `profile_not_allowed`, `job_missing_param`. A job that
+/// is blocked, unsynced or on a disabled binding counts as `job_missing_param`: there is no job
+/// to run.
+///
+/// # Errors
+///
+/// A database error.
+pub(crate) async fn update_target(
+    conn: &mut PgConnection,
+) -> Result<Result<UpdateTarget, &'static str>, sqlx::Error> {
+    let Some((ws, allowed, _)) = config(&mut *conn, false).await? else {
+        return Ok(Err("no_system_workspace"));
+    };
+    let hosts: Vec<(String,)> = sqlx::query_as(
+        "select h.inventory_name from hosts h \
+         join host_profiles hp on hp.host_id = h.id \
+         join profiles p on p.id = hp.profile_id \
+         where h.workspace_id = $1 and h.state <> 'revoked' and p.name = $2 \
+         order by h.inventory_name",
+    )
+    .bind(ws)
+    .bind(KEEL_SERVER)
+    .fetch_all(&mut *conn)
+    .await?;
+    if hosts.is_empty() {
+        return Ok(Err("no_keel_host"));
+    }
+    if !allowed.iter().any(|p| p == KEEL_SERVER) {
+        return Ok(Err("profile_not_allowed"));
+    }
+    let job: Option<(Uuid, Uuid, Value, Option<String>, bool, String)> = sqlx::query_as(
+        "select j.id, j.binding_id, j.definition, b.last_commit, b.signed_mode, b.status \
+         from jobs j join repo_bindings b on b.id = j.binding_id \
+         join projects p on p.id = b.project_id \
+         where p.workspace_id = $1 and j.name = $2 and j.removed_at_commit is null \
+           and j.blocked_reason is null \
+         order by j.id limit 1",
+    )
+    .bind(ws)
+    .bind(KEEL_SERVER)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((job, binding, def, Some(commit), signed_mode, status)) = job else {
+        return Ok(Err("job_missing_param"));
+    };
+    let Ok(def) = serde_json::from_value::<keel_core::manifest::JobDefinition>(def) else {
+        return Ok(Err("job_missing_param"));
+    };
+    let declared = def
+        .params
+        .get(DIGEST_PARAM)
+        .is_some_and(|p| p.kind == keel_core::manifest::ParamKind::OciDigest);
+    if !declared || status != "active" {
+        return Ok(Err("job_missing_param"));
+    }
+    Ok(Ok(UpdateTarget {
+        workspace: ws,
+        binding,
+        job,
+        job_name: KEEL_SERVER.to_owned(),
+        def,
+        commit,
+        signed_mode,
+    }))
+}
+
+/// `UpdateStatus.update_path`: `Run` when every prerequisite is met, else the manual steps for
+/// `digest` (the available image, else the running one).
+///
+/// # Errors
+///
+/// A database error.
+pub(crate) async fn update_path(
+    conn: &mut PgConnection,
+    watched: &oci_registry::ImageRef,
+    digest: Option<&str>,
+) -> Result<keel_protocol::UpdatePath, sqlx::Error> {
+    Ok(match update_target(conn).await? {
+        Ok(_) => keel_protocol::UpdatePath::Run,
+        Err(missing) => crate::updates::manual::path(missing, watched, digest),
+    })
+}
+
+/// A pending, queued or running update run in the System workspace (FR-018).
+///
+/// # Errors
+///
+/// A database error.
+pub(crate) async fn update_run(conn: &mut PgConnection) -> Result<Option<Uuid>, sqlx::Error> {
+    sqlx::query_scalar(
+        "select id from runs \
+         where workspace_id = (select workspace_id from system_config where id) \
+           and params ? 'keel_server_image_digest' \
+           and state in ('pending_approval', 'queued', 'running') \
+         order by created_at desc limit 1",
+    )
+    .fetch_optional(conn)
+    .await
+}

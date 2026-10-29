@@ -1355,14 +1355,15 @@ pub(crate) async fn maybe_finish(app: &AppState, run: Uuid) {
 
 async fn try_finish(app: &AppState, run: Uuid) -> Result<(), sqlx::Error> {
     let mut tx = app.db.begin().await?;
-    let row: Option<(String, Option<String>, Uuid, bool)> = sqlx::query_as(
-        "select state, state_reason, workspace_id, ended_at is not null from runs \
+    let row: Option<(String, Option<String>, Uuid, bool, Option<String>)> = sqlx::query_as(
+        "select state, state_reason, workspace_id, ended_at is not null, \
+                params ->> 'keel_server_image_digest' from runs \
          where id = $1 for no key update",
     )
     .bind(run)
     .fetch_optional(&mut *tx)
     .await?;
-    let Some((state, reason, workspace, ended)) = row else {
+    let Some((state, reason, workspace, ended, update_digest)) = row else {
         return Ok(());
     };
     if ended {
@@ -1420,9 +1421,52 @@ async fn try_finish(app: &AppState, run: Uuid) -> Result<(), sqlx::Error> {
         },
     )
     .await?;
+    if let Some(new_digest) = update_digest {
+        update_result(app, &mut tx, run, workspace, next, &new_digest).await?;
+    }
     tx.commit().await?;
     push_state(app, workspace, run, next);
     Ok(())
+}
+
+/// Audits how a Keel update run ended (spec 061 FR-019): `keel_update_result`, with the digest
+/// Keel ran when the update was requested, else the one it runs now.
+async fn update_result(
+    app: &AppState,
+    tx: &mut PgConnection,
+    run: Uuid,
+    workspace: Uuid,
+    next: core_run::RunStatus,
+    new_digest: &str,
+) -> Result<(), sqlx::Error> {
+    let old: Option<Option<String>> = sqlx::query_scalar(
+        "select context ->> 'old_digest' from audit_event \
+         where action = 'keel_update_requested' and target ->> 'run' = $1 \
+         order by seq desc limit 1",
+    )
+    .bind(run.to_string())
+    .fetch_optional(&mut *tx)
+    .await?;
+    let old_digest = old.flatten().or_else(|| app.updates.build.digest.clone());
+    audit::record(
+        tx,
+        Entry {
+            actor: &Actor::System,
+            action: "keel_update_result",
+            workspace: Some(WorkspaceId(workspace)),
+            target: json!({ "run": run }),
+            decision: Decision::Allowed,
+            reason: next.reason.map(|r| r.as_str()),
+            context: json!({
+                "run": run,
+                "outcome": next.state.as_str(),
+                "old_digest": old_digest,
+                "new_digest": new_digest,
+            }),
+        },
+    )
+    .await
+    .map(|_| ())
 }
 
 /// The run's host counts and summed stats.
@@ -1584,6 +1628,7 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
         Option<String>,
         String,
         Option<i32>,
+        Value,
     );
     let row: Option<Row> = sqlx::query_as(
         "select r.binding_id, r.job_name, r.commit, j.definition, r.workspace_id, r.signed_mode, \
@@ -1592,7 +1637,7 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
                     and hr.authorization_kind <> 'unchecked' \
                   order by hr.applied_at desc, hr.id desc limit 1), \
                 rh.host_name, \
-                greatest(b.override_quorum, h.override_quorum, 1) \
+                greatest(b.override_quorum, h.override_quorum, 1), r.params \
          from runs r \
          join run_hosts rh on rh.run_id = r.id and rh.host_id = $2 \
          join hosts h on h.id = rh.host_id \
@@ -1605,7 +1650,8 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
     .fetch_optional(&app.db)
     .await
     .map_err(|_| AssignError::Internal)?;
-    let Some((Some(binding), job, commit, def, workspace, signed, base, host_name, quorum)) = row
+    let Some((Some(binding), job, commit, def, workspace, signed, base, host_name, quorum, params)) =
+        row
     else {
         return Err(AssignError::ArtifactMissing);
     };
@@ -1639,8 +1685,8 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
             deadline,
             pack_size: pack.bytes.len() as u64,
             quorum: quorum.and_then(|q| u32::try_from(q).ok()),
-            // Filled from `runs.params` by the update run (spec 061); empty until then.
-            params: BTreeMap::new(),
+            params: serde_json::from_value::<BTreeMap<String, String>>(params)
+                .unwrap_or_default(),
         },
         Frame::Secrets {
             run_id: run_id.clone(),

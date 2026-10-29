@@ -1063,6 +1063,20 @@ fn scope(
     Some(s)
 }
 
+/// A run's params (`{}` for runs without).
+async fn run_params(
+    app: &AppState,
+    run: Uuid,
+) -> Result<std::collections::BTreeMap<String, String>, sqlx::Error> {
+    let params: Option<Value> = sqlx::query_scalar("select params from runs where id = $1")
+        .bind(run)
+        .fetch_optional(&app.db)
+        .await?;
+    Ok(params
+        .and_then(|p| serde_json::from_value(p).ok())
+        .unwrap_or_default())
+}
+
 /// `now + min(ttl, 24h)`, whole seconds, as Unix seconds and `YYYY-MM-DDTHH:MM:SSZ`.
 fn expiry(now: OffsetDateTime, ttl_secs: i64) -> Option<(i64, String)> {
     let at = now.unix_timestamp() + ttl_secs.clamp(60, MAX_OVERRIDE_SECS);
@@ -1157,7 +1171,7 @@ async fn preview_override(
     let Some((_, expires_at)) = expiry(app.clock.now(), ctx.ttl_secs) else {
         return internal();
     };
-    let Some(scope) = scope(
+    let Some(mut scope) = scope(
         ctx.ws,
         binding,
         ctx.run,
@@ -1168,6 +1182,12 @@ async fn preview_override(
         &expires_at,
     ) else {
         return internal();
+    };
+    // The run's params are part of what the approver signs (spec 061 contracts/protocol.md);
+    // the host rebuilds the scope from the params it was assigned.
+    scope.params = match run_params(app, ctx.run).await {
+        Ok(p) => p,
+        Err(e) => return db_failed(&e),
     };
     let Ok(challenge) = scope.challenge() else {
         return internal();

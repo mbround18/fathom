@@ -61,6 +61,13 @@ pub struct Refused {
 ///
 /// The command is not allowed for this caller.
 pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
+    // The update commands (spec 061) are for a person at a browser: a token gets
+    // `session_required`, not `token_scope`, whatever it was scoped to (contracts/protocol.md).
+    if caller.token.is_some() && crate::updates::commands::is_update_cmd(cmd) {
+        return Err(Refused {
+            code: "session_required",
+        });
+    }
     if let Some(t) = &caller.token
         && !(TOKEN_ACTIONS.contains(&cmd.name()) && t.actions.iter().any(|a| a == cmd.name()))
     {
@@ -213,6 +220,10 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
     let action = env.cmd.name();
     if let Err(refused) = authorize(req.caller, &env.cmd) {
         deny(app, req, action, refused).await;
+        if let Cmd::PreviewKeelUpdate { digest } = &env.cmd {
+            // A token's refusal is also an update refusal (FR-020).
+            crate::updates::commands::refused_by_dispatch(app, req, digest).await;
+        }
         return vec![EventEnvelope::reply(
             id,
             Event::Denied {
@@ -226,7 +237,10 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
             let window = time::Duration::try_from(app.cfg.step_up_window)
                 .unwrap_or(time::Duration::minutes(5));
             match identity::me(&app.db, req.caller, window, app.clock.now()).await {
-                Ok(me) => vec![Event::Me(me)],
+                Ok(mut me) => {
+                    me.keel_version = Some(app.updates.build.display());
+                    vec![Event::Me(me)]
+                }
                 Err(e) => {
                     tracing::error!(error = %e, "GetMe failed");
                     vec![internal()]
@@ -458,15 +472,12 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         @ (Cmd::GetSystem | Cmd::PreviewSystemConfigure { .. } | Cmd::PreviewSystemRemove) => {
             crate::system::handle(app, req, other).await
         }
-        // Build identity, the update notice and self-update (spec 061). Stubs until US1 to US4.
-        Cmd::GetKeelBuild
+        // Build identity, the update notice and self-update (spec 061).
+        other @ (Cmd::GetKeelBuild
         | Cmd::GetUpdateStatus
         | Cmd::CheckForUpdates
         | Cmd::DismissUpdateDot { .. }
-        | Cmd::PreviewKeelUpdate { .. } => vec![Event::op_error(
-            "not_implemented",
-            "This Keel does not support updates yet.",
-        )],
+        | Cmd::PreviewKeelUpdate { .. }) => crate::updates::commands::handle(app, req, other).await,
     };
     events
         .into_iter()

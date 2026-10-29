@@ -136,6 +136,9 @@ async fn run(app: AppState, session: Option<Session>, mut socket: WebSocket) {
     // subscription replays and the live stream is lost. `subs` holds, per run, the last seq sent.
     let mut live = app.runs.live();
     let mut subs: HashMap<uuid::Uuid, u64> = HashMap::new();
+    // The update status (spec 061 R5): owners and admins get each change, shaped by role.
+    let mut status = app.updates.status.subscribe();
+    let mut status_open = true;
 
     let first = tokio::time::timeout(HELLO_TIMEOUT, socket.recv()).await;
     let Ok(Some(Ok(Message::Text(text)))) = first else {
@@ -259,6 +262,22 @@ async fn run(app: AppState, session: Option<Session>, mut socket: WebSocket) {
                 },
                 // Missed pushes: the page re-reads on its next command.
                 Err(RecvError::Lagged(_) | RecvError::Closed) => {}
+            },
+            // The update status (spec 061 R5), shaped by the caller's role as it is now: owners
+            // get `UpdateStatus`, admins `UpdateStatusLine`, users nothing.
+            c = status.changed(), if status_open => match c {
+                Ok(()) => match check(&app, &session.id).await {
+                    Check::Valid(c) => {
+                        if let Some(event) = crate::updates::commands::pushed(&app, &c).await
+                            && !send(&mut socket, &EventEnvelope::push(event)).await
+                        {
+                            return;
+                        }
+                    }
+                    Check::Gone => return revoke(&app, &session.id, socket).await,
+                    Check::Unavailable => {}
+                },
+                Err(_) => status_open = false,
             },
             // Run output (US2), for the runs this socket subscribed to. View was checked when it
             // subscribed.

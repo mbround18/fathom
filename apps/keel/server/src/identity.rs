@@ -628,6 +628,19 @@ pub async fn load_token(
 /// # Errors
 ///
 /// A database error.
+/// The update digest an owner dismissed the dot for; `None` for everyone else (spec 061 R6).
+async fn update_dot_dismissed(pool: &PgPool, caller: &Caller) -> Result<Option<String>, sqlx::Error> {
+    if caller.user.instance_role != keel_core::InstanceRole::Owner {
+        return Ok(None);
+    }
+    let v: Option<Option<String>> =
+        sqlx::query_scalar("select update_dot_dismissed from users where id = $1")
+            .bind(caller.user.id)
+            .fetch_optional(pool)
+            .await?;
+    Ok(v.flatten())
+}
+
 pub async fn me(
     pool: &PgPool,
     caller: &Caller,
@@ -657,9 +670,9 @@ pub async fn me(
         instance_role: caller.user.instance_role.into(),
         grants,
         verification: verification(pool, caller, window, now).await?,
-        // Filled by the update notice (spec 061 US1); empty until then.
+        // Set by dispatch from the running build (spec 061 US1).
         keel_version: None,
-        update_dot_dismissed: None,
+        update_dot_dismissed: update_dot_dismissed(pool, caller).await?,
     })
 }
 

@@ -12,7 +12,7 @@
 //! Reads need `View`, starting and cancelling `Operate`, and policy changes `Administer` with a
 //! fresh passkey.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use keel_core::WorkspaceId;
 use keel_core::authz::{self, Capability};
@@ -119,6 +119,8 @@ pub async fn on_push(app: &AppState, p: Push<'_>) {
             actor: &actor,
             id: None,
             only_hosts: None,
+            params: &BTreeMap::new(),
+            update: None,
         };
         if let Err(e) = create_run(app, &new).await {
             tracing::error!(error = %e, job = %name, "creating a run failed");
@@ -150,6 +152,56 @@ struct NewRun<'a> {
     id: Option<Uuid>,
     /// Only these of the planned hosts (a baseline).
     only_hosts: Option<&'a [String]>,
+    /// Values for the job's declared params (spec 061 R4), checked by [`check_params`].
+    params: &'a BTreeMap<String, String>,
+    /// Set for a Keel update run (spec 061 US4): one at a time, audited.
+    update: Option<&'a UpdateAudit>,
+}
+
+/// What a Keel update run audits as `keel_update_requested` (spec 061 data-model.md).
+pub(crate) struct UpdateAudit {
+    pub old_digest: Option<String>,
+    pub new_digest: String,
+    pub old_revision: Option<String>,
+    pub new_revision: Option<String>,
+    /// The request's audit context (channel, ...).
+    pub context: Value,
+}
+
+/// Checks run params against the job's declared ones (spec 061 R4): every name must be
+/// declared, and every value must match its kind.
+///
+/// # Errors
+///
+/// What is wrong with the first bad param.
+pub fn check_params(def: &JobDefinition, params: &BTreeMap<String, String>) -> Result<(), String> {
+    for (name, value) in params {
+        let Some(spec) = def.params.get(name) else {
+            return Err(format!("the job does not declare the param {name}"));
+        };
+        if let Err(why) = spec.kind.validate(value) {
+            return Err(format!("param {name}: {why}"));
+        }
+    }
+    Ok(())
+}
+
+/// Locks out a concurrent update request and returns the update run already pending, queued or
+/// running in the System workspace, if any (FR-018, data-model.md "Update request").
+async fn locked_update_run(conn: &mut PgConnection) -> Result<Option<Uuid>, sqlx::Error> {
+    // Two requests both finding no run would both insert one: serialise them on the config row.
+    sqlx::query("select 1 from system_config where id for update")
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query_scalar(
+        "select id from runs \
+         where workspace_id = (select workspace_id from system_config where id) \
+           and params ? 'keel_server_image_digest' \
+           and state in ('pending_approval', 'queued', 'running') \
+         order by created_at desc limit 1 for update",
+    )
+    .fetch_optional(conn)
+    .await
 }
 
 /// What a run of a job would reach.
@@ -244,7 +296,34 @@ async fn plan(
 
 /// Makes a run: pins it, plans it, records it and, when it needs no approval, queues it.
 async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Error> {
+    if let Err(why) = check_params(new.def, new.params) {
+        return Err(sqlx::Error::InvalidArgument(why));
+    }
     let id = new.id.unwrap_or_else(Uuid::now_v7);
+    let mut tx = app.db.begin().await?;
+    if let Some(update) = new.update
+        && let Some(existing) = locked_update_run(&mut tx).await?
+    {
+        let mut context = update.context.clone();
+        context["old_digest"] = json!(update.old_digest);
+        context["new_digest"] = json!(update.new_digest);
+        context["run"] = json!(existing);
+        audit::record(
+            &mut tx,
+            Entry {
+                actor: new.actor,
+                action: "keel_update_refused",
+                workspace: Some(WorkspaceId(new.workspace)),
+                target: json!({ "run": existing }),
+                decision: Decision::Denied,
+                reason: Some("update_in_progress"),
+                context,
+            },
+        )
+        .await?;
+        tx.commit().await?;
+        return Ok(existing);
+    }
     let dir = crate::sync::data_dir(app);
     let (binding, commit) = (new.binding, new.commit.to_owned());
     let pinned = tokio::task::spawn_blocking(move || {
@@ -252,7 +331,6 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     })
     .await;
     let pinned = matches!(pinned, Ok(Ok(())));
-    let mut tx = app.db.begin().await?;
     let plan = match plan(&mut tx, new.workspace, new.job_name, new.def, new.run_limit).await? {
         Ok(p) => p,
         Err(e) => {
@@ -319,10 +397,10 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     sqlx::query(
         "insert into runs (id, workspace_id, job_id, binding_id, job_name, trigger, delivery_id, \
          requested_by, commit, inventory_revision_id, inventory_name, resolved_hosts, run_limit, \
-         policy_id, signed_mode, state, state_reason, queued_at, ended_at, summary) \
+         policy_id, signed_mode, state, state_reason, queued_at, ended_at, summary, params) \
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
          case when $16 = 'queued' then now() end, case when $18 then now() end, \
-         case when $18 then $19 end)",
+         case when $18 then $19 end, $20)",
     )
     .bind(id)
     .bind(new.workspace)
@@ -343,6 +421,7 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     .bind(status.reason.map(|r| r.as_str()))
     .bind(ended)
     .bind(json!(RunSummary::default()))
+    .bind(json!(new.params))
     .execute(&mut *tx)
     .await?;
     if !ended {
@@ -391,10 +470,33 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
                 "policy": (!plan.policy.id.is_nil()).then_some(plan.policy.id),
                 "policy_reason": plan.explanation.reason,
                 "review_groups": groups,
+                "params": new.params,
             }),
         },
     )
     .await?;
+    if let Some(update) = new.update {
+        let mut context = update.context.clone();
+        context["old_digest"] = json!(update.old_digest);
+        context["new_digest"] = json!(update.new_digest);
+        context["old_revision"] = json!(update.old_revision);
+        context["new_revision"] = json!(update.new_revision);
+        context["run"] = json!(id);
+        context["workspace"] = json!(new.workspace);
+        audit::record(
+            &mut tx,
+            Entry {
+                actor: new.actor,
+                action: "keel_update_requested",
+                workspace: Some(WorkspaceId(new.workspace)),
+                target: json!({ "run": id, "job": new.job }),
+                decision: Decision::Allowed,
+                reason: None,
+                context,
+            },
+        )
+        .await?;
+    }
     tx.commit().await?;
     for group in groups {
         app.repos.push(
@@ -449,9 +551,86 @@ pub(crate) async fn create_baseline_run(
             actor: &actor,
             id: Some(b.id),
             only_hosts: Some(b.hosts),
+            params: &BTreeMap::new(),
+            update: None,
         },
     )
     .await
+}
+
+/// Makes a Keel update run (spec 061 US4): a manual run of the System workspace's `keel-server`
+/// job with `params = {keel_server_image_digest: <new>}`, or, when one is already pending,
+/// queued or running, that run (FR-018, audited `update_in_progress`).
+///
+/// # Errors
+///
+/// A database error.
+pub(crate) async fn create_update_run(
+    app: &AppState,
+    caller: &Caller,
+    target: &crate::system::UpdateTarget,
+    audit: &UpdateAudit,
+) -> Result<Uuid, sqlx::Error> {
+    let actor = caller.actor();
+    let params = BTreeMap::from([(
+        crate::system::DIGEST_PARAM.to_owned(),
+        audit.new_digest.clone(),
+    )]);
+    create_run(
+        app,
+        &NewRun {
+            workspace: target.workspace,
+            binding: target.binding,
+            job: target.job,
+            job_name: &target.job_name,
+            def: &target.def,
+            trigger: "manual",
+            delivery: None,
+            requested_by: Some(caller.user.id),
+            commit: &target.commit,
+            run_limit: None,
+            signed_mode: target.signed_mode,
+            actor: &actor,
+            id: None,
+            only_hosts: None,
+            params: &params,
+            update: Some(audit),
+        },
+    )
+    .await
+}
+
+/// What a run of `def` would reach and the policy that applies, in words, for a preview; `None`
+/// when it cannot run.
+pub(crate) async fn plan_summary(
+    conn: &mut PgConnection,
+    workspace: Uuid,
+    job_name: &str,
+    def: &JobDefinition,
+) -> Result<Option<(Vec<String>, String)>, sqlx::Error> {
+    let Ok(p) = plan(conn, workspace, job_name, def, None).await? else {
+        return Ok(None);
+    };
+    if p.unrunnable.is_some() || p.hosts.is_empty() {
+        return Ok(None);
+    }
+    let policy = if !p.policy.requires_approval {
+        "no approval needed".to_owned()
+    } else {
+        format!(
+            "{} approval(s) needed{}",
+            p.policy.approvals_needed,
+            if p.policy.four_eyes || p.policy.id.is_nil() {
+                ", four-eyes"
+            } else {
+                ""
+            }
+        )
+    };
+    Ok(Some((
+        p.hosts.into_iter().map(|h| h.1).collect(),
+        format!("{policy} ({})", p.explanation.reason),
+    )))
 }
 
 /// The hosts a run of `def` reaches, whether its policy asks for four-eyes (a run without a
@@ -782,6 +961,8 @@ async fn preview_run_start(
             actor: &actor,
             id: None,
             only_hosts: None,
+            params: &BTreeMap::new(),
+            update: None,
         };
         match create_run(&app, &new).await {
             Ok(run) => match get_run(&app, run).await {
@@ -939,7 +1120,7 @@ const RUN_COLUMNS: &str = "r.id, r.workspace_id, r.binding_id, r.job_id, r.job_n
        on newer.inventory_id = cur.inventory_id and newer.seq > cur.seq \
        where cur.id = r.inventory_revision_id) as newer, \
      r.run_limit, r.resolved_hosts, r.policy_id, r.state, r.state_reason, r.created_at, \
-     r.started_at, r.ended_at, r.summary";
+     r.started_at, r.ended_at, r.summary, r.params";
 
 #[derive(sqlx::FromRow)]
 struct RunRow {
@@ -963,6 +1144,7 @@ struct RunRow {
     started_at: Option<OffsetDateTime>,
     ended_at: Option<OffsetDateTime>,
     summary: Option<Value>,
+    params: Value,
 }
 
 impl RunRow {
@@ -988,8 +1170,7 @@ impl RunRow {
             started_at: self.started_at.map(ts),
             ended_at: self.ended_at.map(ts),
             summary: self.summary.and_then(|s| serde_json::from_value(s).ok()),
-            // Read from `runs.params` once update runs carry them (spec 061 US4).
-            params: std::collections::BTreeMap::new(),
+            params: serde_json::from_value(self.params).unwrap_or_default(),
         }
     }
 }
