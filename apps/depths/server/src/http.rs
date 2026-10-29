@@ -88,6 +88,9 @@ pub struct AppState {
     pub trust: Arc<Trust>,
     /// The volume explorer (spec 053).
     pub files: Arc<crate::files::Files>,
+    /// Image updates (spec 062). `None` when `DEPTHS_UPDATES=off`, and until the caller
+    /// attaches the service with [`AppState::with_updates`].
+    pub updates: Option<Arc<crate::updates::Updates>>,
     /// The last `/readyz` docker probe and when it ran: at most one probe per
     /// [`READY_PROBE_EVERY`], so an unauthenticated caller cannot make Depths spawn docker at will.
     ready: Arc<std::sync::Mutex<Option<(Instant, bool)>>>,
@@ -167,6 +170,7 @@ impl AppState {
             ws: WsConfig::default(),
             trust,
             files,
+            updates: None,
             ready: Arc::default(),
             auth: AuthState {
                 sessions,
@@ -180,6 +184,13 @@ impl AppState {
             users,
             cfg,
         })
+    }
+
+    /// Attaches the image-updates service (spec 062); `None` leaves the feature off.
+    #[must_use]
+    pub fn with_updates(mut self, updates: Option<Arc<crate::updates::Updates>>) -> Self {
+        self.updates = updates;
+        self
     }
 
     fn provider(&self, id: &str) -> Option<&Arc<dyn IdentityProvider>> {

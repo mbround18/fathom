@@ -722,7 +722,8 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             DenyReason::FeatureDisabled,
             "passkeys and the runtime guard are not available yet (spec 054)".into(),
         )],
-        // Spec 062: the protocol is in; the commands are served once the Updates service is.
+        // Spec 062. Off (`DEPTHS_UPDATES=off`, research R10): refused, nothing constructed. On:
+        // served by the Updates service as its user stories land.
         Cmd::ListUpdates
         | Cmd::CheckUpdatesNow { .. }
         | Cmd::PreviewUpdateBatch { .. }
@@ -730,7 +731,11 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             id,
             None,
             DenyReason::FeatureDisabled,
-            "image updates are not available yet (spec 062)".into(),
+            if app.updates.is_none() {
+                "image updates are off (DEPTHS_UPDATES)".into()
+            } else {
+                "image updates are not available yet (spec 062)".into()
+            },
         )],
         Cmd::OpenLogs {
             target,

@@ -59,6 +59,12 @@ async fn run() -> Result<(), String> {
     let runtime = Arc::new(depths_runtime_cli::CliRuntime::new(cfg.docker_bin.clone()));
     let cli = (*runtime).clone();
     let state = AppState::new(cfg.clone(), providers, Arc::new(users), runtime)?;
+    // Spec 062: the Updates service is attached (`with_updates`) once its registry adapter
+    // exists (T037); until then the commands answer FeatureDisabled.
+    tracing::info!(
+        "{}",
+        depths_server::updates::startup_line(&cfg.updates, state.updates.as_deref())
+    );
     // 053 R2: the helper image is found (and old helpers swept) before the first request.
     let (files_state, hostname) = (state.clone(), std::env::var("HOSTNAME").ok());
     tokio::task::spawn_blocking(move || {
