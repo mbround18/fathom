@@ -4,12 +4,14 @@
  * once-a-minute limit; hiding the dot survives a reload and comes back for a newer image; an older
  * build, a rebuild and can't tell warn without a dot; a failed check; release notes or why not.
  */
+import type { Page } from '@playwright/test'
+
 import { expect, test } from '../../support/fake-backend'
 import { AVAILABLE_DIGEST, updateFixtures } from '../../support/fake-updates'
 
 import { openSystem, settingsLink, signIn } from './support'
 
-const card = (page: import('@playwright/test').Page) => page.getByRole('region', { name: 'Updates' })
+const card = (page: Page) => page.getByRole('region', { name: 'Updates' })
 const NEWER = `sha256:${'3'.repeat(64)}`
 
 test('with checks off the card says how to turn them on, and offers no Check now', async ({ page, backend }) => {
@@ -129,6 +131,15 @@ test('can’t tell says why, and an untagged image has no release notes', async 
   await expect(card(page).locator('[data-release-notes]')).toHaveCount(0)
   await expect(card(page).getByRole('button', { name: 'Update Keel' })).toHaveCount(0)
   await expect(page.locator('[data-update-dot]')).toHaveCount(0)
+})
+
+test('an untagged newer build shows its revision and says there are no release notes', async ({ page, backend }) => {
+  const available = updateFixtures.available({ version: null, release_notes: null, release_notes_note: null })
+  signIn(backend, 'owner', updateFixtures.status('update_available', { available }))
+  await openSystem(page)
+  await expect(card(page).locator('[data-build="available"] [data-field="revision"] code')).toHaveText('fedcba9')
+  await expect(card(page).locator('[data-release-notes-note]')).toHaveText('No release notes for untagged builds.')
+  await expect(card(page).locator('[data-release-notes]')).toHaveCount(0)
 })
 
 test('without its own digest Keel says it compared by revision', async ({ page, backend }) => {

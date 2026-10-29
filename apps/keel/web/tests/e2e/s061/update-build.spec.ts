@@ -25,11 +25,11 @@ for (const role of ['owner', 'admin'] as const) {
 }
 
 test('a development build and a missing digest say so', async ({ page, backend }) => {
-  const running = updateFixtures.running({ version: null, revision: null, built_at: null, digest: null, display: 'dev' })
+  const running = updateFixtures.running({ version: null, revision: null, built_at: null, digest: null, display: 'development build' })
   signIn(backend, 'owner', { ...updateFixtures.off(), running })
   await openSystem(page)
   const panel = page.getByRole('region', { name: 'Running build' })
-  await expect(panel.locator('[data-field="version"]')).toHaveText('dev')
+  await expect(panel.locator('[data-field="version"]')).toHaveText('development build')
   await expect(panel.locator('[data-field="revision"]')).toContainText('development build')
   await expect(panel.locator('[data-field="built"]')).toContainText('development build')
   await expect(panel.locator('[data-field="digest"]')).toContainText('unknown')
@@ -37,11 +37,11 @@ test('a development build and a missing digest say so', async ({ page, backend }
 })
 
 test('an untagged build shows its revision with no version', async ({ page, backend }) => {
-  const running = updateFixtures.running({ version: null, display: 'abc1234' })
+  const running = updateFixtures.running({ version: null, display: 'untagged build abc1234' })
   signIn(backend, 'admin', { ...updateFixtures.off(), running })
   await openSystem(page)
   const panel = page.getByRole('region', { name: 'Running build' })
-  await expect(panel.locator('[data-field="version"]')).toHaveText('abc1234')
+  await expect(panel.locator('[data-field="version"]')).toHaveText('untagged build abc1234')
   await expect(panel.locator('[data-field="revision"] code')).toHaveText('abc1234')
   await expect(panel.locator('[data-hint="pin-digest"]')).toHaveCount(0)
 })
