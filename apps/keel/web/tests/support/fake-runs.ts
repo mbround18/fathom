@@ -50,6 +50,7 @@ export function runInfo(over: Partial<RunInfo> = {}): RunInfo {
     started_at: NOW,
     ended_at: null,
     summary: null,
+    params: {},
     ...over,
   }
 }

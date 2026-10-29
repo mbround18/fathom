@@ -145,6 +145,8 @@ export const fixtures = {
     instance_role: 'admin',
     grants: [],
     verification: fixtures.verification(),
+    keel_version: null,
+    update_dot_dismissed: null,
     ...over,
   }),
 }

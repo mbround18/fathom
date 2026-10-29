@@ -12,6 +12,8 @@ export const ME: Me = {
   instance_role: 'admin',
   grants: [],
   verification: { verified: false, at: null, window_secs: 900, enrolled: false, required: false, recovering: false },
+  keel_version: null,
+  update_dot_dismissed: null,
 }
 
 /** Reconnect timers the test fires by hand. */
