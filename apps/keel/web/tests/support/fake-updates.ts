@@ -133,7 +133,7 @@ export const updateFixtures = {
   }),
 
   /** The last check failed: the previous result, if any, stays. */
-  failed: (code = 'registry_unreachable', over: Partial<UpdateStatus> = {}): UpdateStatus => ({
+  failed: (code = 'network', over: Partial<UpdateStatus> = {}): UpdateStatus => ({
     ...updateFixtures.status('up_to_date'),
     last_error: { code, at: CHECKED_AT },
     ...over,
@@ -273,11 +273,19 @@ export class FakeUpdates {
     }
     const preview_id = `update-preview-${String(++this.seq)}`
     this.pending.set(preview_id, digest)
-    const from = s.running.display
-    const to = s.available.version ?? digest.slice(0, 19)
+    // contracts/protocol.md: old and new version, revision and digest; workspace, host and job; the
+    // approval policy; a warning line first for older_build and rebuilt.
+    const side = (version: string | null, revision: string | null, d: string | null) =>
+      `${version ?? 'no version'} (${revision?.slice(0, 7) ?? 'no revision'}, ${d?.slice(0, 19) ?? 'no digest'})`
+    const warning: Partial<Record<UpdateOutcome, string>> = {
+      older_build: 'Warning: the watched image is an older build; this goes back. ',
+      rebuilt: 'Warning: the watched image is a rebuild of the running revision. ',
+    }
     const summary =
       s.update_run === null
-        ? `Update Keel from ${from} to ${to} by running keel-server on keel-1 in keel-system.`
+        ? `${warning[s.outcome] ?? ''}Update Keel from ${side(s.running.version, s.running.revision, s.running.digest)} ` +
+          `to ${side(s.available.version, s.available.revision, digest)} by running job keel-server on keel-1 ` +
+          `in the System workspace (inventory keel-system). No approval policy applies. Keel restarts.`
         : `An update run is already in progress; confirming opens it.`
     return [{ type: 'Preview', data: { preview_id, action: 'keel_update', summary, affected: ['keel-1'], step_up: true, expires_at: EXPIRES } }]
   }
