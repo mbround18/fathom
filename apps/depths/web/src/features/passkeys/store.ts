@@ -33,7 +33,7 @@ import type {
 } from '@/protocol/generated'
 
 import { createCredential, getAssertion, PasskeyFailure } from './api'
-import { NO_AUTHENTICATOR, OFFLINE, REFUSED_MESSAGES } from './messages'
+import { NO_AUTHENTICATOR, OFFLINE, REFUSED_MESSAGES, STEP_UP_AGAIN } from './messages'
 
 export type PasskeyDialog =
   | { kind: 'enrol'; required: boolean }
@@ -63,8 +63,11 @@ export interface PasskeyState {
   recover: (code: string) => Promise<string | null>
   /** `PreviewPasskeyRemove`: the preview `Confirm` acts on, or the message. */
   previewRemove: (id: string) => Promise<{ ok: true; preview: Preview } | { ok: false; message: string }>
-  /** `Confirm` of a removal preview (with its assertion, when it asked for one). */
-  confirmRemove: (preview: Preview, assertion?: PasskeyAssertion) => Promise<string | null>
+  /**
+   * `Confirm` of a removal preview (with its assertion, when it asked for one): `null` when
+   * removed, otherwise the message, and the fresh request when the server wants a new check.
+   */
+  confirmRemove: (preview: Preview, assertion?: PasskeyAssertion) => Promise<{ message: string; stepUp?: PasskeyRequest } | null>
 }
 
 /** Thrown inside a ceremony to end it with a message. */
@@ -202,6 +205,8 @@ export const usePasskeys = create<PasskeyState>()((set, get) => {
         if (done.type !== 'PasskeyRegistered') throw new Refused(refusalMessage(done))
         set({ phase: 'done' })
         get().loadList()
+        // Registering verifies the session too (and ends a recovery); the server does not push it.
+        get().refreshVerification()
       }),
 
     verify: () =>
@@ -265,9 +270,10 @@ export const usePasskeys = create<PasskeyState>()((set, get) => {
           set({ list: e.data.items })
           return null
         }
-        return refusalMessage(e)
+        if (e.type === 'StepUpRequired') return { message: STEP_UP_AGAIN, stepUp: e.data.request }
+        return { message: refusalMessage(e) }
       } catch (e) {
-        return failure(e)
+        return { message: failure(e) }
       }
     },
   }

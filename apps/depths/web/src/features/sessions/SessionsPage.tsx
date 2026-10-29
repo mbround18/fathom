@@ -4,13 +4,15 @@
  * "home" starts the maturity clock, it never trusts the network at once.
  */
 import { Button } from '@companion/ui'
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { answerNetwork, endOtherSessions, endSession, listNetworks, listSessions } from '@/features/network/api'
 import type { NetworkAnswer, NetworkView, SessionView } from '@/protocol/generated'
 
 import { NetworkList, SessionList } from './lists'
+
+const PasskeysPanel = lazy(() => import('@/features/passkeys/PasskeysPanel'))
 
 type Loaded = [Awaited<ReturnType<typeof listSessions>>, Awaited<ReturnType<typeof listNetworks>>]
 const fetchAll = (): Promise<Loaded> => Promise.all([listSessions(), listNetworks()])
@@ -92,6 +94,9 @@ export default function SessionsPage() {
           <NetworkList networks={networks} onAnswer={answer} busy={busy} label="Your networks" />
         )}
       </section>
+      <Suspense fallback={null}>
+        <PasskeysPanel />
+      </Suspense>
     </section>
   )
 }

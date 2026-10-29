@@ -15,6 +15,7 @@ import { useTheme } from './theme-store'
 
 const TabDock = lazy(() => import('@/features/tabs/TabDock'))
 const NetworkGate = lazy(() => import('@/features/network/NetworkGate'))
+const PasskeyGate = lazy(() => import('@/features/passkeys/PasskeyGate'))
 
 const CONNECTION_LABEL = {
   connecting: 'Connecting',
@@ -176,6 +177,11 @@ export function Shell({ children }: { children: ReactNode }) {
       {gate && (
         <Suspense fallback={null}>
           <NetworkGate />
+        </Suspense>
+      )}
+      {me && (
+        <Suspense fallback={null}>
+          <PasskeyGate />
         </Suspense>
       )}
       <main className="min-h-0 flex-1">
