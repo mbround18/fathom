@@ -410,7 +410,6 @@ pub async fn record_build_seen(db: &sqlx::PgPool, build: &BuildInfo) -> Result<b
     Ok(changed)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

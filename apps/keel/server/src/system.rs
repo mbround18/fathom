@@ -623,12 +623,14 @@ pub(crate) async fn last_update_run(
     )
     .fetch_optional(conn)
     .await?;
-    Ok(row.map(|(run, outcome, digest, ended_at)| keel_protocol::LastUpdateRun {
-        run,
-        outcome,
-        digest,
-        ended_at: ended_at.map(crate::governance::ts),
-    }))
+    Ok(row.map(
+        |(run, outcome, digest, ended_at)| keel_protocol::LastUpdateRun {
+            run,
+            outcome,
+            digest,
+            ended_at: ended_at.map(crate::governance::ts),
+        },
+    ))
 }
 
 /// A pending, queued or running update run in the System workspace (FR-018).

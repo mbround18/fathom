@@ -1353,9 +1353,12 @@ pub(crate) async fn maybe_finish(app: &AppState, run: Uuid) {
     }
 }
 
+/// A run's state, reason, workspace, whether it ended, and its update digest param.
+type FinishRow = (String, Option<String>, Uuid, bool, Option<String>);
+
 async fn try_finish(app: &AppState, run: Uuid) -> Result<(), sqlx::Error> {
     let mut tx = app.db.begin().await?;
-    let row: Option<(String, Option<String>, Uuid, bool, Option<String>)> = sqlx::query_as(
+    let row: Option<FinishRow> = sqlx::query_as(
         "select state, state_reason, workspace_id, ended_at is not null, \
                 params ->> 'keel_server_image_digest' from runs \
          where id = $1 for no key update",
@@ -1685,8 +1688,7 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
             deadline,
             pack_size: pack.bytes.len() as u64,
             quorum: quorum.and_then(|q| u32::try_from(q).ok()),
-            params: serde_json::from_value::<BTreeMap<String, String>>(params)
-                .unwrap_or_default(),
+            params: serde_json::from_value::<BTreeMap<String, String>>(params).unwrap_or_default(),
         },
         Frame::Secrets {
             run_id: run_id.clone(),

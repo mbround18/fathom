@@ -102,7 +102,8 @@ async fn full_status(app: &AppState) -> Result<UpdateStatus, sqlx::Error> {
         .map(|a| a.digest.clone())
         .or_else(|| app.updates.build.digest.clone());
     let mut conn = app.db.acquire().await?;
-    let update_path = system::update_path(&mut conn, &app.updates.config.image, digest.as_deref()).await?;
+    let update_path =
+        system::update_path(&mut conn, &app.updates.config.image, digest.as_deref()).await?;
     let update_run = system::update_run(&mut conn).await?;
     let last_update_run = system::last_update_run(&mut conn).await?;
     Ok(UpdateStatus {
@@ -171,7 +172,15 @@ async fn get_status(app: &AppState, req: &Request<'_>) -> Vec<Event> {
         vec![Event::UpdateStatusLine(status_line(app))]
     } else {
         let o = origin(req);
-        deny(app, req.caller, "get_update_status", None, "admin_only", o.context).await
+        deny(
+            app,
+            req.caller,
+            "get_update_status",
+            None,
+            "admin_only",
+            o.context,
+        )
+        .await
     }
 }
 
@@ -180,7 +189,15 @@ async fn get_status(app: &AppState, req: &Request<'_>) -> Vec<Event> {
 async fn check_now(app: &AppState, req: &Request<'_>) -> Vec<Event> {
     if !is_owner(req.caller) {
         let o = origin(req);
-        return deny(app, req.caller, "check_for_updates", None, "owner_only", o.context).await;
+        return deny(
+            app,
+            req.caller,
+            "check_for_updates",
+            None,
+            "owner_only",
+            o.context,
+        )
+        .await;
     }
     if !app.updates.config.check {
         return vec![Event::op_error(
@@ -213,7 +230,15 @@ async fn check_now(app: &AppState, req: &Request<'_>) -> Vec<Event> {
 async fn dismiss(app: &AppState, req: &Request<'_>, digest: String) -> Vec<Event> {
     if !is_owner(req.caller) {
         let o = origin(req);
-        return deny(app, req.caller, "dismiss_update_dot", None, "owner_only", o.context).await;
+        return deny(
+            app,
+            req.caller,
+            "dismiss_update_dot",
+            None,
+            "owner_only",
+            o.context,
+        )
+        .await;
     }
     if !build_info::is_digest(&digest) {
         return vec![Event::op_error(
@@ -230,8 +255,7 @@ async fn dismiss(app: &AppState, req: &Request<'_>, digest: String) -> Vec<Event
         tracing::error!(error = %e, "storing the dismissed update failed");
         return vec![internal()];
     }
-    let window =
-        Duration::try_from(app.cfg.step_up_window).unwrap_or(Duration::minutes(5));
+    let window = Duration::try_from(app.cfg.step_up_window).unwrap_or(Duration::minutes(5));
     match identity::me(&app.db, req.caller, window, app.clock.now()).await {
         Ok(mut me) => {
             me.keel_version = Some(app.updates.build.display());
@@ -317,7 +341,10 @@ fn stale(app: &AppState, digest: &str) -> bool {
         s.outcome,
         Some(UpdateOutcome::UpdateAvailable | UpdateOutcome::Rebuilt | UpdateOutcome::OlderBuild)
     );
-    !movable || s.available.as_ref().is_none_or(|a| a.digest.as_str() != digest)
+    !movable
+        || s.available
+            .as_ref()
+            .is_none_or(|a| a.digest.as_str() != digest)
 }
 
 /// The target, or the first refusal (audited).

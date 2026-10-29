@@ -629,7 +629,10 @@ pub async fn load_token(
 ///
 /// A database error.
 /// The update digest an owner dismissed the dot for; `None` for everyone else (spec 061 R6).
-async fn update_dot_dismissed(pool: &PgPool, caller: &Caller) -> Result<Option<String>, sqlx::Error> {
+async fn update_dot_dismissed(
+    pool: &PgPool,
+    caller: &Caller,
+) -> Result<Option<String>, sqlx::Error> {
     if caller.user.instance_role != keel_core::InstanceRole::Owner {
         return Ok(None);
     }

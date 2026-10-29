@@ -696,13 +696,12 @@ async fn a_params_mismatch_refusal_is_recorded() {
         .await;
     let (state, _) = f.ended(run, Duration::from_secs(10)).await;
     assert_eq!(state, "refused");
-    let refusals: Vec<(String, Option<String>)> = sqlx::query_as(
-        "select state, refusal from run_hosts where run_id = $1 order by host_name",
-    )
-    .bind(run)
-    .fetch_all(&f.h.db.owner)
-    .await
-    .expect("run hosts");
+    let refusals: Vec<(String, Option<String>)> =
+        sqlx::query_as("select state, refusal from run_hosts where run_id = $1 order by host_name")
+            .bind(run)
+            .fetch_all(&f.h.db.owner)
+            .await
+            .expect("run hosts");
     assert_eq!(refusals.len(), 2);
     assert!(
         refusals
