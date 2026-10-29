@@ -218,6 +218,15 @@ async fn event_where(
     }
 }
 
+/// Returns once the wall clock is past the second `t` (RFC 3339, to the second) names.
+async fn past_second(t: &Option<String>) {
+    let t = t.as_deref().expect("checked once");
+    let t = chrono::DateTime::parse_from_rfc3339(t).unwrap() + chrono::Duration::seconds(1);
+    while chrono::Utc::now() < t {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 /// An administrator's socket, signed in with a passkey enrolled now (so a fresh check).
 async fn admin(lab: &Lab) -> (Socket, tokio::task::JoinHandle<()>, String, Authenticator) {
     let (mut ws, server, cookie) = open_unverified(&lab.app, OWNER).await;
@@ -397,7 +406,8 @@ fn turning_checks_on_steps_up_and_check_now_lists_every_stack_with_a_digest_pin_
             .unwrap()
             .last_checked
             .clone();
-        tokio::time::sleep(Duration::from_millis(1100)).await;
+        // `last_checked` is to the second: Check now's pass must fall in a later one.
+        past_second(&checked).await;
         check_now(&mut ws, 5, None).await;
         let v = view_where(&mut ws, RUN, "Check now's pass", |v| {
             service(v, &tagged, "app").is_some_and(|s| s.last_checked > checked)
@@ -683,8 +693,17 @@ fn a_watchtower_beside_depths_pauses_auto_until_it_is_acknowledged() {
         assert_eq!(found.acknowledged, None, "{found:#?}");
         let container_id = found.id.clone();
 
-        // The queue has ticked on that pass (it wakes on every pass) and run nothing.
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        // An Auto pass that starts now sees the update and the pause: nudge one, wait for it to
+        // finish, and it has run nothing. Passes run one after another, so the first to finish
+        // past `since` started after the read.
+        let mut passes = lab.u().auto_passes();
+        let since = passes.borrow().started;
+        lab.u().notify_changed();
+        let pass = *tokio::time::timeout(RUN, passes.wait_for(|p| p.finished > since))
+            .await
+            .expect("an Auto pass finished")
+            .unwrap();
+        assert_eq!(pass.last_ran, 0, "{pass:?}");
         let r = ask(&mut ws, 5, json!({ "type": "ListUpdates" })).await;
         let v = view_of(&r).unwrap();
         assert!(v.auto_paused.is_some(), "{:#?}", v.auto_paused);

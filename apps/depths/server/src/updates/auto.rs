@@ -69,6 +69,15 @@ pub struct Plan {
     pub due: Vec<Due>,
 }
 
+/// How many Auto passes (ticks) the task has started and finished, and how many stacks the last
+/// finished one ran. Not on the wire: tests wait on it instead of on the clock.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Passes {
+    pub started: u64,
+    pub finished: u64,
+    pub last_ran: usize,
+}
+
 /// Whether `actor` is an administrator now (`users.json`).
 pub type IsAdmin = dyn Fn(&Actor) -> bool + Send + Sync;
 
@@ -174,14 +183,15 @@ pub fn plan(
 
 /// Records the status and runs the due stacks, one at a time. `run_stack` runs one stack
 /// (blocking) as "Depths (scheduled)" on behalf of `set_by`. Before each stack the window and the
-/// author are checked again.
+/// author are checked again. Returns how many stacks it ran.
 pub fn tick(
     u: &Updates,
     zone: &dyn LocalZone,
     is_admin: &IsAdmin,
     last_run: &mut BTreeMap<String, OccurrenceKey>,
     run_stack: &mut dyn FnMut(&str, &Actor),
-) {
+) -> usize {
+    let mut ran = 0;
     let p = plan(u, u.clock().now(), zone, is_admin, last_run);
     if u.set_auto_status(p.status) {
         u.notify_changed();
@@ -200,7 +210,9 @@ pub fn tick(
         // Marked before it runs: a failed or held stack waits for the next occurrence.
         last_run.insert(d.stack.clone(), d.occurrence.key);
         run_stack(&d.stack, &d.set_by);
+        ran += 1;
     }
+    ran
 }
 
 /// What a scheduled stack needs to run: the stack store and runtime behind [`Inputs`], and
@@ -276,16 +288,20 @@ pub async fn run(u: Arc<Updates>, deps: Arc<Deps>) {
         let ticked = {
             let (u, deps) = (u.clone(), deps.clone());
             let mut last = std::mem::take(&mut last_run);
+            u.auto_pass_started();
             tokio::task::spawn_blocking(move || {
-                tick(&u, &*deps.zone, &*deps.is_admin, &mut last, &mut |s, by| {
+                let ran = tick(&u, &*deps.zone, &*deps.is_admin, &mut last, &mut |s, by| {
                     run_one(&u, &deps, s, by);
                 });
-                last
+                (last, ran)
             })
             .await
         };
         match ticked {
-            Ok(l) => last_run = l,
+            Ok((l, ran)) => {
+                last_run = l;
+                u.auto_pass_finished(ran);
+            }
             Err(e) => tracing::warn!("auto update tick panicked: {e}"),
         }
         // Wake at the next opening; a check pass (new update), a policy change or an

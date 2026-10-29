@@ -57,6 +57,8 @@ pub struct Updates {
     watchtower: Mutex<Vec<watchtower::Seen>>,
     /// The Auto queue's state as the last tick left it (US3).
     auto: Mutex<auto::Status>,
+    /// The Auto task's pass count, for tests.
+    auto_passes: tokio::sync::watch::Sender<auto::Passes>,
     /// A scheduled run's events, for the administrators who are connected (US3).
     runs: tokio::sync::broadcast::Sender<EventEnvelope>,
 }
@@ -89,6 +91,7 @@ impl Updates {
             pending: Mutex::new(change::Pending::default()),
             watchtower: Mutex::new(Vec::new()),
             auto: Mutex::new(auto::Status::default()),
+            auto_passes: tokio::sync::watch::Sender::new(auto::Passes::default()),
             runs: tokio::sync::broadcast::channel(256).0,
         })))
     }
@@ -142,6 +145,22 @@ impl Updates {
         let changed = *a != status;
         *a = status;
         changed
+    }
+
+    /// The Auto task's passes: a test waits on this for "a pass completed" instead of sleeping.
+    pub fn auto_passes(&self) -> tokio::sync::watch::Receiver<auto::Passes> {
+        self.auto_passes.subscribe()
+    }
+
+    pub(crate) fn auto_pass_started(&self) {
+        self.auto_passes.send_modify(|p| p.started += 1);
+    }
+
+    pub(crate) fn auto_pass_finished(&self, ran: usize) {
+        self.auto_passes.send_modify(|p| {
+            p.finished += 1;
+            p.last_ran = ran;
+        });
     }
 
     /// Scheduled runs' events.
@@ -234,5 +253,31 @@ pub(crate) mod tests {
         assert_eq!(u.availability(), UpdatesAvailability::Off);
         assert!(!u.checks_enabled());
         assert!(startup_line(&cfg.updates, Some(&u)).contains("feature=on auto=on checks=off"));
+    }
+
+    #[test]
+    fn auto_passes_count_started_and_finished_and_what_the_last_one_ran() {
+        let d = tempfile::tempdir().unwrap();
+        let cfg = config(d.path(), "on");
+        std::fs::create_dir_all(&cfg.data_dir).unwrap();
+        let u = Updates::open(&cfg, Arc::new(SystemClock), || Arc::new(NoNetwork))
+            .unwrap()
+            .expect("on");
+        let rx = u.auto_passes();
+        assert_eq!(*rx.borrow(), auto::Passes::default());
+        u.auto_pass_started();
+        assert_eq!(rx.borrow().started, 1);
+        assert_eq!(rx.borrow().finished, 0, "still running");
+        u.auto_pass_finished(2);
+        u.auto_pass_started();
+        u.auto_pass_finished(0);
+        assert_eq!(
+            *rx.borrow(),
+            auto::Passes {
+                started: 2,
+                finished: 2,
+                last_ran: 0,
+            }
+        );
     }
 }

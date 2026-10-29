@@ -243,10 +243,11 @@ fn when_the_window_closes_the_stack_in_progress_finishes_and_the_rest_wait() {
 
     f.clock.set(at(27, 3, 0));
     let mut ran = Vec::new();
-    tick(&f.u, &Utc0, &only_admin, &mut last, &mut |s, _| {
+    let count = tick(&f.u, &Utc0, &only_admin, &mut last, &mut |s, _| {
         ran.push(s.to_owned())
     });
     assert_eq!(ran, ["a", "b", "c"], "one at a time, in name order");
+    assert_eq!(count, 3, "tick returns how many it ran");
 }
 
 #[test]
@@ -352,13 +353,14 @@ fn the_author_is_checked_again_before_each_stack() {
 fn tick_records_the_status_for_the_page() {
     let f = fx_with(false, false);
     f.auto_stack("a");
-    tick(
+    let ran = tick(
         &f.u,
         &Utc0,
         &only_admin,
         &mut BTreeMap::new(),
         &mut |_, _| panic!("paused"),
     );
+    assert_eq!(ran, 0);
     assert_eq!(f.u.auto_status().paused, Some(AutoPause::Disabled));
 }
 
