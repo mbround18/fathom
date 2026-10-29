@@ -21,7 +21,15 @@ import { useCanReveal, useReveal } from '@/features/editor/reveal-store'
 import { filesHref, filesReason, parseFilesRest, showFilesTab, type FilesLocation } from '@/features/files/model'
 import { useUntrusted } from '@/features/network/model'
 import { OpenLogs, OpenShell, OpenStats } from '@/features/tabs/OpenTab'
-import type { StackContainer as Container, ServiceSummary, Stack, StackDetail as Detail } from '@/protocol/generated'
+import { availableText, exclusionText, reasonOf } from '@/features/updates/model'
+import { UpdateStateChip } from '@/features/updates/UpdateStateChip'
+import type {
+  StackContainer as Container,
+  ServiceSummary,
+  ServiceUpdate,
+  Stack,
+  StackDetail as Detail,
+} from '@/protocol/generated'
 
 import { DENY_TEXT } from './argv'
 import { DeleteStack } from './DeleteStack'
@@ -224,11 +232,14 @@ function ServiceCard({
   stack,
   pick,
   onPick,
+  update,
 }: {
   service: ServiceSummary
   stack: Stack
   pick: Pick
   onPick: (p: Pick) => void
+  /** Spec 062: this service's image update state, when the server checks images. */
+  update?: ServiceUpdate | undefined
 }) {
   return (
     <section data-service={service.name} aria-label={`Service ${service.name}`} className="min-w-0 border border-border bg-card">
@@ -238,6 +249,7 @@ function ServiceCard({
         <OpenLogs target={{ kind: 'stack', stack: stack.name, service: service.name }} label={`service ${service.name}`} />
         <ServiceActions stack={stack} service={service.name} />
       </header>
+      {update && <ServiceUpdateLine update={update} />}
       {service.containers.length === 0 ? (
         <p className="px-2 py-1.5 text-xs text-muted-foreground">No containers.</p>
       ) : (
@@ -253,6 +265,23 @@ function ServiceCard({
         </ul>
       )}
     </section>
+  )
+}
+
+/** The image update state under a service's header (spec 062 T042). */
+function ServiceUpdateLine({ update }: { update: ServiceUpdate }) {
+  const available = update.state === 'available' ? availableText(update) : null
+  const why = reasonOf(update) ?? (update.effective.excluded ? exclusionText(update.effective.excluded) : null)
+  return (
+    <div data-field="update" className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 border-b border-border px-2 py-1 text-xs">
+      <UpdateStateChip state={update.state} />
+      {available !== null && <span className="min-w-0 font-mono break-all text-muted-foreground">{available}</span>}
+      {why !== null && (
+        <span data-field="update-reason" className="min-w-0 break-words text-muted-foreground">
+          {why}
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -550,7 +579,14 @@ export default function StackDetail({ params }: { params: Params }) {
               ) : (
                 <div className="grid min-w-0 gap-2 md:grid-cols-2 2xl:grid-cols-3">
                   {stack.services.map((s) => (
-                    <ServiceCard key={s.name} service={s} stack={stack} pick={pick} onPick={onPick} />
+                    <ServiceCard
+                      key={s.name}
+                      service={s}
+                      stack={stack}
+                      pick={pick}
+                      onPick={onPick}
+                      update={detail.updates?.find((u) => u.service === s.name)}
+                    />
                   ))}
                 </div>
               )}

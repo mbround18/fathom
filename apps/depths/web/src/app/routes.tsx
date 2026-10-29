@@ -16,6 +16,8 @@ interface Route {
   admin?: boolean
   /** Routes in one group share a page instance, so moving between them does not remount it. */
   group?: string
+  /** Exists only while the server has this feature on (`Me.features`). */
+  feature?: 'updates'
 }
 
 const stacksPage = lazy(() => import('@/features/stacks/StacksRoute'))
@@ -30,6 +32,13 @@ const ROUTES: readonly Route[] = [
   { pattern: '/account/sessions', page: lazy(() => import('@/features/sessions/SessionsPage')) },
   { pattern: '/admin/users', page: lazy(() => import('@/features/users/UsersView')), admin: true },
   { pattern: '/admin/audit', page: lazy(() => import('@/features/audit/AuditLog')), admin: true },
+  // Spec 062: image updates.
+  {
+    pattern: '/admin/updates',
+    page: lazy(() => import('@/features/updates/UpdatesPage')),
+    admin: true,
+    feature: 'updates',
+  },
 ]
 
 const NotFound = lazy(() => import('@/pages/NotFound'))
@@ -45,8 +54,10 @@ export function PageFallback() {
 export function AppRoutes() {
   const path = usePath()
   const isAdmin = useSession((s) => s.me?.role === 'admin')
-  for (const { pattern, page: Page, admin, group } of ROUTES) {
+  const updates = useSession((s) => s.me?.features.updates === true)
+  for (const { pattern, page: Page, admin, group, feature } of ROUTES) {
     if (admin && !isAdmin) continue
+    if (feature === 'updates' && !updates) continue
     const params = matchPath(pattern, path)
     if (params)
       return (

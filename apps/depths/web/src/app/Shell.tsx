@@ -1,9 +1,10 @@
-import { ClipboardTextIcon, DevicesIcon, MoonIcon, RowsIcon, SignOutIcon, SunIcon, UsersIcon } from '@phosphor-icons/react'
+import { ArrowsClockwiseIcon, ClipboardTextIcon, DevicesIcon, MoonIcon, RowsIcon, SignOutIcon, SunIcon, UsersIcon } from '@phosphor-icons/react'
 import { BrandMark } from '@companion/theme'
 import { Button, ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@companion/ui'
 import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 
 import { BRAND_GLYPH, BRAND_NAME } from '@/brand'
+import { useUpdatesBadge } from '@/features/updates/badge-store'
 import { useTabs } from '@/features/tabs/store'
 import { useWide } from '@/features/tabs/useWide'
 
@@ -21,18 +22,56 @@ const CONNECTION_LABEL = {
   closed: 'Disconnected',
 } as const
 
-function AdminLink({ to, label, icon }: { to: string; label: string; icon: ReactNode }) {
+function AdminLink({
+  to,
+  label,
+  icon,
+  badge,
+  ariaLabel,
+}: {
+  to: string
+  label: string
+  icon: ReactNode
+  badge?: ReactNode
+  ariaLabel?: string
+}) {
   const current = usePath().startsWith(to)
   return (
     <Link
       to={to}
-      aria-label={label}
+      aria-label={ariaLabel ?? label}
       aria-current={current ? 'page' : undefined}
       className="inline-flex h-7 items-center gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground aria-[current=page]:text-primary"
     >
       {icon}
       <span className="hidden sm:inline">{label}</span>
+      {badge}
     </Link>
+  )
+}
+
+/** Stacks with a newer image (spec 062): a count on the Updates link, hidden at zero. */
+function UpdatesLink() {
+  const count = useUpdatesBadge((s) => s.count)
+  const shown = count !== null && count > 0
+  return (
+    <AdminLink
+      to="/admin/updates"
+      label="Updates"
+      ariaLabel={shown ? `Updates: ${String(count)} ${count === 1 ? 'stack has' : 'stacks have'} an update` : 'Updates'}
+      icon={<ArrowsClockwiseIcon aria-hidden className="size-3.5" />}
+      badge={
+        shown ? (
+          <span
+            data-testid="updates-badge"
+            aria-hidden
+            className="inline-flex h-4 min-w-4 items-center justify-center border border-primary px-0.5 text-[10px] leading-none text-primary tabular-nums"
+          >
+            {count}
+          </span>
+        ) : undefined
+      }
+    />
   )
 }
 
@@ -83,6 +122,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <nav aria-label="Admin" className="flex items-center gap-0.5">
             <AdminLink to="/admin/users" label="Users" icon={<UsersIcon aria-hidden className="size-3.5" />} />
             <AdminLink to="/admin/audit" label="Audit" icon={<ClipboardTextIcon aria-hidden className="size-3.5" />} />
+            {me.features.updates === true && <UpdatesLink />}
           </nav>
         )}
         <span className="flex-1" />
