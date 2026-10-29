@@ -305,6 +305,42 @@ pub async fn issue_recovery(
         .map_err(|e| e.to_string())
 }
 
+/// The `depths passkey-recovery --user <id>` command (FR-021): issues a code for `user` (a
+/// users-registry id, `provider:subject`), audits `PasskeyRecoveryIssued` by the system actor,
+/// and hands the code back to be printed once. Neither the code nor its hash is audited.
+pub async fn recovery_command(
+    data_dir: &Path,
+    audit_rotate_bytes: u64,
+    user: &str,
+    now: DateTime<Utc>,
+) -> Result<IssuedRecoveryCode, String> {
+    let user = user.trim();
+    if user.is_empty() || !user.contains(':') {
+        return Err(format!(
+            "--user wants a users-registry id such as `discord:1234`, not `{user}`"
+        ));
+    }
+    let audit_dir = data_dir.join("audit");
+    // Open the log first: a code nobody can see was issued is worse than no code.
+    let audit = crate::audit::Audit::open(audit_dir.clone(), audit_rotate_bytes)
+        .map_err(|e| format!("cannot open the audit log in {}: {e}", audit_dir.display()))?;
+    let issued = issue_recovery(data_dir, user, now).await?;
+    let entry = crate::audit::passkey(
+        crate::audit::system_actor(),
+        depths_protocol::AuditAction::PasskeyRecoveryIssued,
+        std::net::IpAddr::from([127, 0, 0, 1]),
+        depths_protocol::AuditOutcome::Succeeded,
+        depths_protocol::AuditPasskey {
+            person: Some(user.to_owned()),
+            ..Default::default()
+        },
+    );
+    audit
+        .record(&entry)
+        .map_err(|e| format!("the code was issued but could not be audited: {e}"))?;
+    Ok(issued)
+}
+
 // ---------------------------------------------------------------------------
 // Clock
 // ---------------------------------------------------------------------------
@@ -874,6 +910,37 @@ mod tests {
             .unwrap();
         p.id = id.to_owned();
         p
+    }
+
+    #[test]
+    fn recovery_command_writes_only_the_hash_and_audits_without_the_code() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(run(recovery_command(dir.path(), 1 << 20, "nobody", Utc::now())).is_err());
+        let issued = run(recovery_command(
+            dir.path(),
+            1 << 20,
+            "discord:7",
+            Utc::now(),
+        ))
+        .unwrap();
+        let file = std::fs::read_to_string(recovery_path(dir.path())).unwrap();
+        assert!(file.contains("discord:7"));
+        assert!(!file.contains(&issued.code), "only the hash is stored");
+        let audit = crate::audit::Audit::open(dir.path().join("audit"), 1 << 20).unwrap();
+        let (entries, _) = audit.page(&Default::default(), None).unwrap();
+        assert_eq!(entries.len(), 1);
+        let e = &entries[0];
+        assert!(matches!(
+            e.action,
+            depths_protocol::AuditAction::PasskeyRecoveryIssued
+        ));
+        assert_eq!(
+            e.passkey.as_ref().unwrap().person.as_deref(),
+            Some("discord:7")
+        );
+        let json = serde_json::to_string(e).unwrap();
+        assert!(!json.contains(&issued.code));
+        assert!(!json.contains(&issued.record.code_sha256));
     }
 
     fn run<T>(f: impl std::future::Future<Output = T>) -> T {

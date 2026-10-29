@@ -12,6 +12,12 @@ use depths_server::users::Registry;
 use web_auth::provider::IdentityProvider;
 
 fn main() -> ExitCode {
+    // 054 FR-021: `depths passkey-recovery --user <id>` touches only the data dir, so it runs
+    // before telemetry, config and the server runtime.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("passkey-recovery") {
+        return passkey_recovery(&args[1..]);
+    }
     // Before the runtime: the OTLP exporter's HTTP client is a blocking one.
     let _telemetry = match depths_server::telemetry::init() {
         Ok(g) => g,
@@ -35,6 +41,92 @@ fn main() -> ExitCode {
     drop(rt);
     match result {
         Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("depths: {e}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+const RECOVERY_USAGE: &str = "usage: depths passkey-recovery --user <provider:subject> \
+     [--data-dir <path>] (or DEPTHS_DATA_DIR; default /var/lib/depths)";
+
+/// Prints a one-time passkey recovery code for `--user`. Exit 2 with one line on any refusal.
+fn passkey_recovery(args: &[String]) -> ExitCode {
+    let mut user = None;
+    let mut data_dir = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let (flag, inline) = match a.split_once('=') {
+            Some((f, v)) => (f, Some(v.to_owned())),
+            None => (a.as_str(), None),
+        };
+        let slot = match flag {
+            "--user" => &mut user,
+            "--data-dir" => &mut data_dir,
+            "-h" | "--help" => {
+                println!("{RECOVERY_USAGE}");
+                return ExitCode::SUCCESS;
+            }
+            _ => {
+                eprintln!("depths: unknown argument `{a}`\n{RECOVERY_USAGE}");
+                return ExitCode::from(2);
+            }
+        };
+        match inline.or_else(|| it.next().cloned()) {
+            Some(v) => *slot = Some(v),
+            None => {
+                eprintln!("depths: {flag} needs a value\n{RECOVERY_USAGE}");
+                return ExitCode::from(2);
+            }
+        }
+    }
+    let Some(user) = user else {
+        eprintln!("depths: --user is required\n{RECOVERY_USAGE}");
+        return ExitCode::from(2);
+    };
+    let data_dir = std::path::PathBuf::from(
+        data_dir
+            .or_else(|| std::env::var("DEPTHS_DATA_DIR").ok())
+            .unwrap_or_else(|| "/var/lib/depths".into()),
+    );
+    if !data_dir.is_absolute() {
+        eprintln!(
+            "depths: the data dir `{}` must be an absolute path",
+            data_dir.display()
+        );
+        return ExitCode::from(2);
+    }
+    let rotate = match std::env::var("DEPTHS_AUDIT_ROTATE_BYTES") {
+        Ok(v) => match depths_server::config::parse_bytes("DEPTHS_AUDIT_ROTATE_BYTES", &v) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("depths: {e}");
+                return ExitCode::from(2);
+            }
+        },
+        Err(_) => 64 << 20,
+    };
+    let rt = match tokio::runtime::Builder::new_current_thread().build() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("depths: cannot start the async runtime: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let now = chrono::Utc::now();
+    match rt.block_on(depths_server::passkeys::recovery_command(
+        &data_dir, rotate, &user, now,
+    )) {
+        Ok(issued) => {
+            let mins = (issued.record.expires - now.timestamp()).max(0) / 60;
+            println!("Recovery code for {user}: {}", issued.code);
+            println!(
+                "It works once, for {mins} minutes. Sign in as {user} and enter it on the \
+                 Sessions page; it removes all of that person's passkeys."
+            );
+            ExitCode::SUCCESS
+        }
         Err(e) => {
             eprintln!("depths: {e}");
             ExitCode::from(2)
