@@ -2448,3 +2448,38 @@ fn update_cmds_refuse_bad_values() {
         "stack": "media", "policy": "off"
     } })));
 }
+
+/// 054 T008: a client from before step-up sends `Confirm` and `OpenShell` without `assertion`;
+/// both still parse, with no assertion.
+#[test]
+fn old_shape_confirm_and_open_shell_still_parse() {
+    let c: Cmd = serde_json::from_value(json!({
+        "type": "Confirm", "data": { "preview_id": "00000000-0000-0000-0000-000000000001" }
+    }))
+    .unwrap();
+    assert!(matches!(c, Cmd::Confirm { assertion: None, .. }), "{c:?}");
+    let s: Cmd = serde_json::from_value(json!({
+        "type": "OpenShell", "data": { "container": "x", "cols": 80, "rows": 24 }
+    }))
+    .unwrap();
+    assert!(matches!(s, Cmd::OpenShell { assertion: None, .. }), "{s:?}");
+}
+
+/// 054 T009: the passkey part of an audit entry holds names and reasons only. Every field it
+/// can carry is listed here; a new one (a credential, challenge or code) fails this test.
+#[test]
+fn audit_passkey_fields_never_hold_a_credential_challenge_or_code() {
+    let full = AuditPasskey {
+        name: Some("laptop".into()),
+        reason: Some(PasskeyRefusedReason::Replayed),
+        cmd: Some("OpenShell".into()),
+        person: Some("github:1".into()),
+    };
+    let v = serde_json::to_value(&full).unwrap();
+    let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["cmd", "name", "person", "reason"]);
+    for banned in ["credential", "challenge", "code", "assertion", "signature"] {
+        assert!(!v.to_string().contains(banned), "{banned}");
+    }
+}
