@@ -7,7 +7,7 @@ import { autoWorkers } from '../../../ui/tests/support/workers.js'
  * transport. Every story runs against the fake backend; nothing here talks to a real server.
  *
  * Run one story: `pnpm --filter @companion/keel-web e2e --project us1`. Spec 060's specs are the
- * `s060` project.
+ * `s060` project, spec 061's `s061`.
  */
 const STORIES = ['shell', 'us1', 'us2', 'us3', 'us4', 'us5', 'us6', 'us7', 'us8', 'us9', 'us10'] as const
 
@@ -40,6 +40,13 @@ export default defineConfig({
       name: 's060',
       testDir: './tests/e2e',
       testMatch: /\/(enroll|settings-[a-z]+|polish-screens)\.spec\.ts$/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Spec 061 (update notice and self-update). Name its specs `update-*.spec.ts`: the `s060`
+    // match above would also pick up an `s061/settings-*.spec.ts`.
+    {
+      name: 's061',
+      testDir: './tests/e2e/s061',
       use: { ...devices['Desktop Chrome'] },
     },
   ],
