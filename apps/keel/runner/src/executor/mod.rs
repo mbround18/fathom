@@ -770,3 +770,110 @@ fn read_job(
         .ok_or_else(|| fail(format!("inventory {:?} is not declared", def.inventory)))?;
     Ok((def.clone(), inventory.path.clone()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keel_core::manifest::{ParamKind, ParamSpec};
+
+    const DIGEST: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    fn declared() -> BTreeMap<String, ParamSpec> {
+        BTreeMap::from([(
+            "keel_server_image_digest".to_owned(),
+            ParamSpec {
+                kind: ParamKind::OciDigest,
+            },
+        )])
+    }
+
+    fn sent(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn declared_params_with_values_of_their_kind_pass() {
+        assert_eq!(
+            check_params(&declared(), &sent(&[("keel_server_image_digest", DIGEST)])),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn sending_no_params_passes_whatever_the_job_declares() {
+        assert_eq!(check_params(&declared(), &sent(&[])), Ok(()));
+        assert_eq!(check_params(&BTreeMap::new(), &sent(&[])), Ok(()));
+    }
+
+    #[test]
+    fn an_undeclared_name_is_refused() {
+        let err = check_params(&declared(), &sent(&[("image", DIGEST)])).unwrap_err();
+        assert!(err.contains("\"image\""), "{err}");
+        assert!(!err.contains(DIGEST), "{err}");
+        let none = BTreeMap::new();
+        assert!(check_params(&none, &sent(&[("keel_server_image_digest", DIGEST)])).is_err());
+    }
+
+    #[test]
+    fn a_value_not_of_the_declared_kind_is_refused_without_echoing_it() {
+        for bad in [
+            "latest",
+            "",
+            "sha256:",
+            "sha512:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "sha256:0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef",
+            "{{ lookup('pipe','id') }}",
+        ] {
+            let err = check_params(&declared(), &sent(&[("keel_server_image_digest", bad)]))
+                .unwrap_err();
+            assert!(err.contains("keel_server_image_digest"), "{err}");
+            assert!(bad.is_empty() || !err.contains(bad), "{bad} echoed: {err}");
+        }
+    }
+
+    #[test]
+    fn params_go_after_secret_vars_and_before_forced_vars() {
+        let p = |s: &str| PathBuf::from(format!("/run/{s}"));
+        let with = extra_var_args(
+            &p("jobvars.json"),
+            &p("secret_vars.yaml"),
+            Some(&p("params.json")),
+            &p("forced.json"),
+        );
+        assert_eq!(
+            with,
+            [
+                "-e",
+                "@/run/jobvars.json",
+                "-e",
+                "@/run/secret_vars.yaml",
+                "-e",
+                "@/run/params.json",
+                "-e",
+                "@/run/forced.json"
+            ]
+            .map(OsString::from)
+        );
+        let without = extra_var_args(
+            &p("jobvars.json"),
+            &p("secret_vars.yaml"),
+            None,
+            &p("forced.json"),
+        );
+        assert_eq!(
+            without,
+            [
+                "-e",
+                "@/run/jobvars.json",
+                "-e",
+                "@/run/secret_vars.yaml",
+                "-e",
+                "@/run/forced.json"
+            ]
+            .map(OsString::from)
+        );
+    }
+}

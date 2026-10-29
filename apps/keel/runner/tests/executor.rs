@@ -49,7 +49,15 @@ jobs:
     playbook: playbooks/web.yaml
     profiles: [gameserver]
     inventory: prod
+  keel-server:
+    playbook: playbooks/web.yaml
+    profiles: [debian]
+    inventory: prod
+    params:
+      keel_server_image_digest: { kind: oci_digest }
 "#;
+
+const DIGEST: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 const LOOKUP: &str = "{{ lookup('pipe','id') }}";
 
@@ -70,6 +78,7 @@ out='{out}'
   printf 'home:%s\n' "$HOME"
 }} > "$out/record"
 cp "$HOME/secret_vars.yaml" "$out/secret_vars.yaml"
+if [ -f "$HOME/params.json" ]; then cp "$HOME/params.json" "$out/params.json"; fi
 printf '%s\n' '{{"v":1,"event":"stats","stats":{{"web1":{{"ok":2,"changed":1,"failures":0,"unreachable":0,"skipped":0,"rescued":0,"ignored":0}}}}}}' >&3
 echo "playbook ran"
 if [ -n "$SLEEP" ]; then
@@ -264,6 +273,24 @@ fn assign(run_id: &str, job: &str, base: Option<&str>, target: &str, pack: &[u8]
         quorum: None,
         params: Default::default(),
     }
+}
+
+/// As [`assign`], with job params (spec 061).
+fn assign_params(
+    run_id: &str,
+    job: &str,
+    target: &str,
+    pack: &[u8],
+    params: &[(&str, &str)],
+) -> Frame {
+    let mut frame = assign(run_id, job, None, target, pack);
+    if let Frame::Assign { params: p, .. } = &mut frame {
+        *p = params
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+    }
+    frame
 }
 
 /// Starts `serve` on one end of a socket pair and returns the other end.
@@ -866,4 +893,317 @@ async fn the_binary_serves_fd_0_and_keeps_logs_off_the_wire() {
         matches!(frames.as_slice(), [Frame::Ledger { ledger_head: None, bases }] if bases.is_empty()),
         "{frames:?}"
     );
+}
+
+// ---- spec 061 T063: job params ----------------------------------------------------------------
+
+/// The value of each `-e`, in order.
+fn extra_vars(argv: &[&str]) -> Vec<String> {
+    argv.windows(2)
+        .filter(|w| w[0] == "-e")
+        .map(|w| w[1].to_owned())
+        .collect()
+}
+
+/// The file name of each `-e @file`, in order.
+fn extra_var_files(record: &str) -> Vec<String> {
+    extra_vars(&args(record))
+        .iter()
+        .map(|e| e.rsplit('/').next().unwrap().to_owned())
+        .collect()
+}
+
+async fn params_run(host: &Host, run_id: &str, job: &str, params: &[(&str, &str)]) -> Vec<Frame> {
+    let (commit, pack) = repo(&host.root);
+    let (mut s, task) = start(&host.cfg);
+    send(&mut s, [assign_params(run_id, job, &commit, &pack, params)]).await;
+    send(&mut s, pack_builder::frames(run_id, &pack)).await;
+    send(&mut s, [secrets(run_id, false)]).await;
+    let frames = drain(&mut s).await;
+    task.await.unwrap();
+    frames
+}
+
+#[tokio::test]
+async fn params_are_a_private_file_after_secret_vars_and_before_forced_vars() {
+    let host = Host::new(POLICY);
+    let frames = params_run(
+        &host,
+        "run-20",
+        "keel-server",
+        &[("keel_server_image_digest", DIGEST)],
+    )
+    .await;
+    assert!(
+        matches!(frames.last(), Some(Frame::Finished { exit_code: 0, .. })),
+        "{frames:?}"
+    );
+    let record = host.record();
+    assert!(
+        extra_vars(&args(&record)).iter().all(|e| e.starts_with('@')),
+        "{record}"
+    );
+    assert_eq!(
+        extra_var_files(&record),
+        [
+            "jobvars.json",
+            "secret_vars.yaml",
+            "params.json",
+            "forced.json"
+        ]
+    );
+    assert!(
+        record.lines().any(|l| l == "file:600 params.json"),
+        "{record}"
+    );
+    let json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(host.root.join("record/params.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({ "keel_server_image_digest": DIGEST })
+    );
+    assert_eq!(host.runs_dir_entries(), 0);
+}
+
+#[tokio::test]
+async fn a_declared_param_may_be_left_unset() {
+    let host = Host::new(POLICY);
+    let frames = params_run(&host, "run-21", "keel-server", &[]).await;
+    assert!(
+        matches!(frames.last(), Some(Frame::Finished { exit_code: 0, .. })),
+        "{frames:?}"
+    );
+    let record = host.record();
+    assert!(!record.contains("params.json"), "{record}");
+    assert_eq!(
+        extra_var_files(&record),
+        ["jobvars.json", "secret_vars.yaml", "forced.json"]
+    );
+}
+
+#[tokio::test]
+async fn a_run_without_params_runs_as_before() {
+    let host = Host::new(POLICY);
+    let frames = full_run(&host, "run-22", "web-deploy").await;
+    assert!(
+        matches!(frames.last(), Some(Frame::Finished { exit_code: 0, .. })),
+        "{frames:?}"
+    );
+    let record = host.record();
+    assert!(!record.contains("params.json"), "{record}");
+    assert_eq!(
+        extra_var_files(&record),
+        ["jobvars.json", "secret_vars.yaml", "forced.json"]
+    );
+}
+
+#[tokio::test]
+async fn params_that_do_not_match_the_job_are_refused() {
+    let upper = format!("sha256:{}", "ABCDEF0123456789".repeat(4));
+    let cases: [(&str, &str, &str); 5] = [
+        // A name the job doesn't declare.
+        ("keel-server", "keel_server_image", DIGEST),
+        // Values that aren't of the declared kind.
+        ("keel-server", "keel_server_image_digest", "latest"),
+        ("keel-server", "keel_server_image_digest", &upper),
+        ("keel-server", "keel_server_image_digest", LOOKUP),
+        // A job that declares no params at all.
+        ("web-deploy", "keel_server_image_digest", DIGEST),
+    ];
+    for (i, (job, name, value)) in cases.into_iter().enumerate() {
+        let host = Host::new(POLICY);
+        let run_id = format!("run-3{i}");
+        let frames = params_run(&host, &run_id, job, &[(name, value)]).await;
+        let [
+            Frame::Refused {
+                run_id: got,
+                reason: Refusal::ParamsMismatch,
+                detail,
+            },
+        ] = frames.as_slice()
+        else {
+            panic!("{job} {name}={value}: {frames:?}");
+        };
+        assert_eq!(*got, run_id);
+        assert!(!detail.contains(value), "the value was echoed: {detail}");
+        assert!(
+            host.record().is_empty(),
+            "the playbook ran: {job} {name}={value}"
+        );
+        assert_eq!(host.runs_dir_entries(), 0);
+    }
+}
+
+// ---- spec 061 T063/T064: params in signed mode ------------------------------------------------
+
+const WS: &str = "0b7f1c2e-3d4a-4b5c-8d6e-7f8091a2b3c4";
+const BINDING: &str = "1c2d3e4f-5a6b-4c7d-8e9f-a0b1c2d3e4f5";
+
+fn b64url(bytes: &[u8]) -> String {
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut out = String::new();
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
+        for i in 0..=chunk.len() {
+            out.push(char::from(ABC[(n >> (18 - 6 * i) & 63) as usize]));
+        }
+    }
+    out
+}
+
+/// A deterministic software passkey (EdDSA) for `approvers.json` and baseline approvals.
+struct Passkey(russh::keys::ssh_key::private::Ed25519Keypair);
+
+impl Passkey {
+    fn new() -> Self {
+        Self(russh::keys::ssh_key::private::Ed25519Keypair::from_seed(
+            &[9; 32],
+        ))
+    }
+
+    fn approvers_json(&self) -> String {
+        // COSE_Key {1: 1 (OKP), 3: -8 (EdDSA), -1: 6 (Ed25519), -2: x}.
+        let mut cose = vec![0xa4, 0x01, 0x01, 0x03, 0x27, 0x20, 0x06, 0x21, 0x58, 0x20];
+        cose.extend_from_slice(&self.0.public.0);
+        serde_json::json!([{
+            "label": "alice",
+            "credential_id": b64url(b"cred-1"),
+            "public_key_cose": b64url(&cose),
+            "alg": "EdDSA",
+        }])
+        .to_string()
+    }
+
+    /// A `baseline` approval of `run` at `target` for `web1`, signed over `params`.
+    fn baseline(&self, run: &str, target: &str, params: &[(&str, &str)]) -> Frame {
+        use russh::keys::signature::Signer as _;
+        use sha2::{Digest as _, Sha256};
+        let expires = now() + 3_600;
+        let expires_at =
+            keel_trust::challenge::format_utc(i64::try_from(expires).unwrap()).unwrap();
+        let scope = keel_trust::OverrideScope {
+            kind: keel_trust::ApprovalKind::Baseline,
+            workspace: WS.to_owned(),
+            binding: BINDING.to_owned(),
+            run: run.to_owned(),
+            job: "keel-server".to_owned(),
+            base: None,
+            target: CommitId::parse(target).unwrap(),
+            hosts: vec!["web1".to_owned()],
+            expires_at,
+            params: params
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect(),
+        };
+        let client_data = serde_json::json!({
+            "type": "webauthn.get",
+            "challenge": b64url(&scope.challenge().unwrap()),
+            "origin": "https://keel.example",
+        })
+        .to_string();
+        let mut auth_data = Sha256::digest(b"keel.example").to_vec();
+        auth_data.extend_from_slice(&[0x05, 0, 0, 0, 1]); // UP | UV, counter 1
+        let mut signed = auth_data.clone();
+        signed.extend_from_slice(&Sha256::digest(client_data.as_bytes()));
+        let signature: russh::keys::ssh_key::Signature = self.0.try_sign(&signed).unwrap();
+        Frame::Approvals {
+            run_id: run.to_owned(),
+            items: vec![keel_exec::frames::Approval {
+                kind: "baseline".to_owned(),
+                approver: "alice".to_owned(),
+                credential_id: b64url(b"cred-1"),
+                authenticator_data: b64url(&auth_data),
+                client_data_json: b64url(client_data.as_bytes()),
+                signature: b64url(signature.as_bytes()),
+                expires_at: expires,
+                comment: "update Keel".to_owned(),
+                hosts: vec!["web1".to_owned()],
+            }],
+        }
+    }
+}
+
+fn signed_host() -> Host {
+    let host = Host::new(&format!("require_signed = true\n{POLICY}"));
+    std::fs::write(host.cfg.trust_dir.join("signers"), "").unwrap();
+    std::fs::write(
+        host.cfg.trust_dir.join("approvers.json"),
+        Passkey::new().approvers_json(),
+    )
+    .unwrap();
+    host
+}
+
+/// A first (baseline) signed run of `keel-server` assigned a digest, approved over
+/// `approved_with`.
+async fn signed_params_run(host: &Host, run: &str, approved_with: &[(&str, &str)]) -> Vec<Frame> {
+    let (commit, pack) = repo(&host.root);
+    let mut assign = assign_params(
+        run,
+        "keel-server",
+        &commit,
+        &pack,
+        &[("keel_server_image_digest", DIGEST)],
+    );
+    if let Frame::Assign {
+        workspace, binding, ..
+    } = &mut assign
+    {
+        *workspace = WS.to_owned();
+        *binding = BINDING.to_owned();
+    }
+    let (mut s, task) = start(&host.cfg);
+    send(&mut s, [assign]).await;
+    send(&mut s, pack_builder::frames(run, &pack)).await;
+    send(
+        &mut s,
+        [
+            secrets(run, false),
+            Passkey::new().baseline(run, &commit, approved_with),
+        ],
+    )
+    .await;
+    let frames = drain(&mut s).await;
+    task.await.unwrap();
+    frames
+}
+
+#[tokio::test]
+async fn a_signed_run_with_params_needs_an_approval_bound_to_them() {
+    let run = "3e4f5061-7b8c-4d9e-afb0-c1d2e3f40516";
+
+    // Approved without the params the run was assigned: the challenges differ.
+    let host = signed_host();
+    let frames = signed_params_run(&host, run, &[]).await;
+    assert!(
+        matches!(
+            frames.as_slice(),
+            [Frame::Refused {
+                reason: Refusal::BadOverride,
+                ..
+            }]
+        ),
+        "{frames:?}"
+    );
+    assert!(host.record().is_empty());
+
+    // Approved with them: the host rebuilds the same challenge, and the run goes ahead.
+    let host = signed_host();
+    let frames = signed_params_run(&host, run, &[("keel_server_image_digest", DIGEST)]).await;
+    assert!(
+        matches!(frames.last(), Some(Frame::Finished { exit_code: 0, .. })),
+        "{frames:?}"
+    );
+    let ledger = std::fs::read_to_string(host.cfg.state_dir.join("ledger.jsonl")).unwrap();
+    assert!(
+        ledger.contains("\"start\"") && ledger.contains(run),
+        "{ledger}"
+    );
+    assert!(host.record().contains("params.json"));
 }
