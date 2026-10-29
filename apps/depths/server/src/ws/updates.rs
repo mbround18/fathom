@@ -124,7 +124,7 @@ pub enum Signal {
     /// The service is gone; the change subscription is dropped.
     Gone,
     /// A scheduled run's event (US3), relayed as it comes.
-    Run(EventEnvelope),
+    Run(Box<EventEnvelope>),
 }
 
 /// The next signal; never resolves without a subscription.
@@ -161,7 +161,7 @@ async fn run_event(
             return std::future::pending().await;
         };
         match r.recv().await {
-            Ok(ev) => return Signal::Run(ev),
+            Ok(ev) => return Signal::Run(Box::new(ev)),
             Err(broadcast::error::RecvError::Lagged(_)) => *pending = true,
             Err(broadcast::error::RecvError::Closed) => *runs = None,
         }
