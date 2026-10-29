@@ -9,3 +9,4 @@ before they change anything.
 | [The enrolment snippet](enrollment-template.md) | The command shown when a host is enrolled: placeholders, the default and examples |
 | [Instance roles from your identity provider](oidc-roles.md) | Mapping OIDC claims to owner, admin and user, and what owners see |
 | [The System workspace](system-workspace.md) | Letting the instance owner run Ansible against Keel's own host |
+| [Keeping Keel up to date](updates.md) | Which build runs, update checks, updating from the card or by hand, and rolling back |
