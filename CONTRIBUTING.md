@@ -128,6 +128,9 @@ cargo fmt
 scripts/ci.sh                          # the slices your diff touches (changed)
 scripts/ci.sh keel                     # one slice: shared|fathom|fathom-full|depths|keel
 scripts/ci.sh all                      # every slice, full e2e matrix: the release gate
+
+# While iterating: the same slices on the host, minus Playwright, web builds and containers
+make gate                              # GATE_SLICES="shared keel" to pick, GATE_BASE to diff against
 ```
 
 Every slice reports its steps slowest first, the time the engine spent outside them, and the
