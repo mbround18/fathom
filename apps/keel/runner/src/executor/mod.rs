@@ -244,12 +244,19 @@ async fn run(
         deadline,
         pack_size,
         quorum,
+        params,
     } = assign
     else {
         return;
     };
     if !valid_run_id(&run_id) {
         eprintln!("keel-executor: refused a run id with unexpected characters; closing");
+        return;
+    }
+    // Job params (spec 061 R4) aren't applied by this executor yet. Fail closed rather than run
+    // the job without the values Keel asked for.
+    if !params.is_empty() {
+        finish_unstarted(out, &run_id, SETUP_FAILED, "job params are not supported yet");
         return;
     }
     let a = Assignment {

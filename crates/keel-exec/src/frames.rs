@@ -265,7 +265,10 @@ pub enum Frame {
     /// S → R. `base` is Keel's belief (`None` for a baseline); `deadline` is Unix seconds.
     /// `workspace` and `binding` are lowercase hyphenated UUIDs and, with `run_id`, `job`, `base`
     /// and `target`, rebuild the override challenge (contracts/signed-mode.md). `quorum` is the
-    /// binding's override quorum; the host takes the larger of it and its own.
+    /// binding's override quorum; the host takes the larger of it and its own. `params` are the
+    /// values for the job's declared params (spec 061 R4). Omitted when empty, so an `Assign`
+    /// without params is byte-identical to before and old runners still read it; one with params
+    /// is refused by an old runner (`deny_unknown_fields`), which is the intended fail-closed path.
     Assign {
         run_id: String,
         workspace: String,
@@ -276,6 +279,8 @@ pub enum Frame {
         deadline: u64,
         pack_size: u64,
         quorum: Option<u32>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        params: BTreeMap<String, String>,
     },
     /// S → R. A slice of the Git pack; the last chunk carries the whole pack's SHA-256 (hex).
     Pack {
@@ -503,6 +508,7 @@ impl fmt::Debug for Frame {
                 deadline,
                 pack_size,
                 quorum,
+                params,
             } => d
                 .field("run_id", run_id)
                 .field("workspace", workspace)
@@ -512,7 +518,8 @@ impl fmt::Debug for Frame {
                 .field("target", target)
                 .field("deadline", deadline)
                 .field("pack_size", pack_size)
-                .field("quorum", quorum),
+                .field("quorum", quorum)
+                .field("params", params),
             Frame::Pack {
                 run_id,
                 chunk,

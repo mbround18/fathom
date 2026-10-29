@@ -77,6 +77,22 @@ fn every_frame() -> Vec<Frame> {
             deadline: 1_900_000_000,
             pack_size: 1234,
             quorum: Some(2),
+            params: BTreeMap::new(),
+        },
+        Frame::Assign {
+            run_id: "r-2".into(),
+            workspace: "00000000-0000-0000-0000-000000000001".into(),
+            binding: "00000000-0000-0000-0000-000000000002".into(),
+            job: "keel-server".into(),
+            base: Some("a".repeat(40)),
+            target: "b".repeat(40),
+            deadline: 1_900_000_000,
+            pack_size: 1234,
+            quorum: None,
+            params: BTreeMap::from([(
+                "keel_server_image_digest".to_string(),
+                format!("sha256:{}", "0".repeat(64)),
+            )]),
         },
         Frame::Pack {
             run_id: "r-1".into(),
@@ -268,6 +284,83 @@ fn unknown_frames_and_unknown_fields_are_refused() {
         codec::decode_body(br#"{"frame":"Refused","run_id":"r","reason":"maybe","detail":""}"#)
             .is_err()
     );
+}
+
+fn assign(params: BTreeMap<String, String>) -> Frame {
+    Frame::Assign {
+        run_id: "r-1".into(),
+        workspace: "00000000-0000-0000-0000-000000000001".into(),
+        binding: "00000000-0000-0000-0000-000000000002".into(),
+        job: "site".into(),
+        base: None,
+        target: "b".repeat(40),
+        deadline: 1_900_000_000,
+        pack_size: 1234,
+        quorum: Some(2),
+        params,
+    }
+}
+
+/// `Assign` as encoded before spec 061, byte for byte.
+fn assign_fixture_060() -> String {
+    format!(
+        concat!(
+            r#"{{"frame":"Assign","run_id":"r-1","#,
+            r#""workspace":"00000000-0000-0000-0000-000000000001","#,
+            r#""binding":"00000000-0000-0000-0000-000000000002","#,
+            r#""job":"site","base":null,"target":"{}","deadline":1900000000,"#,
+            r#""pack_size":1234,"quorum":2}}"#
+        ),
+        "b".repeat(40)
+    )
+}
+
+/// The pre-061 `Assign`, as an old runner decodes it.
+#[derive(Debug, serde::Deserialize)]
+#[serde(tag = "frame", deny_unknown_fields)]
+#[allow(dead_code)]
+enum OldFrame {
+    Assign {
+        run_id: String,
+        workspace: String,
+        binding: String,
+        job: String,
+        base: Option<String>,
+        target: String,
+        deadline: u64,
+        pack_size: u64,
+        quorum: Option<u32>,
+    },
+}
+
+#[test]
+fn an_assign_without_params_is_byte_identical_to_060() {
+    let json = codec::encode_body(&assign(BTreeMap::new())).unwrap();
+    assert_eq!(std::str::from_utf8(&json).unwrap(), assign_fixture_060());
+    // And the 060 encoding decodes to an empty params map.
+    assert_eq!(
+        codec::decode_body(assign_fixture_060().as_bytes()).unwrap(),
+        assign(BTreeMap::new())
+    );
+    // An old runner reads it.
+    serde_json::from_slice::<OldFrame>(&json).unwrap();
+}
+
+#[test]
+fn an_assign_with_params_round_trips_and_old_runners_refuse_it() {
+    let frame = assign(BTreeMap::from([(
+        "keel_server_image_digest".to_string(),
+        format!("sha256:{}", "e".repeat(64)),
+    )]));
+    let json = codec::encode_body(&frame).unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&json).unwrap();
+    assert_eq!(
+        v["params"]["keel_server_image_digest"],
+        format!("sha256:{}", "e".repeat(64))
+    );
+    assert_eq!(codec::decode_body(&json).unwrap(), frame);
+    // Fail closed: a runner from before 061 can't silently drop the params.
+    assert!(serde_json::from_slice::<OldFrame>(&json).is_err());
 }
 
 #[test]

@@ -262,6 +262,7 @@ fn assign(run_id: &str, job: &str, base: Option<&str>, target: &str, pack: &[u8]
         deadline: now() + 600,
         pack_size: pack.len() as u64,
         quorum: None,
+        params: Default::default(),
     }
 }
 

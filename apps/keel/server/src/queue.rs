@@ -1639,6 +1639,8 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
             deadline,
             pack_size: pack.bytes.len() as u64,
             quorum: quorum.and_then(|q| u32::try_from(q).ok()),
+            // Filled from `runs.params` by the update run (spec 061); empty until then.
+            params: BTreeMap::new(),
         },
         Frame::Secrets {
             run_id: run_id.clone(),

@@ -543,6 +543,7 @@ async fn a_session_says_hello_and_relays_a_run_unchanged() {
         deadline: 4_000_000_000,
         pack_size: 0,
         quorum: None,
+        params: Default::default(),
     };
     let secrets = Frame::Secrets {
         run_id: "run-1".to_owned(),

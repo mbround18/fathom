@@ -18,7 +18,23 @@ fn assign(run_id: &str, job: &str, pack_size: u64) -> Frame {
         deadline: 1_900_000_000,
         pack_size,
         quorum: None,
+        params: Default::default(),
     }
+}
+
+#[tokio::test]
+async fn assigned_params_reach_the_received_log() {
+    let (mut s, mut handle) = FakeRunner::new("h-1").spawn();
+    next(&mut s).await;
+    let mut frame = assign("r-1", "keel-server", 0);
+    if let Frame::Assign { params, .. } = &mut frame {
+        params.insert(
+            "keel_server_image_digest".into(),
+            format!("sha256:{}", "e".repeat(64)),
+        );
+    }
+    write_frame(&mut s, &frame).await.unwrap();
+    assert_eq!(handle.received.recv().await.unwrap(), frame);
 }
 
 async fn next(s: &mut DuplexStream) -> Frame {
