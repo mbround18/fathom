@@ -6,9 +6,12 @@
 //! `DEPTHS_IT_DOCKER=1` every test returns at once. Run by the main session only.
 //!
 //! Everything a test creates is named `depths-it-062-<random>…` and removed by name when its
-//! [`Lab`] drops, also when an assertion fails. Nothing else on the daemon is touched. The tests run
-//! one at a time: Watchtower detection reads every container on the daemon, so one test's
-//! Watchtower would pause another's Auto queue.
+//! [`Lab`] drops, also when an assertion fails. Nothing else on the daemon is touched. Each test
+//! has its own registry, data dir and stacks, so they run in parallel.
+//!
+//! Step 6 (a Watchtower beside Depths) is its own target, `update_watchtower`: Watchtower detection
+//! reads every container on the daemon, so its Watchtower would pause the Auto queues here. Run
+//! the two targets one after the other, never at the same time.
 //!
 //! Waits are on what is awaited, never on the first event of a kind: [`view_where`] reads views
 //! until one satisfies its predicate, and asks for a fresh one when the socket goes quiet
@@ -17,44 +20,20 @@
 
 mod support;
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use depths_protocol::{
-    AuditEntry, AutoPause, Exclusion, Provider, RunTrigger, ServiceUpdate, StackOutcome, UpdateRun,
-    UpdateState, UpdatesView,
-};
-use futures_util::{SinkExt as _, StreamExt as _};
+use depths_protocol::{AuditEntry, Exclusion, Provider, StackOutcome, UpdateRun, UpdateState};
 use serde_json::{Value, json};
 use support::OWNER;
 use support::docker::*;
-use support::passkey::{Authenticator, answer, authenticator, enrol, open_unverified, stale};
+use support::passkey::{answer, stale};
+use support::walk::*;
 use support::ws::{Socket, ask};
-use tokio_tungstenite::tungstenite::Message;
 
 const ROOT: &str = "depths-it-062";
 /// Check now may be asked again after a second, so a test can ask twice.
 const ENV: &[(&str, &str)] = &[("DEPTHS_UPDATES_CHECK_GAP", "1s")];
-/// A check pass against the local registry, or an update run with its health wait.
-const RUN: Duration = Duration::from_secs(120);
-const WATCHTOWER: &str = "containrrr/watchtower:1.7.1";
-
-/// One test at a time (see the module doc).
-static SERIAL: Mutex<()> = Mutex::new(());
-
-fn serial() -> MutexGuard<'static, ()> {
-    SERIAL
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-fn cmd(ty: &str, data: Value) -> Value {
-    json!({ "type": ty, "data": data })
-}
-
-fn compose(image: &str) -> String {
-    format!("services:\n  app:\n    image: {image}\n")
-}
 
 /// `app` from the lab's registry, plus `side`, which no test updates.
 fn two_services(lab: &Lab) -> String {
@@ -63,16 +42,6 @@ fn two_services(lab: &Lab) -> String {
         lab.reference("app", "1"),
         lab.reference("side", "1")
     )
-}
-
-/// Pushes a new `app:1` built from `dockerfile` and points the local tag back at the image the
-/// stack runs, as on a host that has not pulled yet. Returns the new image's id.
-fn repush(lab: &Lab, dockerfile: &str) -> String {
-    let reference = lab.reference("app", "1");
-    let old = image_id(&reference).expect("app:1 was pushed before");
-    let new = lab.push("app", "1", dockerfile);
-    ok(&["tag", &old, &reference]);
-    new
 }
 
 /// An image whose command fails at once, with no healthcheck: its container exits. It keeps
@@ -95,108 +64,6 @@ fn slow_to_start(version: &str) -> String {
          HEALTHCHECK --interval=1h --start-period=1h CMD true\n\
          CMD [\"sleep\", \"86400\"]\n"
     )
-}
-
-/// The window from an hour ago to an hour from now, every day, in host local time (the zone
-/// `auto::HostZone` reads).
-fn window_around_now() -> Value {
-    let now = chrono::Local::now();
-    let at = |t: chrono::DateTime<chrono::Local>| t.format("%H:%M").to_string();
-    json!({
-        "days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-        "start": at(now - chrono::Duration::hours(1)),
-        "end": at(now + chrono::Duration::hours(1)),
-    })
-}
-
-/// `docker inspect` of a container: `(Config.Image, Image)`.
-fn running_image(container: &str) -> (String, String) {
-    let out = ok(&[
-        "inspect",
-        "--format",
-        "{{.Config.Image}} {{.Image}}",
-        container,
-    ]);
-    let (reference, id) = out.split_once(' ').expect("two fields");
-    (reference.to_owned(), id.to_owned())
-}
-
-fn service<'a>(v: &'a UpdatesView, stack: &str, name: &str) -> Option<&'a ServiceUpdate> {
-    v.services
-        .iter()
-        .find(|s| s.stack == stack && s.service == name)
-}
-
-fn state(v: &UpdatesView, stack: &str) -> Option<UpdateState> {
-    service(v, stack, "app").map(|s| s.state)
-}
-
-/// The latest run that names `stack`, and that stack's part of it.
-fn run_of<'a>(v: &'a UpdatesView, stack: &str) -> Option<(&'a UpdateRun, StackOutcome)> {
-    v.recent_runs.iter().rev().find_map(|r| {
-        r.stacks
-            .iter()
-            .find(|s| s.stack == stack)
-            .and_then(|s| s.outcome.clone())
-            .map(|o| (r, o))
-    })
-}
-
-fn view_of(e: &Value) -> Option<UpdatesView> {
-    matches!(
-        e["event"]["type"].as_str(),
-        Some("Updates" | "UpdatesChanged")
-    )
-    .then(|| serde_json::from_value(e["event"]["data"].clone()).expect("an UpdatesView"))
-}
-
-/// The next text event within `within`, or `None`.
-async fn recv(ws: &mut Socket, within: Duration) -> Option<Value> {
-    let deadline = tokio::time::Instant::now() + within;
-    loop {
-        match tokio::time::timeout_at(deadline, ws.next()).await {
-            Ok(Some(Ok(Message::Text(t)))) => {
-                return Some(serde_json::from_str(t.as_str()).unwrap());
-            }
-            Ok(Some(Ok(_))) => {}
-            Ok(other) => panic!("the socket closed: {other:?}"),
-            Err(_) => return None,
-        }
-    }
-}
-
-/// Request ids for `ListUpdates` asked while waiting, clear of the ones tests pick.
-static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(70_000);
-
-/// Reads update views until one satisfies `pred`. When the socket is quiet for two seconds it asks
-/// `ListUpdates` again, so a coalesced `UpdatesChanged` cannot be missed.
-async fn view_where(
-    ws: &mut Socket,
-    within: Duration,
-    what: &str,
-    pred: impl Fn(&UpdatesView) -> bool,
-) -> UpdatesView {
-    let deadline = tokio::time::Instant::now() + within;
-    let mut last = None;
-    loop {
-        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        assert!(!left.is_zero(), "timed out: {what}; last view: {last:#?}");
-        match recv(ws, left.min(Duration::from_secs(2))).await {
-            Some(e) => {
-                if let Some(v) = view_of(&e) {
-                    if pred(&v) {
-                        return v;
-                    }
-                    last = Some(v);
-                }
-            }
-            None => {
-                let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                let ask = json!({ "id": id, "cmd": { "type": "ListUpdates" } });
-                ws.send(Message::text(ask.to_string())).await.unwrap();
-            }
-        }
-    }
 }
 
 /// Reads events until one satisfies `pred`.
@@ -227,71 +94,12 @@ async fn past_second(t: &Option<String>) {
     }
 }
 
-/// An administrator's socket, signed in with a passkey enrolled now (so a fresh check).
-async fn admin(lab: &Lab) -> (Socket, tokio::task::JoinHandle<()>, String, Authenticator) {
-    let (mut ws, server, cookie) = open_unverified(&lab.app, OWNER).await;
-    let mut auth = authenticator();
-    enrol(&mut ws, &mut auth, "Laptop").await;
-    (ws, server, cookie, auth)
-}
-
-/// `ListUpdates`: the view, and live changes from now on.
-async fn subscribe(ws: &mut Socket) -> UpdatesView {
-    let r = ask(ws, 1, json!({ "type": "ListUpdates" })).await;
-    view_of(&r).unwrap_or_else(|| panic!("no view: {r}"))
-}
-
-async fn check_now(ws: &mut Socket, id: u64, stacks: Option<&[&str]>) {
-    // `stacks` is left out for "every stack": the protocol does not take `null`.
-    let body = match stacks {
-        Some(stacks) => json!({ "stacks": stacks }),
-        None => json!({}),
-    };
-    let r = ask(ws, id, cmd("CheckUpdatesNow", body)).await;
-    assert_eq!(r["event"]["type"], "CheckStarted", "{r}");
-}
-
-/// Confirms the preview in `r`, answering its passkey check when it asks for one.
-async fn confirm(ws: &mut Socket, id: u64, auth: &mut Authenticator, r: &Value) -> Value {
-    let data = &r["event"]["data"];
-    let mut confirm = json!({ "preview_id": data["preview_id"] });
-    if data["step_up"].is_object() {
-        confirm["assertion"] = answer(auth, support::ORIGIN, &data["step_up"]);
-    }
-    if data["stacks"]
-        .as_array()
-        .is_some_and(|s| s.iter().any(|p| p["ack_required"] == true))
-    {
-        confirm["acknowledge_findings"] = json!(true);
-    }
-    ask(ws, id, cmd("Confirm", confirm)).await
-}
-
-/// Previews and confirms an update change (`PreviewUpdateChange`).
-async fn change(ws: &mut Socket, id: u64, auth: &mut Authenticator, change: Value) {
-    let r = ask(ws, id, cmd("PreviewUpdateChange", change)).await;
-    assert_eq!(r["event"]["type"], "Preview", "{r}");
-    let r = confirm(ws, id + 1, auth, &r).await;
-    assert_eq!(r["event"]["type"], "UpdatesChanged", "{r}");
-}
-
-/// Sets `stack` to Auto in the window around now.
-async fn auto_now(ws: &mut Socket, id: u64, auth: &mut Authenticator, stack: &str) {
-    let policy = json!({ "stack": stack, "policy": "auto", "window": window_around_now() });
-    change(ws, id, auth, json!({ "kind": "policy", "data": policy })).await;
-}
-
 fn audit_of(lab: &Lab, stack: &str) -> Vec<AuditEntry> {
     lab.app
         .audit_entries()
         .into_iter()
         .filter(|e| e.stack.as_deref() == Some(stack))
         .collect()
-}
-
-fn scheduled_for_owner(trigger: &RunTrigger, stack: &str) -> bool {
-    matches!(trigger, RunTrigger::Scheduled { on_behalf_of }
-        if on_behalf_of.get(stack).is_some_and(|a| a.subject == OWNER))
 }
 
 // --- §3 step 1 -----------------------------------------------------------------------------------
@@ -325,7 +133,6 @@ fn turning_checks_on_steps_up_and_check_now_lists_every_stack_with_a_digest_pin_
     if !enabled() {
         return;
     }
-    let _one = serial();
     let mut lab = Lab::with(ROOT, ENV);
     lab.u()
         .store()
@@ -440,7 +247,6 @@ fn a_new_image_behind_the_same_tag_shows_as_an_update_with_its_version_label() {
     if !enabled() {
         return;
     }
-    let _one = serial();
     let mut lab = Lab::with(ROOT, ENV);
     lab.push("app", "1", &dockerfile("1.0.0", "1000", true));
     let stack = lab.stack("label", &compose(&lab.reference("app", "1")));
@@ -483,7 +289,6 @@ fn a_batch_with_an_up_to_date_stack_previews_and_recreates_only_the_changed_serv
     if !enabled() {
         return;
     }
-    let _one = serial();
     let mut lab = Lab::with(ROOT, ENV);
     lab.push("app", "1", &dockerfile("1.0.0", "1000", true));
     lab.push("side", "1", &dockerfile("1.0.0", "1000", true));
@@ -579,7 +384,6 @@ fn a_failing_image_on_an_auto_stack_is_rolled_back_by_depths_on_behalf_of_its_au
     if !enabled() {
         return;
     }
-    let _one = serial();
     let mut lab = Lab::with(ROOT, ENV);
     let old = lab.push("app", "1", &dockerfile("1.0.0", "1000", true));
     let stack = lab.stack("auto", &compose(&lab.reference("app", "1")));
@@ -622,121 +426,6 @@ fn a_failing_image_on_an_auto_stack_is_rolled_back_by_depths_on_behalf_of_its_au
     lab.release();
 }
 
-// --- §3 step 6 -----------------------------------------------------------------------------------
-
-/// Removes the Watchtower image on drop when the test pulled it.
-struct Pulled(Option<&'static str>);
-
-impl Drop for Pulled {
-    fn drop(&mut self) {
-        if let Some(image) = self.0 {
-            let _ = docker(&["image", "rm", image]);
-        }
-    }
-}
-
-/// A Watchtower (monitor-only) beside Depths shows the banner and pauses Auto; once it is
-/// acknowledged, the queue runs the update it held back.
-#[test]
-fn a_watchtower_beside_depths_pauses_auto_until_it_is_acknowledged() {
-    if !enabled() {
-        return;
-    }
-    let _one = serial();
-    let _pulled = Pulled(image_id(WATCHTOWER).is_none().then_some(WATCHTOWER));
-    let mut lab = Lab::with(ROOT, ENV);
-    lab.push("app", "1", &dockerfile("1.0.0", "1000", true));
-    let stack = lab.stack("watchtower", &compose(&lab.reference("app", "1")));
-    let before = lab.container(&stack, "app");
-    lab.start_tasks();
-    // Monitor-only, scoped to a scope nothing has, polling once a day: it touches no container.
-    // 1.7.1 speaks Docker API 1.40 at most; the daemon accepts it when asked for.
-    let name = format!("{}-watchtower", lab.prefix);
-    lab.containers.lock().unwrap().push(name.clone());
-    let scope = format!("WATCHTOWER_SCOPE={}", lab.prefix);
-    ok(&[
-        "run",
-        "-d",
-        "--name",
-        &name,
-        "-v",
-        "/var/run/docker.sock:/var/run/docker.sock:ro",
-        "-e",
-        "DOCKER_API_VERSION=1.40",
-        "-e",
-        "WATCHTOWER_MONITOR_ONLY=true",
-        "-e",
-        &scope,
-        "-e",
-        "WATCHTOWER_POLL_INTERVAL=86400",
-        WATCHTOWER,
-    ]);
-
-    lab.rt.block_on(async {
-        let (mut ws, server, _, mut auth) = admin(&lab).await;
-        subscribe(&mut ws).await;
-        view_where(&mut ws, RUN, "the first pass", |v| {
-            state(v, &stack) == Some(UpdateState::UpToDate)
-        })
-        .await;
-        auto_now(&mut ws, 2, &mut auth, &stack).await;
-        let new = repush(&lab, &dockerfile("1.1.0", "1000", true));
-        check_now(&mut ws, 4, Some(&[stack.as_str()])).await;
-        let v = view_where(&mut ws, RUN, "the banner and the update", |v| {
-            state(v, &stack) == Some(UpdateState::Available)
-                && v.watchtower.iter().any(|w| w.name == name)
-                && matches!(&v.auto_paused, Some(AutoPause::WatchtowerRunning { containers })
-                    if containers.contains(&name))
-        })
-        .await;
-        let found = v.watchtower.iter().find(|w| w.name == name).unwrap();
-        assert_eq!(found.acknowledged, None, "{found:#?}");
-        let container_id = found.id.clone();
-
-        // An Auto pass that starts now sees the update and the pause: nudge one, wait for it to
-        // finish, and it has run nothing. Passes run one after another, so the first to finish
-        // past `since` started after the read.
-        let mut passes = lab.u().auto_passes();
-        let since = passes.borrow().started;
-        lab.u().notify_changed();
-        let pass = *tokio::time::timeout(RUN, passes.wait_for(|p| p.finished > since))
-            .await
-            .expect("an Auto pass finished")
-            .unwrap();
-        assert_eq!(pass.last_ran, 0, "{pass:?}");
-        let r = ask(&mut ws, 5, json!({ "type": "ListUpdates" })).await;
-        let v = view_of(&r).unwrap();
-        assert!(v.auto_paused.is_some(), "{:#?}", v.auto_paused);
-        assert!(run_of(&v, &stack).is_none(), "{:#?}", v.recent_runs);
-        assert_eq!(
-            lab.container(&stack, "app"),
-            before,
-            "nothing was recreated"
-        );
-
-        let ack = json!({ "container_id": container_id, "answer": "monitor_only" });
-        change(
-            &mut ws,
-            6,
-            &mut auth,
-            json!({ "kind": "ack_watchtower", "data": ack }),
-        )
-        .await;
-        let v = view_where(&mut ws, RUN, "Auto runs once acknowledged", |v| {
-            v.auto_paused.is_none()
-                && run_of(v, &stack).is_some_and(|(_, o)| o == StackOutcome::Updated)
-        })
-        .await;
-        let (run, _) = run_of(&v, &stack).unwrap();
-        assert!(scheduled_for_owner(&run.trigger, &stack), "{run:#?}");
-        let app = lab.container(&stack, "app");
-        assert_ne!(app, before);
-        assert_eq!(running_image(&app).1, new);
-        server.abort();
-    });
-    lab.release();
-}
-
 // --- §3 step 7 -----------------------------------------------------------------------------------
 
 /// Depths stops while a scheduled update waits for health. Started again on the same data, it
@@ -749,7 +438,6 @@ fn a_restart_during_the_health_wait_records_the_run_interrupted_with_the_real_im
     if !enabled() {
         return;
     }
-    let _one = serial();
     let mut lab = Lab::with(ROOT, ENV);
     lab.push("app", "1", &dockerfile("1.0.0", "1000", true));
     let stack = lab.stack("restart", &compose(&lab.reference("app", "1")));
@@ -842,7 +530,6 @@ fn a_restart_inside_the_window_does_not_run_an_auto_stack_again() {
     if !enabled() {
         return;
     }
-    let _one = serial();
     let mut lab = Lab::with(ROOT, ENV);
     lab.push("app", "1", &dockerfile("1.0.0", "1000", true));
     let stack = lab.stack("once", &compose(&lab.reference("app", "1")));

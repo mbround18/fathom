@@ -40,9 +40,16 @@ on both days, window 23:00–01:00 across both, clock jumping back an hour insid
 
 ```
 DEPTHS_IT_DOCKER=1 cargo test -p depths-server --test updates_docker
+DEPTHS_IT_DOCKER=1 cargo test -p depths-server --test update_walkthrough   # §3 steps 1–5 and 7
+DEPTHS_IT_DOCKER=1 cargo test -p depths-server --test update_watchtower    # §3 step 6
 ```
 
-The test starts a `distribution` registry and scratch stacks named `depths-it-upd-<random>`, and
+Run them one at a time, never together: `update_watchtower` starts a Watchtower container, and
+Watchtower detection reads every container on the daemon, so it would pause the Auto queues of a
+walkthrough running beside it. Each target removes what it created when it ends (its Watchtower
+too), so running them back to back is safe.
+
+`updates_docker` starts a `distribution` registry and scratch stacks named `depths-it-upd-<random>`, and
 removes everything it created, by name (containers, its own images and tags, the registry). It
 never touches other containers, volumes or images. It checks:
 
@@ -73,6 +80,11 @@ never touches other containers, volumes or images. It checks:
    rolled back, audit shows `Depths (scheduled)` on behalf of you.
 6. Start `containrrr/watchtower` (monitor-only) beside it: banner; Auto paused until acknowledged.
 7. Restart Depths during step 5's health wait: the stack shows interrupted with its real image.
+
+The same steps run as tests against a real daemon, one command after the other (§2):
+`DEPTHS_IT_DOCKER=1 cargo test -p depths-server --test update_walkthrough` (steps 1–5 and 7, and
+a restart inside an Auto window that does not run the stack again), then
+`DEPTHS_IT_DOCKER=1 cargo test -p depths-server --test update_watchtower` (step 6).
 
 ## 4. Steam (production) upgrade notes
 

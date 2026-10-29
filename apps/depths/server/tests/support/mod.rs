@@ -31,6 +31,7 @@ use web_auth::session::{Identity, Provider, Session, Tokens};
 pub mod docker;
 pub mod passkey;
 pub mod volumes;
+pub mod walk;
 pub mod ws;
 
 pub const ORIGIN: &str = "https://depth.boop.ninja";
