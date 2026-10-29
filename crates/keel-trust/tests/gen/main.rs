@@ -376,6 +376,7 @@ fn approval(spec: ApprovalSpec<'_>, run: &str, base: Option<&str>, target: &str)
         target: CommitId::parse(target).unwrap(),
         hosts: hosts.clone(),
         expires_at: expires_at.clone(),
+        params: Default::default(),
     };
     let challenge = scope.challenge().unwrap();
     let mut authenticator_data = Sha256::digest(RP_ID.as_bytes()).to_vec();

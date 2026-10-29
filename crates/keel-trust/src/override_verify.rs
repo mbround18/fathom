@@ -17,7 +17,7 @@
 //! with the first failing approval and step, or [`OverrideError::QuorumShort`] when every
 //! approval passed but there are too few.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use web_passkeys::{CoseAlg, VerifyError, b64, verify_assertion};
@@ -301,6 +301,9 @@ fn verify_one<'a>(
         target: target.clone(),
         hosts: approval.hosts.clone(),
         expires_at: approval.expires_at.clone(),
+        // Runs with job params (spec 061) are rebuilt with them once the runner applies params.
+        // Until then an approval bound to params doesn't match here, so it is refused.
+        params: BTreeMap::new(),
     };
     let challenge = scope.challenge().map_err(ApprovalProblem::Scope)?;
 

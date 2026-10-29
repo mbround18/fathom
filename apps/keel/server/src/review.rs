@@ -1056,6 +1056,8 @@ fn scope(
         target: keel_trust::CommitId::parse(target).ok()?,
         hosts: normalize_hosts(hosts.iter().map(String::as_str)),
         expires_at: expires_at.to_owned(),
+        // The update run's params join the challenge with the server half of spec 061.
+        params: std::collections::BTreeMap::new(),
     };
     s.validate().ok()?;
     Some(s)

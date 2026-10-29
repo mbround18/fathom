@@ -2,12 +2,17 @@
 //!
 //! ```text
 //! challenge = SHA-256( JCS({ "v": "keel-override-v1", "kind", "workspace", "binding", "run",
-//!                            "job", "base", "target", "hosts", "expires_at" }) )
+//!                            "job", "base", "target", "hosts", "expires_at"[, "params"] }) )
 //! ```
+//!
+//! `params` (spec 061) is present only when the run carries job params, so every challenge
+//! without them hashes exactly as before.
 //!
 //! The server builds it to request an approval; the host rebuilds it from its own ledger base, the
 //! target it verified and the run it was assigned, so an approval only fits the run, the commits
 //! and the hosts it was given for.
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -48,6 +53,9 @@ pub struct OverrideScope {
     pub hosts: Vec<String>,
     /// `YYYY-MM-DDTHH:MM:SSZ`.
     pub expires_at: String,
+    /// The job params the run was assigned (spec 061). Empty for runs without params, and then
+    /// left out of the canonical JSON.
+    pub params: BTreeMap<String, String>,
 }
 
 /// The scope cannot be turned into a challenge. Never "allow": the caller refuses.
@@ -82,6 +90,8 @@ struct Canonical<'a> {
     target: &'a str,
     hosts: &'a [String],
     expires_at: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    params: Option<&'a BTreeMap<String, String>>,
 }
 
 impl OverrideScope {
@@ -126,8 +136,9 @@ impl OverrideScope {
             target: self.target.as_str(),
             hosts: &self.hosts,
             expires_at: &self.expires_at,
+            params: (!self.params.is_empty()).then_some(&self.params),
         };
-        // Serializing plain strings and an enum cannot fail.
+        // Serializing plain strings, a string map and an enum cannot fail.
         Ok(serde_jcs::to_vec(&value).expect("canonical JSON of strings"))
     }
 
@@ -259,6 +270,7 @@ mod tests {
             target: CommitId::parse("2222222222222222222222222222222222222222").unwrap(),
             hosts: normalize_hosts(["web-2", "web-1", "web-2"]),
             expires_at: "2026-01-01T12:00:00Z".into(),
+            params: BTreeMap::new(),
         }
     }
 
@@ -282,6 +294,61 @@ mod tests {
         assert_eq!(
             hex,
             "7a07a5c015b504fffa849304a8df2e4e80f649092ddabf5ad0b644f714024cc2"
+        );
+    }
+
+    fn scope_with_params() -> OverrideScope {
+        let mut s = scope();
+        s.params.insert(
+            "keel_server_image_digest".into(),
+            format!("sha256:{}", "e".repeat(64)),
+        );
+        s
+    }
+
+    #[test]
+    fn empty_params_are_omitted() {
+        let text = String::from_utf8(scope().canonical_bytes().unwrap()).unwrap();
+        assert!(!text.contains("params"), "{text}");
+    }
+
+    #[test]
+    fn params_are_a_member_of_the_canonical_json() {
+        let bytes = scope_with_params().canonical_bytes().unwrap();
+        assert_eq!(
+            String::from_utf8(bytes).unwrap(),
+            format!(
+                r#"{{"base":"1111111111111111111111111111111111111111","binding":"1c2d3e4f-5a6b-4c7d-8e9f-a0b1c2d3e4f5","expires_at":"2026-01-01T12:00:00Z","hosts":["web-1","web-2"],"job":"web-deploy","kind":"override","params":{{"keel_server_image_digest":"sha256:{}"}},"run":"2d3e4f50-6a7b-4c8d-9eaf-b0c1d2e3f405","target":"2222222222222222222222222222222222222222","v":"keel-override-v1","workspace":"0b7f1c2e-3d4a-4b5c-8d6e-7f8091a2b3c4"}}"#,
+                "e".repeat(64)
+            )
+        );
+    }
+
+    #[test]
+    fn challenge_with_params_is_fixed() {
+        let hex: String = scope_with_params()
+            .challenge()
+            .unwrap()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(
+            hex,
+            "325d1df3b46f66e2e3cadc67940458b8fb3bc9e17bb83e05039e4254ca15e98f"
+        );
+        assert_ne!(
+            scope_with_params().challenge().unwrap(),
+            scope().challenge().unwrap()
+        );
+        // Another value is another challenge.
+        let mut s = scope_with_params();
+        s.params.insert(
+            "keel_server_image_digest".into(),
+            format!("sha256:{}", "f".repeat(64)),
+        );
+        assert_ne!(
+            s.challenge().unwrap(),
+            scope_with_params().challenge().unwrap()
         );
     }
 
