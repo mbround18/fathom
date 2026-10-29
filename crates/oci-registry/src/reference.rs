@@ -173,8 +173,7 @@ fn valid_tag(t: &str) -> bool {
     !b.is_empty()
         && b.len() <= 128
         && (b[0].is_ascii_alphanumeric() || b[0] == b'_')
-        && b
-            .iter()
+        && b.iter()
             .all(|x| x.is_ascii_alphanumeric() || matches!(x, b'_' | b'.' | b'-'))
 }
 
@@ -204,7 +203,12 @@ mod tests {
             tag("latest"),
         );
         check("nginx", DOCKER_HUB, "library/nginx", tag("latest"));
-        check("docker.io/library/foo", DOCKER_HUB, "library/foo", tag("latest"));
+        check(
+            "docker.io/library/foo",
+            DOCKER_HUB,
+            "library/foo",
+            tag("latest"),
+        );
         check(
             &format!("index.docker.io/mbround18/keel@sha256:{HEX}"),
             DOCKER_HUB,
@@ -222,9 +226,24 @@ mod tests {
 
     #[test]
     fn docker_hub_aliases() {
-        check("docker.io/nginx", DOCKER_HUB, "library/nginx", tag("latest"));
-        check("index.docker.io/nginx:1", DOCKER_HUB, "library/nginx", tag("1"));
-        check("registry-1.docker.io/nginx", DOCKER_HUB, "library/nginx", tag("latest"));
+        check(
+            "docker.io/nginx",
+            DOCKER_HUB,
+            "library/nginx",
+            tag("latest"),
+        );
+        check(
+            "index.docker.io/nginx:1",
+            DOCKER_HUB,
+            "library/nginx",
+            tag("1"),
+        );
+        check(
+            "registry-1.docker.io/nginx",
+            DOCKER_HUB,
+            "library/nginx",
+            tag("latest"),
+        );
     }
 
     #[test]
@@ -239,7 +258,12 @@ mod tests {
         check("localhost/a", "localhost", "a", tag("latest"));
         // No dot, colon or localhost: a Docker Hub namespace.
         check("myorg/app", DOCKER_HUB, "myorg/app", tag("latest"));
-        check("myorg/team/app", DOCKER_HUB, "myorg/team/app", tag("latest"));
+        check(
+            "myorg/team/app",
+            DOCKER_HUB,
+            "myorg/team/app",
+            tag("latest"),
+        );
     }
 
     #[test]
@@ -269,7 +293,10 @@ mod tests {
             "keel:has space",
         ] {
             assert!(
-                matches!(ImageRef::parse(bad), Err(RegistryError::InvalidReference(_))),
+                matches!(
+                    ImageRef::parse(bad),
+                    Err(RegistryError::InvalidReference(_))
+                ),
                 "{bad:?} should be refused"
             );
         }

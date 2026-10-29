@@ -3,9 +3,7 @@
 use std::time::Duration;
 
 use oci_registry::testing::{FakeRegistry, ImageSpec, LoggedRequest, media};
-use oci_registry::{
-    Client, Credentials, Digest, ImageRef, Platform, RegistryError, RequestCounts,
-};
+use oci_registry::{Client, Credentials, Digest, ImageRef, Platform, RegistryError, RequestCounts};
 use secrecy::SecretString;
 
 const UA: &str = "oci-registry-test/0 (test)";
@@ -63,7 +61,9 @@ async fn setup() -> (FakeRegistry, Client) {
 
 /// HEAD the tag once so the client holds a token, then clear the log.
 async fn warm(fake: &FakeRegistry, client: &Client, tag: &str) {
-    let r = client.head_digest(&tag_ref(tag), &Credentials::Anonymous).await;
+    let r = client
+        .head_digest(&tag_ref(tag), &Credentials::Anonymous)
+        .await;
     r.result.expect("warm-up HEAD");
     fake.clear_requests();
 }
@@ -140,7 +140,10 @@ async fn basic_credentials_go_only_to_the_token_endpoint() {
 
     let debug = format!("{creds:?}");
     assert!(!debug.contains("hunter2"), "{debug}");
-    assert!(debug.contains("bob") && debug.contains("[redacted]"), "{debug}");
+    assert!(
+        debug.contains("bob") && debug.contains("[redacted]"),
+        "{debug}"
+    );
 
     let out = client.head_digest(&tag_ref("latest"), &creds).await;
     // The fake only accepts Basic on /token, and only an issued Bearer token on /v2/.
@@ -197,13 +200,20 @@ async fn resolve_index_picks_the_platform_and_skips_attestations() {
     assert_eq!(r.manifest_digest, ma.amd64.manifest);
     assert_eq!(r.config_digest, ma.amd64.config);
     assert_eq!(
-        r.labels.get("org.opencontainers.image.version").map(String::as_str),
+        r.labels
+            .get("org.opencontainers.image.version")
+            .map(String::as_str),
         Some("0.2.0")
     );
     assert_eq!(r.user.as_deref(), Some("10001"));
     assert_eq!(r.created.as_deref(), Some("2026-10-01T12:00:00Z"));
     for att in &ma.attestations {
-        assert!(!fake.requests().iter().any(|q| q.path.contains(att.as_str())));
+        assert!(
+            !fake
+                .requests()
+                .iter()
+                .any(|q| q.path.contains(att.as_str()))
+        );
     }
 
     let arm = client
@@ -220,7 +230,11 @@ async fn resolve_cold_takes_a_token_like_head() {
     let (fake, client) = setup().await;
     let image = fake.image(REPO, "latest", &labelled());
     let out = client
-        .resolve(&digest_ref(&image.manifest), &amd64(), &Credentials::Anonymous)
+        .resolve(
+            &digest_ref(&image.manifest),
+            &amd64(),
+            &Credentials::Anonymous,
+        )
         .await;
     assert!(out.result.is_ok(), "{:?}", out.result);
     let m = manifest_path(image.manifest.as_str());
@@ -244,7 +258,11 @@ async fn resolve_single_manifest() {
     warm(&fake, &client, "latest").await;
 
     let out = client
-        .resolve(&digest_ref(&image.manifest), &amd64(), &Credentials::Anonymous)
+        .resolve(
+            &digest_ref(&image.manifest),
+            &amd64(),
+            &Credentials::Anonymous,
+        )
         .await;
     assert_eq!(out.requests, counts(0, 2, 1));
     let r = out.result.expect("resolved");
@@ -254,7 +272,11 @@ async fn resolve_single_manifest() {
     assert_eq!(r.labels.len(), 2);
 
     let other = client
-        .resolve(&digest_ref(&image.manifest), &arm64(), &Credentials::Anonymous)
+        .resolve(
+            &digest_ref(&image.manifest),
+            &arm64(),
+            &Credentials::Anonymous,
+        )
         .await;
     assert_eq!(other.result, Err(RegistryError::NoImageForPlatform));
     assert_eq!(other.requests, counts(0, 2, 1));
@@ -278,7 +300,11 @@ async fn config_without_labels() {
     let image = fake.image(REPO, "latest", &ImageSpec::new("linux", "amd64"));
     warm(&fake, &client, "latest").await;
     let r = client
-        .resolve(&digest_ref(&image.manifest), &amd64(), &Credentials::Anonymous)
+        .resolve(
+            &digest_ref(&image.manifest),
+            &amd64(),
+            &Credentials::Anonymous,
+        )
         .await
         .result
         .expect("resolved");
@@ -333,7 +359,11 @@ async fn rate_limited_carries_retry_after() {
         &[("Retry-After", "7")],
     );
     let out = client
-        .resolve(&digest_ref(&image.manifest), &amd64(), &Credentials::Anonymous)
+        .resolve(
+            &digest_ref(&image.manifest),
+            &amd64(),
+            &Credentials::Anonymous,
+        )
         .await;
     assert_eq!(
         out.result,
@@ -463,7 +493,11 @@ async fn blob_redirects_are_followed_and_bounded() {
     let mirror = format!("{}v2/mirror/app/blobs/{}", fake.url(), image.config);
     fake.set_status_with_headers(&blob_path(&image.config), 307, &[("Location", &mirror)]);
     let out = client
-        .resolve(&digest_ref(&image.manifest), &amd64(), &Credentials::Anonymous)
+        .resolve(
+            &digest_ref(&image.manifest),
+            &amd64(),
+            &Credentials::Anonymous,
+        )
         .await;
     assert!(out.result.is_ok(), "{:?}", out.result);
     let log = fake.requests();
@@ -481,7 +515,11 @@ async fn blob_redirects_are_followed_and_bounded() {
     let own = format!("{}{}", fake.url(), &blob_path(&image.config)[1..]);
     fake.set_status_with_headers(&blob_path(&image.config), 307, &[("Location", &own)]);
     let out = client
-        .resolve(&digest_ref(&image.manifest), &amd64(), &Credentials::Anonymous)
+        .resolve(
+            &digest_ref(&image.manifest),
+            &amd64(),
+            &Credentials::Anonymous,
+        )
         .await;
     assert!(
         matches!(out.result, Err(RegistryError::BadResponse(_))),
@@ -511,7 +549,11 @@ async fn cross_host_blob_redirect_drops_authorization() {
     );
     fake.set_status_with_headers(&blob_path(&image.config), 307, &[("Location", &other)]);
     let _ = client
-        .resolve(&digest_ref(&image.manifest), &amd64(), &Credentials::Anonymous)
+        .resolve(
+            &digest_ref(&image.manifest),
+            &amd64(),
+            &Credentials::Anonymous,
+        )
         .await;
     assert_eq!(
         fake.requests().last(),

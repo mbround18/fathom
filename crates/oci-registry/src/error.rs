@@ -51,7 +51,10 @@ mod tests {
     #[test]
     fn codes_are_stable() {
         let cases = [
-            (RegistryError::InvalidReference("x".into()), "invalid_reference"),
+            (
+                RegistryError::InvalidReference("x".into()),
+                "invalid_reference",
+            ),
             (RegistryError::NotByDigest, "not_by_digest"),
             (RegistryError::AuthFailed, "auth_failed"),
             (RegistryError::NotFound, "not_found"),

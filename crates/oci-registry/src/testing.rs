@@ -265,7 +265,8 @@ impl FakeRegistry {
             body: m.body.clone(),
             digest: m.digest.clone(),
         };
-        g.manifests.insert((repo.to_string(), tag.to_string()), copy);
+        g.manifests
+            .insert((repo.to_string(), tag.to_string()), copy);
     }
 
     /// A single-manifest image (OCI manifest plus config), tagged `tag`.
@@ -319,8 +320,14 @@ impl FakeRegistry {
         }
         let amd64 = self.store_image(repo, &amd);
         let arm64 = self.store_image(repo, &arm);
-        let att_a = self.store_image(repo, &ImageSpec::new("unknown", "unknown").label("att", "a"));
-        let att_b = self.store_image(repo, &ImageSpec::new("unknown", "unknown").label("att", "b"));
+        let att_a = self.store_image(
+            repo,
+            &ImageSpec::new("unknown", "unknown").label("att", "a"),
+        );
+        let att_b = self.store_image(
+            repo,
+            &ImageSpec::new("unknown", "unknown").label("att", "b"),
+        );
         let attestation = |d: &Digest, os: &str, arch: &str| {
             json!({
                 "mediaType": media::OCI_MANIFEST,
@@ -339,7 +346,11 @@ impl FakeRegistry {
             self.entry(repo, &amd64.manifest, "linux", "amd64", None),
             self.entry(repo, &arm64.manifest, "linux", "arm64", Some("v8")),
         ];
-        let index = self.put_manifest(repo, media::OCI_INDEX, index_body(media::OCI_INDEX, entries));
+        let index = self.put_manifest(
+            repo,
+            media::OCI_INDEX,
+            index_body(media::OCI_INDEX, entries),
+        );
         self.tag(repo, tag, &index);
         MultiArch {
             index,
@@ -377,14 +388,7 @@ impl FakeRegistry {
         claimed
     }
 
-    fn entry(
-        &self,
-        repo: &str,
-        d: &Digest,
-        os: &str,
-        arch: &str,
-        variant: Option<&str>,
-    ) -> Value {
+    fn entry(&self, repo: &str, d: &Digest, os: &str, arch: &str, variant: Option<&str>) -> Value {
         let mut platform = json!({"os": os, "architecture": arch});
         if let Some(v) = variant {
             platform["variant"] = json!(v);
@@ -576,7 +580,11 @@ async fn handle(
         .is_some_and(|t| g.tokens.iter().any(|k| k == t));
     if !bearer_ok {
         let c = challenge(&g, Some(repo));
-        return respond(401, &[("WWW-Authenticate", c.as_str())], errors("UNAUTHORIZED"));
+        return respond(
+            401,
+            &[("WWW-Authenticate", c.as_str())],
+            errors("UNAUTHORIZED"),
+        );
     }
 
     if let Some((repo, reference)) = manifest {

@@ -135,7 +135,10 @@ pub(crate) fn parse_token(body: &[u8]) -> Result<(String, Duration), RegistryErr
         .filter(|t| !t.is_empty())
         .or(r.access_token.filter(|t| !t.is_empty()))
         .ok_or(RegistryError::BadResponse("token response without a token"))?;
-    let secs = r.expires_in.filter(|s| *s > 0).unwrap_or(DEFAULT_EXPIRES_IN);
+    let secs = r
+        .expires_in
+        .filter(|s| *s > 0)
+        .unwrap_or(DEFAULT_EXPIRES_IN);
     Ok((token, Duration::from_secs(secs)))
 }
 

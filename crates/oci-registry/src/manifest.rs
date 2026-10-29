@@ -72,8 +72,8 @@ pub(crate) struct IndexEntry {
 
 /// Parse an OCI index, Docker manifest list, OCI manifest or Docker v2 manifest.
 pub(crate) fn parse_manifest(body: &[u8]) -> Result<ManifestBody, RegistryError> {
-    let raw: RawManifest =
-        serde_json::from_slice(body).map_err(|_| RegistryError::BadResponse("malformed manifest"))?;
+    let raw: RawManifest = serde_json::from_slice(body)
+        .map_err(|_| RegistryError::BadResponse("malformed manifest"))?;
     let digest =
         |s: &str| Digest::parse(s).map_err(|_| RegistryError::BadResponse("malformed digest"));
     if let Some(entries) = raw.manifests {
@@ -115,7 +115,9 @@ pub(crate) fn select_platform(
                 !(p.os == "unknown" && p.architecture == "unknown")
                     && p.os == want.os
                     && p.architecture == want.architecture
-                    && p.variant.as_ref().is_none_or(|v| want.variant.as_ref() == Some(v))
+                    && p.variant
+                        .as_ref()
+                        .is_none_or(|v| want.variant.as_ref() == Some(v))
             })
         })
         .map(|e| e.digest.clone())
@@ -152,7 +154,10 @@ pub(crate) fn parse_config(body: &[u8]) -> Result<ImageConfig, RegistryError> {
     let raw: RawConfig = serde_json::from_slice(body)
         .map_err(|_| RegistryError::BadResponse("malformed image config"))?;
     let (labels, user) = match raw.config {
-        Some(c) => (c.labels.unwrap_or_default(), c.user.filter(|u| !u.is_empty())),
+        Some(c) => (
+            c.labels.unwrap_or_default(),
+            c.user.filter(|u| !u.is_empty()),
+        ),
         None => (BTreeMap::new(), None),
     };
     Ok(ImageConfig {
@@ -279,8 +284,9 @@ mod tests {
         assert_eq!(c.user.as_deref(), Some("10001"));
         assert_eq!(c.created.as_deref(), Some("2026-10-01T12:00:00Z"));
 
-        let bare = parse_config(br#"{"os":"linux","architecture":"amd64","config":{"Labels":null}}"#)
-            .unwrap();
+        let bare =
+            parse_config(br#"{"os":"linux","architecture":"amd64","config":{"Labels":null}}"#)
+                .unwrap();
         assert!(bare.labels.is_empty());
         assert_eq!(bare.user, None);
         assert_eq!(bare.created, None);
