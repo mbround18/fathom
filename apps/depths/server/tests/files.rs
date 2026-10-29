@@ -1190,6 +1190,44 @@ mod browse {
         assert_eq!(std::fs::read(b.root.join("sub/b.txt")).unwrap(), b"bye b");
     }
 
+    /// 054 T069: a file write from a session whose last check is older than the window is
+    /// stopped at the preview with `StepUpRequired` (a `FilePreview` has no `step_up` field);
+    /// once the person checks, the preview and its confirm go through.
+    #[tokio::test]
+    async fn a_stale_session_checks_its_passkey_before_a_file_write() {
+        use super::support::passkey as pk;
+        let b = browse(&[]).await;
+        let f = b.read(&admin(), "a.txt").unwrap();
+        let old = std::fs::read(b.root.join("a.txt")).unwrap();
+        let (mut s, _server, cookie) = pk::open_unverified(&b.a, OWNER).await;
+        let mut auth = pk::authenticator();
+        pk::enrol(&mut s, &mut auth, "Laptop").await;
+        pk::stale(&b.a, &cookie);
+        let op = serde_json::to_value(save_op(&b, "a.txt", "hello A\n", &f)).unwrap();
+        let preview =
+            serde_json::json!({"type": "PreviewFileOp", "data": {"stack": "valheim", "op": op}});
+        let r = ws::ask(&mut s, 1, preview.clone()).await;
+        assert_eq!(r["event"]["type"], "StepUpRequired", "{r}");
+        assert_eq!(std::fs::read(b.root.join("a.txt")).unwrap(), old);
+
+        // The request it carries is a verify ceremony.
+        let req = pk::request_of(&r);
+        let cred = pk::assert_with(&mut auth, super::support::ORIGIN, &req["options"]);
+        let r = pk::finish(&mut s, &req["ceremony"], cred).await;
+        assert_eq!(r["event"]["type"], "Verification", "{r}");
+        let r = ws::ask(&mut s, 2, preview).await;
+        assert_eq!(r["event"]["type"], "FilePreview", "{r}");
+        let id = r["event"]["data"]["preview_id"].clone();
+        let r = ws::ask(
+            &mut s,
+            3,
+            serde_json::json!({"type": "Confirm", "data": {"preview_id": id}}),
+        )
+        .await;
+        assert_eq!(r["event"]["type"], "FileOpDone", "{r}");
+        assert_eq!(std::fs::read(b.root.join("a.txt")).unwrap(), b"hello A\n");
+    }
+
     #[tokio::test]
     async fn read_only_mode_and_a_read_only_mount_refuse_the_save() {
         let b = browse(&[("DEPTHS_FEATURE_FILES", "read_only")]).await;

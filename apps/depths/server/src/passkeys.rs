@@ -529,8 +529,13 @@ pub struct Passkeys {
     pub clock: Clock,
     window: chrono::Duration,
     pending: Mutex<HashMap<CeremonyId, Pending>>,
+    /// Ceremonies already answered, newest last, so a resent answer reads as `replayed`.
+    spent: Mutex<std::collections::VecDeque<(CeremonyId, String)>>,
     removals: Mutex<HashMap<PreviewId, Removal>>,
 }
+
+/// How many answered ceremonies are remembered for telling a replay from an expiry.
+const SPENT_REMEMBERED: usize = 256;
 
 impl Passkeys {
     /// Opens the store in `data_dir` and the relying party for `public_url`. The note says the
@@ -546,6 +551,7 @@ impl Passkeys {
                 clock: Clock::default(),
                 window,
                 pending: Mutex::new(HashMap::new()),
+                spent: Mutex::new(std::collections::VecDeque::new()),
                 removals: Mutex::new(HashMap::new()),
             },
             note,
@@ -608,12 +614,22 @@ impl Passkeys {
         let now = self.now();
         let mut map = self.lock();
         if map.get(&id).is_none_or(|p| p.session != session) {
+            let spent = self.spent.lock().unwrap_or_else(PoisonError::into_inner);
+            if spent.iter().any(|(s, by)| *s == id && by == session) {
+                return Err(PasskeyRefusedReason::Replayed);
+            }
             return Err(PasskeyRefusedReason::Expired);
         }
         let p = map.remove(&id).ok_or(PasskeyRefusedReason::Expired)?;
+        drop(map);
         if now - p.created >= chrono::Duration::seconds(CEREMONY_TTL_SECS) {
             return Err(PasskeyRefusedReason::Expired);
         }
+        let mut spent = self.spent.lock().unwrap_or_else(PoisonError::into_inner);
+        if spent.len() >= SPENT_REMEMBERED {
+            spent.pop_front();
+        }
+        spent.push_back((id, session.to_owned()));
         Ok(p)
     }
 

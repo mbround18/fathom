@@ -28,6 +28,7 @@ use web_auth::provider::{
 };
 use web_auth::session::{Identity, Provider, Session, Tokens};
 
+pub mod passkey;
 pub mod volumes;
 pub mod ws;
 
