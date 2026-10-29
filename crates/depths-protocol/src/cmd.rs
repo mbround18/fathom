@@ -230,7 +230,7 @@ pub enum Cmd {
     // Image updates (spec 062). Admin.
     /// `Updates`, then live `UpdatesChanged`.
     ListUpdates,
-    /// `CheckStarted`, `Busy` (at most one per minute host-wide) or `Invalid` (checks off).
+    /// `CheckStarted`, `CheckBusy` (at most one per minute host-wide) or `Invalid` (checks off).
     /// `None` checks every stack.
     CheckUpdatesNow {
         #[serde(

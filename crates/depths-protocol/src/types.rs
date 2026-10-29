@@ -437,6 +437,11 @@ pub struct Features {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub files_reason: Option<String>,
+    /// Image updates (spec 062, `DEPTHS_UPDATES`): the Updates page and `StackDetail.updates`.
+    /// Admins see the page; users see states on their own stack pages only.
+    #[serde(default)]
+    #[ts(as = "Option<bool>", optional)]
+    pub updates: bool,
 }
 
 // ---------------------------------------------------------------------------

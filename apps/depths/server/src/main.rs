@@ -59,8 +59,21 @@ async fn run() -> Result<(), String> {
     let runtime = Arc::new(depths_runtime_cli::CliRuntime::new(cfg.docker_bin.clone()));
     let cli = (*runtime).clone();
     let state = AppState::new(cfg.clone(), providers, Arc::new(users), runtime)?;
-    // Spec 062: the Updates service is attached (`with_updates`) once its registry adapter
-    // exists (T037); until then the commands answer FeatureDisabled.
+    // Spec 062: with DEPTHS_UPDATES=off nothing is opened and no registry client exists.
+    let updates = depths_server::updates::Updates::open(
+        &cfg,
+        Arc::new(depths_server::updates::SystemClock),
+        || match depths_server::updates::registry::OciRegistry::new(
+            cfg.updates.docker_config.clone(),
+        ) {
+            Ok(r) => Arc::new(r),
+            Err(e) => {
+                tracing::warn!(error = %e, "updates: no registry client; checks report unreachable");
+                Arc::new(depths_server::updates::registry::Unavailable(e))
+            }
+        },
+    )?;
+    let state = state.with_updates(updates);
     tracing::info!(
         "{}",
         depths_server::updates::startup_line(&cfg.updates, state.updates.as_deref())
@@ -75,6 +88,14 @@ async fn run() -> Result<(), String> {
     let _reaper = depths_server::files::spawn_reaper(state.clone());
     let _sweeper = state.auth.sessions.spawn_sweeper(Duration::from_secs(60));
     let _refresher = Arc::new(depths_server::refresh::Refresher::default()).spawn(state.clone());
+    let _update_checks = state.updates.clone().map(|u| {
+        let inputs = Arc::new(depths_server::updates::inputs::RuntimeInputs {
+            store: state.store.clone(),
+            runtime: state.runtime.clone(),
+            hostname: std::env::var("HOSTNAME").ok(),
+        });
+        tokio::spawn(depths_server::updates::scheduler::run(u, inputs))
+    });
 
     let listener = tokio::net::TcpListener::bind(cfg.listen)
         .await

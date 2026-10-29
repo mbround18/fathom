@@ -1116,6 +1116,7 @@ async fn me(
                 .files
                 .reason()
                 .filter(|_| role == depths_protocol::Role::Admin),
+            updates: app.updates.is_some() && role != depths_protocol::Role::Pending,
         },
         network: crate::trust::wire(&decision),
         needs_answer: decision.needs_answer(),

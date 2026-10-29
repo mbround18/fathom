@@ -33,4 +33,9 @@ files?: FilesMode,
 /**
  * Why files are forced off (no helper image, no `openat2`), for admins only.
  */
-files_reason?: string, };
+files_reason?: string, 
+/**
+ * Image updates (spec 062, `DEPTHS_UPDATES`): the Updates page and `StackDetail.updates`.
+ * Admins see the page; users see states on their own stack pages only.
+ */
+updates?: boolean, };

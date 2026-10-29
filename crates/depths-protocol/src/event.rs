@@ -218,6 +218,11 @@ pub enum Event {
         stacks_with_updates: u32,
     },
     CheckStarted,
+    /// Check now ran less than `DEPTHS_UPDATES_CHECK_GAP` ago (FR-002): try again after this
+    /// many seconds.
+    CheckBusy {
+        retry_after_secs: u32,
+    },
     /// A batch preview. Binds each stack's `content_hash`, the digests shown and the order.
     UpdatePreview {
         preview_id: PreviewId,

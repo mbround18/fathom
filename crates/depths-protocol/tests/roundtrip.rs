@@ -1447,6 +1447,9 @@ fn all_events() -> Vec<Event> {
             stacks_with_updates: 3,
         },
         Event::CheckStarted,
+        Event::CheckBusy {
+            retry_after_secs: 42,
+        },
         Event::UpdatePreview {
             preview_id: preview_id(),
             stacks: vec![stack_update_plan()],
@@ -1525,6 +1528,7 @@ fn event_covered(event: &Event) -> &'static str {
         Event::UpdatesChanged(_) => "UpdatesChanged",
         Event::UpdatesBadge { .. } => "UpdatesBadge",
         Event::CheckStarted => "CheckStarted",
+        Event::CheckBusy { .. } => "CheckBusy",
         Event::UpdatePreview { .. } => "UpdatePreview",
         Event::UpdateRunStarted { .. } => "UpdateRunStarted",
         Event::UpdateStackDone { .. } => "UpdateStackDone",
@@ -1532,7 +1536,7 @@ fn event_covered(event: &Event) -> &'static str {
     }
 }
 
-const EVENT_VARIANTS: usize = 51;
+const EVENT_VARIANTS: usize = 52;
 
 #[test]
 fn every_event_roundtrips_in_an_envelope() {
@@ -1640,6 +1644,7 @@ fn me_roundtrips() {
             daemon: Some(DaemonMode::Rootful),
             files: FilesMode::ReadOnly,
             files_reason: Some("openat2 is missing".into()),
+            updates: true,
         },
         network: TrustDecision {
             trusted: false,
