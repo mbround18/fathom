@@ -58,6 +58,44 @@ pub enum Operation {
     ServiceRestart {
         service: ServiceName,
     },
+    /// Spec 062 (research R2): update the named services to the images the preview showed. Pull
+    /// each new image by digest, tag it as the compose reference, then
+    /// `up -d --no-deps --pull never <services…>`. The compose file is never written. The
+    /// runner checks holds between the pulls and the tags, keeps the way back, and waits for
+    /// health after the `up`.
+    ImageUpdate {
+        services: Vec<ServiceName>,
+        pins: Vec<ImagePin>,
+    },
+    /// Spec 062 (research R3): put the named services back on their previous images. Tag each
+    /// previous image id as its compose reference, then `up -d --no-deps --pull never`.
+    ImageRollback {
+        services: Vec<ServiceName>,
+        pins: Vec<RollbackPin>,
+    },
+}
+
+/// One new image of an [`Operation::ImageUpdate`]: pulled once, tagged once, used by every
+/// service in `services`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImagePin {
+    /// `<repo>@<digest>`: what is pulled, so the image installed is the one previewed.
+    pub pull: String,
+    /// The service's `platform:`, when it sets one.
+    pub platform: Option<String>,
+    /// What is tagged: the new image's id when known at preview time, else `pull`.
+    pub image: String,
+    /// The compose `image:` the services run, which the tag moves.
+    pub reference: String,
+    pub services: Vec<ServiceName>,
+}
+
+/// One image of an [`Operation::ImageRollback`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RollbackPin {
+    /// The previous image's id.
+    pub image: String,
+    pub reference: String,
 }
 
 /// The operation kinds, as the protocol and the audit log name them.
@@ -93,6 +131,7 @@ impl Operation {
             Self::ServiceUp { .. } => OperationKind::ServiceUp,
             Self::ServiceStop { .. } => OperationKind::ServiceStop,
             Self::ServiceRestart { .. } => OperationKind::ServiceRestart,
+            Self::ImageUpdate { .. } | Self::ImageRollback { .. } => OperationKind::Update,
         }
     }
 
@@ -111,7 +150,9 @@ impl Operation {
             | Self::Update
             | Self::ServiceUp { .. }
             | Self::ServiceStop { .. }
-            | Self::ServiceRestart { .. } => Action::Lifecycle,
+            | Self::ServiceRestart { .. }
+            | Self::ImageUpdate { .. }
+            | Self::ImageRollback { .. } => Action::Lifecycle,
             Self::Save { .. } => Action::Edit,
             Self::Create { .. } => Action::CreateStack,
             Self::Delete { .. } => Action::DeleteStack,
@@ -270,6 +311,133 @@ pub fn container_logs(stacks_root: &Path, container_id: &str, window: LogWindow<
     }
 }
 
+/// The three phases of an image update, so the runner can check holds between the pulls and
+/// the tags (research R2 steps 1 to 4). [`plan`] flattens them in this order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageUpdatePhases {
+    /// One `docker pull <repo>@<D>` per distinct pin.
+    pub pulls: Vec<RunStep>,
+    /// One `docker image tag <image> <reference>` per pin.
+    pub tags: Vec<RunStep>,
+    /// `docker compose [env] up -d --no-deps --pull never <services…>`; `None` with no services.
+    pub up: Option<RunStep>,
+}
+
+impl ImageUpdatePhases {
+    fn steps(self) -> Vec<Step> {
+        self.pulls
+            .into_iter()
+            .chain(self.tags)
+            .chain(self.up)
+            .map(Step::Run)
+            .collect()
+    }
+}
+
+/// `docker compose [env] up -d --no-deps --pull never <services…>`: the partial `up` of an image
+/// update or rollback. No `--remove-orphans`: other services are not this operation's business.
+fn partial_up(ctx: &StackContext<'_>, services: &[ServiceName]) -> Option<RunStep> {
+    if services.is_empty() {
+        return None;
+    }
+    let env = env_files(ctx.global_env, ctx.has_env);
+    let mut argv = compose(&env, &["up", "-d", "--no-deps", "--pull", "never"]);
+    argv.extend(services.iter().map(|s| s.as_str().to_owned()));
+    Some(RunStep {
+        argv,
+        cwd: ctx.stack_dir(),
+        stdin: StepStdin::None,
+    })
+}
+
+fn docker(ctx: &StackContext<'_>, args: Vec<String>) -> RunStep {
+    let mut argv = vec![DOCKER.to_owned()];
+    argv.extend(args);
+    RunStep {
+        argv,
+        cwd: ctx.stack_dir(),
+        stdin: StepStdin::None,
+    }
+}
+
+/// `docker image tag <image> <reference>`, run in the stack directory.
+pub fn image_tag(ctx: &StackContext<'_>, image: &str, reference: &str) -> RunStep {
+    docker(
+        ctx,
+        vec![
+            "image".into(),
+            "tag".into(),
+            image.to_owned(),
+            reference.to_owned(),
+        ],
+    )
+}
+
+/// `docker image rm <image>`, never `-f` (research R7): the daemon refuses an image in use.
+pub fn image_rm(ctx: &StackContext<'_>, image: &str) -> RunStep {
+    docker(ctx, vec!["image".into(), "rm".into(), image.to_owned()])
+}
+
+/// The phases of an image update. A pin that repeats another's `pull` is pulled once.
+pub fn image_update_phases(
+    ctx: &StackContext<'_>,
+    services: &[ServiceName],
+    pins: &[ImagePin],
+) -> ImageUpdatePhases {
+    let mut pulled: Vec<(&str, Option<&str>)> = Vec::new();
+    let mut pulls = Vec::new();
+    for pin in pins {
+        let key = (pin.pull.as_str(), pin.platform.as_deref());
+        if pulled.contains(&key) {
+            continue;
+        }
+        pulled.push(key);
+        let mut args = vec!["pull".to_owned()];
+        if let Some(p) = &pin.platform {
+            args.extend(["--platform".to_owned(), p.clone()]);
+        }
+        args.push(pin.pull.clone());
+        pulls.push(docker(ctx, args));
+    }
+    let tags = pins
+        .iter()
+        .map(|p| image_tag(ctx, &p.image, &p.reference))
+        .collect();
+    ImageUpdatePhases {
+        pulls,
+        tags,
+        up: partial_up(ctx, services),
+    }
+}
+
+/// The steps of an image rollback: the tags, then the partial `up`.
+pub fn image_rollback_steps(
+    ctx: &StackContext<'_>,
+    services: &[ServiceName],
+    pins: &[RollbackPin],
+) -> Vec<RunStep> {
+    pins.iter()
+        .map(|p| image_tag(ctx, &p.image, &p.reference))
+        .chain(partial_up(ctx, services))
+        .collect()
+}
+
+/// FR-026: what 050's `Update` becomes. With checks on and the stack's update states known, the
+/// image-update plan for the services that have a newer image (`pins`); otherwise 050's
+/// pull-then-up.
+pub fn update_operation(
+    checks_enabled: bool,
+    states_known: bool,
+    services: Vec<ServiceName>,
+    pins: Vec<ImagePin>,
+) -> Operation {
+    if checks_enabled && states_known {
+        Operation::ImageUpdate { services, pins }
+    } else {
+        Operation::Update
+    }
+}
+
 /// Builds the plan for `op` on the stack in `ctx`.
 pub fn plan(ctx: &StackContext<'_>, op: &Operation) -> Plan {
     let dir = ctx.stack_dir();
@@ -369,6 +537,15 @@ pub fn plan(ctx: &StackContext<'_>, op: &Operation) -> Plan {
         Operation::ServiceRestart { service } => {
             Plan::safe(vec![run(compose(&env, &["restart", service.as_str()]))])
         }
+        Operation::ImageUpdate { services, pins } => {
+            Plan::safe(image_update_phases(ctx, services, pins).steps())
+        }
+        Operation::ImageRollback { services, pins } => Plan::safe(
+            image_rollback_steps(ctx, services, pins)
+                .into_iter()
+                .map(Step::Run)
+                .collect(),
+        ),
     }
 }
 
@@ -565,6 +742,173 @@ mod tests {
             ]
         );
         assert!(!p.destructive);
+    }
+
+    fn pin(pull: &str, image: &str, reference: &str, services: &[&str]) -> ImagePin {
+        ImagePin {
+            pull: pull.into(),
+            platform: None,
+            image: image.into(),
+            reference: reference.into(),
+            services: services.iter().map(|s| svc(s)).collect(),
+        }
+    }
+
+    #[test]
+    fn image_update_pulls_by_digest_tags_then_ups_only_the_named_services() {
+        let op = Operation::ImageUpdate {
+            services: vec![svc("app"), svc("worker")],
+            pins: vec![
+                pin("nginx@sha256:aa", "sha256:c1", "nginx:1.27", &["app"]),
+                pin("redis@sha256:bb", "sha256:c2", "redis:7", &["worker"]),
+            ],
+        };
+        assert_eq!(op.kind(), OperationKind::Update);
+        assert_eq!(op.required_action(), Action::Lifecycle);
+        let p = planned(false, false, op);
+        assert_eq!(
+            argvs(&p),
+            vec![
+                "docker pull nginx@sha256:aa",
+                "docker pull redis@sha256:bb",
+                "docker image tag sha256:c1 nginx:1.27",
+                "docker image tag sha256:c2 redis:7",
+                "docker compose up -d --no-deps --pull never app worker",
+            ]
+        );
+        assert!(!p.destructive);
+        assert!(
+            !argvs(&p).iter().any(|a| a.contains("--remove-orphans")),
+            "a partial operation never removes orphans"
+        );
+        for r in p.commands() {
+            assert_eq!(r.cwd, Path::new(ROOT).join("web"));
+            assert_eq!(r.stdin, StepStdin::None);
+        }
+    }
+
+    #[test]
+    fn image_update_passes_the_platform_and_the_env_files() {
+        let mut p1 = pin("nginx@sha256:aa", "sha256:c1", "nginx:1.27", &["app"]);
+        p1.platform = Some("linux/arm64".into());
+        let p = planned(
+            true,
+            true,
+            Operation::ImageUpdate {
+                services: vec![svc("app")],
+                pins: vec![p1],
+            },
+        );
+        assert_eq!(
+            argvs(&p),
+            vec![
+                "docker pull --platform linux/arm64 nginx@sha256:aa",
+                "docker image tag sha256:c1 nginx:1.27",
+                "docker compose --env-file ../global.env --env-file ./.env up -d --no-deps \
+                 --pull never app",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_image_shared_by_several_services_is_pulled_once() {
+        let p = planned(
+            false,
+            false,
+            Operation::ImageUpdate {
+                services: vec![svc("api"), svc("worker")],
+                pins: vec![pin(
+                    "ghcr.io/x/app@sha256:aa",
+                    "sha256:c1",
+                    "ghcr.io/x/app:2",
+                    &["api", "worker"],
+                )],
+            },
+        );
+        assert_eq!(
+            argvs(&p),
+            vec![
+                "docker pull ghcr.io/x/app@sha256:aa",
+                "docker image tag sha256:c1 ghcr.io/x/app:2",
+                "docker compose up -d --no-deps --pull never api worker",
+            ]
+        );
+        // Two references to the same digest: one pull, two tags.
+        let phases = image_update_phases(
+            &StackContext {
+                stacks_root: Path::new(ROOT),
+                stack: &name(),
+                global_env: false,
+                has_env: false,
+            },
+            &[svc("a"), svc("b")],
+            &[
+                pin("x/app@sha256:aa", "sha256:c1", "x/app:2", &["a"]),
+                pin("x/app@sha256:aa", "sha256:c1", "x/app:latest", &["b"]),
+            ],
+        );
+        assert_eq!(phases.pulls.len(), 1);
+        assert_eq!(phases.tags.len(), 2);
+    }
+
+    #[test]
+    fn image_rollback_retags_the_previous_image_and_ups_the_failed_services() {
+        let p = planned(
+            false,
+            false,
+            Operation::ImageRollback {
+                services: vec![svc("app")],
+                pins: vec![RollbackPin {
+                    image: "sha256:old".into(),
+                    reference: "nginx:1.27".into(),
+                }],
+            },
+        );
+        assert_eq!(
+            argvs(&p),
+            vec![
+                "docker image tag sha256:old nginx:1.27",
+                "docker compose up -d --no-deps --pull never app",
+            ]
+        );
+    }
+
+    #[test]
+    fn image_rm_never_forces() {
+        let stack = name();
+        let ctx = StackContext {
+            stacks_root: Path::new(ROOT),
+            stack: &stack,
+            global_env: false,
+            has_env: false,
+        };
+        assert_eq!(
+            image_rm(&ctx, "sha256:old").argv.join(" "),
+            "docker image rm sha256:old"
+        );
+    }
+
+    #[test]
+    fn update_becomes_the_image_update_plan_only_with_checks_on_and_states_known() {
+        let pins = vec![pin("nginx@sha256:aa", "sha256:c1", "nginx:1", &["app"])];
+        let image = Operation::ImageUpdate {
+            services: vec![svc("app")],
+            pins: pins.clone(),
+        };
+        assert_eq!(
+            update_operation(true, true, vec![svc("app")], pins.clone()),
+            image
+        );
+        assert_eq!(
+            update_operation(false, true, vec![svc("app")], pins.clone()),
+            Operation::Update,
+            "checks off: pull then up"
+        );
+        assert_eq!(
+            update_operation(true, false, vec![svc("app")], pins),
+            Operation::Update,
+            "no update states yet: pull then up"
+        );
     }
 
     #[test]
