@@ -63,7 +63,9 @@ import type {
   Preview,
   PreviewVoidReason,
   Provider,
+  RegistryStatus,
   Role,
+  ServiceUpdate,
   SessionView,
   Stack,
   StackDetail,
@@ -72,6 +74,9 @@ import type {
   Step,
   StreamCloseReason,
   TrustDecision,
+  UpdateSettings,
+  UpdatesView,
+  UpdateState,
   UsageSample,
   User,
   UserList,
@@ -294,6 +299,91 @@ export const fixtures = {
     }
   },
 
+  /** Spec 062: the host's update settings as the server defaults them (checks off). */
+  updateSettings(over: Partial<UpdateSettings> = {}): UpdateSettings {
+    return {
+      checks_enabled: false,
+      interval_secs: 21_600,
+      window: { days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'], start: '03:00', end: '05:00' },
+      label_only: false,
+      cleanup: false,
+      health_timeout_secs: 120,
+      ...over,
+    }
+  },
+
+  /** Spec 062: one service's update state; `available` gets a newer image. */
+  serviceUpdate(stack: string, service: string, state: UpdateState, over: Partial<ServiceUpdate> = {}): ServiceUpdate {
+    return {
+      stack,
+      service,
+      reference: `${service}:latest`,
+      running: { image_id: 'sha256:aaaa1111bbbb2222cccc3333', repo_digest: 'sha256:1111aaaa2222bbbb3333cccc', version: '1.0.0', revision: null },
+      available:
+        state === 'available'
+          ? {
+              digest: 'sha256:9999ffff8888eeee7777dddd',
+              platform_digest: 'sha256:9999ffff8888eeee7777dddd',
+              config_digest: 'sha256:5555',
+              version: '1.1.0',
+              revision: null,
+              created: '2026-10-27T10:00:00Z',
+              user: null,
+            }
+          : null,
+      state,
+      reason: null,
+      effective: { policy: state === 'excluded' ? 'off' : 'notify', source: { kind: 'default' }, excluded: null, labels: [] },
+      last_checked: state === 'not_checked' ? null : '2026-10-28T09:00:00Z',
+      last_outcome: null,
+      replicas: 1,
+      ...over,
+    }
+  },
+
+  /** Spec 062: the Updates page with checks on and one service in each state US1 shows. */
+  updatesView(over: Partial<UpdatesView> = {}): UpdatesView {
+    const su = (stack: string, service: string, state: UpdateState, o: Partial<ServiceUpdate> = {}): ServiceUpdate =>
+      fixtures.serviceUpdate(stack, service, state, o)
+    const registries: RegistryStatus[] = [
+      { host: 'registry-1.docker.io', auth: { kind: 'anonymous' }, backoff_until: null },
+      { host: 'registry.example.com', auth: { kind: 'unsupported', reason: 'credsStore desktop is not supported' }, backoff_until: null },
+      { host: 'ghcr.io', auth: { kind: 'config' }, backoff_until: '2026-10-28T10:30:00Z' },
+    ]
+    return {
+      settings: fixtures.updateSettings({ checks_enabled: true }),
+      available: { kind: 'on' },
+      zone: 'Europe/Berlin (UTC+01:00)',
+      next_check: '2026-10-28T15:00:00Z',
+      next_window: null,
+      auto_paused: null,
+      services: [
+        su('web', 'app', 'available'),
+        su('web', 'cache', 'up_to_date'),
+        su('blog', 'ghost', 'available', { reference: 'ghost:5' }),
+        su('blog', 'db', 'check_failed', {
+          reference: 'registry.example.com/team/db:16',
+          reason: "can't check: registry.example.com answered 401 (no credentials for it in config.json)",
+        }),
+        su('media', 'jellyfin', 'not_checked', { running: null, reason: 'no container is running' }),
+        su('media', 'local', 'excluded', {
+          reference: 'media-local',
+          effective: { policy: 'off', source: { kind: 'default' }, excluded: { kind: 'local_image' }, labels: [] },
+        }),
+        su('depths', 'depths', 'excluded', {
+          reference: 'ghcr.io/example/depths:latest',
+          effective: { policy: 'off', source: { kind: 'default' }, excluded: { kind: 'depths_itself' }, labels: [] },
+        }),
+      ],
+      policies: {},
+      recent_runs: [],
+      watchtower: [],
+      paused_policies: [],
+      registries,
+      ...over,
+    }
+  },
+
   detail(stack: Stack, over: Partial<StackDetail> = {}): StackDetail {
     return {
       stack,
@@ -459,6 +549,11 @@ function naiveDiff(path: string, before: string, after: string): string {
  * The scriptable backend. Public fields are the scripted state: assign them before `page.goto`,
  * or mid-test (then `push` a `StacksChanged`/`UsersChanged` if the UI should hear about it).
  */
+/** Stacks with at least one service whose state is `available`, as the server's badge counts. */
+export function updatesBadge(services: readonly ServiceUpdate[]): number {
+  return new Set(services.filter((s) => s.state === 'available').map((s) => s.stack)).size
+}
+
 export class FakeBackend {
   /** `null` = no session: `/me` is a 401 and the socket closes 4401. */
   me: Me | null = fixtures.me()
@@ -500,6 +595,14 @@ export class FakeBackend {
   validationErrors: Record<string, { file?: DraftFile; line: number | null; message: string }[]> = {}
   /** Close code for every new socket's `Hello`, e.g. `CloseCode.TooMany`. `null` = accept. */
   helloClose: number | null = null
+  /**
+   * Spec 062: the Updates page. `null` is the feature off (`feature_disabled`, and no badge).
+   * `setUpdates(view)` sets it and `me.features.updates` together.
+   */
+  updates: UpdatesView | null = null
+  /** Spec 062: `CheckUpdatesNow` answers `CheckBusy` with this while set. */
+  checkBusySecs: number | null = null
+  private readonly updatePreviews = new Map<string, UpdateSettings>()
   /** 053: every stack's mounts and their files; seed with `files.addMount`, `files.write`, … */
   readonly files: FakeFiles = new FakeFiles(
     () => this.me,
@@ -605,6 +708,21 @@ export class FakeBackend {
     this.files.expirePreviews()
   }
 
+  /** Spec 062: turns image updates on with `view` (or off with `null`), and `me.features.updates` with it. */
+  setUpdates(view: UpdatesView | null): this {
+    this.updates = view
+    if (this.me) this.me = { ...this.me, features: { ...this.me.features, updates: view !== null } }
+    return this
+  }
+
+  /** Spec 062: replaces the services and pushes `UpdatesChanged` and the badge, as the coalesced feed does. */
+  pushUpdates(services: ServiceUpdate[]): void {
+    if (this.updates === null) return
+    this.updates = { ...this.updates, services }
+    this.push({ type: 'UpdatesChanged', data: this.updates })
+    this.push({ type: 'UpdatesBadge', data: { stacks_with_updates: updatesBadge(services) } })
+  }
+
   /** 053: sets `me.features.files` and merges `limits` into `me.limits.files`, mid-test or before `goto`. */
   setFiles(mode: FilesMode, limits: Partial<FileLimits> = {}): this {
     const me = this.me ?? fixtures.me()
@@ -676,6 +794,7 @@ export class FakeBackend {
       case 'PreviewOp':
         return RESTRICTED_OPS.has(cmd.data.op.kind)
       case 'Confirm': {
+        if (this.updatePreviews.has(cmd.data.preview_id)) return false
         // 053 R12: listing is all the restricted view gets of files, so no file change confirms.
         if (this.files.owns(cmd.data.preview_id)) return false
         const p = this.previews.get(cmd.data.preview_id)
@@ -692,6 +811,9 @@ export class FakeBackend {
       case 'ShellInput':
       case 'ShellResize':
       case 'GetAudit':
+      case 'CheckUpdatesNow':
+      case 'PreviewUpdateChange':
+      case 'PreviewUpdateBatch':
       case 'PutUser':
       case 'RemoveUser':
         return false
@@ -949,6 +1071,10 @@ export class FakeBackend {
       socket.close(this.helloClose)
     } else {
       socket.ready = true
+      // Spec 062: admins get the badge on sign-in.
+      if (this.updates !== null && this.me.role === 'admin') {
+        socket.send({ type: 'UpdatesBadge', data: { stacks_with_updates: updatesBadge(this.updates.services) } })
+      }
     }
   }
 
@@ -1075,6 +1201,15 @@ export class FakeBackend {
       case 'Confirm': {
         // 051 FR-018: a preview with escape findings under `enforce` runs only acknowledged.
         if (this.files.owns(cmd.data.preview_id)) return this.files.confirm(cmd.data.preview_id, may)
+        const settings = this.updatePreviews.get(cmd.data.preview_id)
+        if (settings !== undefined) {
+          this.updatePreviews.delete(cmd.data.preview_id)
+          if (this.updates === null) return denied('feature_disabled')
+          if (!admin) return denied()
+          this.updates = { ...this.updates, settings }
+          this.recordAudit({ action: 'update_settings', outcome: { kind: 'succeeded' } })
+          return [{ type: 'UpdatesChanged', data: this.updates }]
+        }
         const held = this.previews.get(cmd.data.preview_id)
         if (held?.preview.ack_required && !held.used && cmd.data.acknowledge_findings !== true) {
           return [{ type: 'Denied', data: { reason: 'compose_blocked', detail: 'acknowledge the findings to deploy' } }]
@@ -1249,11 +1384,56 @@ export class FakeBackend {
       case 'RecoverPasskeys':
         return [{ type: 'PasskeyRefused', data: { reason: 'recovery_invalid' } }]
 
-      // Spec 062: refused until the Updates service is wired, as the server does.
+      // Spec 062 US1: the page, Check now and the settings change; batches come later.
       case 'ListUpdates':
+        if (this.updates === null) return denied('feature_disabled')
+        if (!admin) return denied()
+        return [{ type: 'Updates', data: this.updates }]
+
       case 'CheckUpdatesNow':
+        if (this.updates === null) return denied('feature_disabled')
+        if (!admin) return denied()
+        if (!this.updates.settings.checks_enabled)
+          return [{ type: 'Invalid', data: { reason: 'update checks are off: turn them on in the Updates settings first' } }]
+        if (this.checkBusySecs !== null) return [{ type: 'CheckBusy', data: { retry_after_secs: this.checkBusySecs } }]
+        return [{ type: 'CheckStarted' }]
+
+      case 'PreviewUpdateChange': {
+        if (this.updates === null || cmd.data.kind !== 'settings') return denied('feature_disabled')
+        if (!admin) return denied()
+        const before = this.updates.settings
+        const after = cmd.data.data
+        if (after.interval_secs < 3600)
+          return [{ type: 'Invalid', data: { reason: `interval_secs is ${String(after.interval_secs)}; the minimum is 3600 (one hour)` } }]
+        const lines: string[] = []
+        const word = (b: boolean): string => (b ? 'on' : 'off')
+        if (before.checks_enabled !== after.checks_enabled)
+          lines.push(`update checks: ${word(before.checks_enabled)} -> ${word(after.checks_enabled)}`)
+        if (before.interval_secs !== after.interval_secs)
+          lines.push(`check interval: every ${String(before.interval_secs / 3600)} h -> every ${String(after.interval_secs / 3600)} h`)
+        if (lines.length === 0) return [{ type: 'Invalid', data: { reason: 'nothing to change' } }]
+        this.seq += 1
+        const preview_id = `00000000-0000-4000-8062-${String(this.seq).padStart(12, '0')}`
+        this.updatePreviews.set(preview_id, after)
+        return [
+          {
+            type: 'Preview',
+            data: {
+              preview_id,
+              stack: '',
+              kind: 'update',
+              steps: [],
+              file_diff: lines.join('\n'),
+              reaches: { containers: [], networks: [], volumes: [] },
+              destructive: false,
+              stack_hash: '',
+              expires_at: '2026-10-28T12:05:00Z',
+            },
+          },
+        ]
+      }
+
       case 'PreviewUpdateBatch':
-      case 'PreviewUpdateChange':
         return denied('feature_disabled')
     }
   }
