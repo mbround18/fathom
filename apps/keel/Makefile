@@ -19,11 +19,12 @@ db-stop: ## Stop the throwaway test database and delete its directory
 	$(ROOT)/scripts/keel-test-db.sh stop
 
 # ---- Server image and the dev compose stack (055 T126, T127, T134) ----------------------------
-# The image is the server only; runners are host binaries. Version tags come from git tags later.
+# The image is the server only; runners are host binaries. Build metadata (spec 061 R2): VERSION
+# only when HEAD carries an exact `keel-v<semver>` tag (prefix stripped), else empty, so an untagged
+# build never claims a release; REVISION is the sha, plus -dirty; CREATED is the UTC build time.
 IMAGE_REPO   ?= mbround18/keel
 IMAGE_TAG    ?= latest
 IMAGE        := $(IMAGE_REPO):$(IMAGE_TAG)
-KEEL_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' $(ROOT)/apps/keel/server/Cargo.toml | head -1)
 RUST_VERSION := $(shell sed -n 's/^channel = "\(.*\)"/\1/p' $(ROOT)/rust-toolchain.toml)
 # The same PostgreSQL image as compose.yaml; compose-secrets borrows its shell for chown.
 PG_IMAGE     := postgres:18-trixie
@@ -37,10 +38,14 @@ image: ## Build the server image (IMAGE_REPO:IMAGE_TAG, default mbround18/keel:l
 	@$(MAKE) --no-print-directory -C $(ROOT) gc
 	@rev=$$(git -C $(ROOT) rev-parse HEAD); \
 	if [ -n "$$(git -C $(ROOT) status --porcelain)" ]; then rev="$$rev-dirty"; fi; \
+	ver=$$(git -C $(ROOT) describe --exact-match --match 'keel-v*' HEAD 2>/dev/null || true); \
+	ver="$${ver#keel-v}"; \
+	created=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
 	set -x; docker build -f $(ROOT)/apps/keel/Dockerfile --target server -t $(IMAGE) \
 	  --build-arg RUST_VERSION=$(RUST_VERSION) \
-	  --build-arg VERSION=$(KEEL_VERSION) \
+	  --build-arg VERSION="$$ver" \
 	  --build-arg REVISION="$$rev" \
+	  --build-arg CREATED="$$created" \
 	  $(ROOT)
 
 image-push-check:
