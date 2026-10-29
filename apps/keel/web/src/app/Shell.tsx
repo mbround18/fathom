@@ -38,7 +38,7 @@ const CONNECTION_LABEL = {
 } as const
 
 const NAV_LINK =
-  'inline-flex h-7 shrink-0 items-center gap-1.5 border-b border-transparent px-2 text-xs text-muted-foreground ' +
+  'relative inline-flex h-7 shrink-0 items-center gap-1.5 border-b border-transparent px-2 text-xs text-muted-foreground ' +
   'hover:text-foreground focus-visible:ring-1 focus-visible:ring-accent-neon focus-visible:outline-none ' +
   'aria-[current=page]:border-accent-neon aria-[current=page]:text-primary md:border-b-0 md:border-l md:aria-[current=page]:bg-accent-neon/5'
 
@@ -59,6 +59,8 @@ function NavLink({
     <Link to={to} aria-current={current ? 'page' : undefined} className={`${NAV_LINK} ${className}`}>
       <Icon aria-hidden className="size-3.5 shrink-0" />
       {label}
+      {/* The link is `relative` so the sr-only text stays inside the phone's scrolling strip
+          instead of widening the page from wherever the strip scrolled it to. */}
       {dot && (
         <>
           <span aria-hidden data-update-dot className="size-1.5 shrink-0 rounded-full bg-accent-neon shadow-[var(--glow)]" />
