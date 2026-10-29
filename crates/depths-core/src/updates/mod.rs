@@ -6,6 +6,8 @@
 //! [`registry::Registry`]. The server owns the state files, credentials, the scheduler and the
 //! runner.
 
+pub mod labels;
+pub mod policy;
 pub mod reference;
 pub mod registry;
 pub mod window;

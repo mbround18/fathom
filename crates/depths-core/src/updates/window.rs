@@ -16,6 +16,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Host local time. The server's adapter is `chrono::Local`.
 pub trait LocalZone: Send + Sync {
     fn to_local(&self, utc: DateTime<Utc>) -> NaiveDateTime;
+    // Named as research R5 names it, after chrono's `TimeZone::from_local_datetime`.
+    #[allow(clippy::wrong_self_convention)]
     fn from_local(&self, local: NaiveDateTime) -> LocalResult<DateTime<Utc>>;
 }
 
