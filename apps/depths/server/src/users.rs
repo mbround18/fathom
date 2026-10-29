@@ -174,6 +174,19 @@ impl Registry {
                         f.version
                     )));
                 }
+                // Spec 062 R8: `depths` names server-created actors; nobody signs in as it.
+                if let Some(u) = f
+                    .users
+                    .iter()
+                    .find(|u| u.provider == Provider::Depths || u.id.starts_with("depths:"))
+                {
+                    return Err(RegistryError(format!(
+                        "{}: entry {} uses the reserved depths provider; remove it, nobody can \
+                         sign in as depths",
+                        path.display(),
+                        u.id
+                    )));
+                }
                 f.users
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
@@ -544,6 +557,34 @@ mod tests {
         assert!(leftovers.is_empty());
         let r = open(d.path(), owner()).unwrap();
         assert_eq!(r.get("discord:2").unwrap().role, Role::Pending);
+    }
+
+    /// Spec 062 research R8: `depths` names server-created actors; nobody signs in as it.
+    #[test]
+    fn the_depths_provider_is_refused_in_the_file() {
+        let entry = |id: &str, provider: &str| {
+            serde_json::json!({ "version": 1, "users": [
+                { "id": "discord:1", "provider": "discord", "issuer": null, "subject": "1",
+                  "username": null, "email": null, "role": "admin", "stacks": [],
+                  "owner": false, "pinned_from": null, "first_seen": null, "last_seen": null },
+                { "id": id, "provider": provider, "issuer": null, "subject": "updates",
+                  "username": null, "email": null, "role": "admin", "stacks": [],
+                  "owner": false, "pinned_from": null, "first_seen": null, "last_seen": null },
+            ]})
+        };
+        for (id, provider) in [
+            ("depths:updates", "depths"),
+            ("depths:updates", "oidc"),
+            ("oidc:x", "depths"),
+        ] {
+            let d = tempfile::tempdir().unwrap();
+            let path = d.path().join("users.json");
+            std::fs::write(&path, entry(id, provider).to_string()).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let e = open(d.path(), owner()).err().expect("refused");
+            assert!(e.0.contains("users.json") && e.0.contains("depths"), "{e}");
+            assert_eq!(std::fs::read(&path).unwrap(), before, "never rewritten");
+        }
     }
 
     #[test]
