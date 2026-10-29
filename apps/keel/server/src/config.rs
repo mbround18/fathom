@@ -27,6 +27,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
+use oci_registry::{Credentials, ImageRef, Reference};
 use secrecy::SecretString;
 use url::Url;
 
@@ -322,123 +323,32 @@ pub struct UpdateConfig {
     pub check: bool,
     /// At least an hour.
     pub interval: Duration,
-    pub image: WatchedImage,
-    pub credentials: RegistryCredentials,
+    /// Always a tag ([`parse_watched_image`]).
+    pub image: ImageRef,
+    /// `Debug` never shows the password.
+    pub credentials: Credentials,
 }
 
-/// The watched reference, `registry/repository:tag`, never with credentials. Parsed here per
-/// contracts/registry.md until `oci_registry::ImageRef` replaces it (T020).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WatchedImage {
-    /// As written, except that `index.docker.io` and no registry are `docker.io`.
-    pub registry: String,
-    /// With `library/` for a single-segment Docker Hub name.
-    pub repository: String,
-    pub tag: String,
-}
-
-impl WatchedImage {
-    /// `[registry/]repository[:tag]`: no registry means `docker.io`, no tag means `latest`. The
-    /// first segment is a registry only when it has a `.` or a `:`, or is `localhost`. Refuses a
-    /// digest, a scheme, an upper-case repository and a tag over 128 characters.
-    ///
-    /// # Errors
-    ///
-    /// Why `s` isn't a reference to watch.
-    pub fn parse(s: &str) -> Result<Self, String> {
-        let s = s.trim();
-        if s.starts_with("http://") {
-            return Err("names an http:// registry; registries are reached over https".into());
-        }
-        if s.contains("://") {
-            return Err("is a URL; write it as [registry/]repository[:tag]".into());
-        }
-        if s.contains('@') {
-            return Err("carries a digest; a digest never changes, so watch a tag".into());
-        }
-        let (registry, rest) = match s.split_once('/') {
-            Some((first, rest))
-                if first.contains('.') || first.contains(':') || first == "localhost" =>
-            {
-                (first, rest)
-            }
-            _ => ("docker.io", s),
-        };
-        let registry = if registry == "index.docker.io" {
-            "docker.io"
-        } else {
-            registry
-        };
-        let (repository, tag) = match rest.rsplit_once(':') {
-            Some((repo, tag)) => (repo, tag),
-            None => (rest, "latest"),
-        };
-        if repository.is_empty() {
-            return Err("has no repository".into());
-        }
-        if repository.bytes().any(|b| b.is_ascii_uppercase()) {
-            return Err("has an upper-case repository".into());
-        }
-        let segment_ok = |seg: &str| {
-            !seg.is_empty()
-                && seg.bytes().all(|b| {
-                    b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
-                })
-                && seg.as_bytes()[0].is_ascii_alphanumeric()
-        };
-        if !repository.split('/').all(segment_ok) {
-            return Err(format!("`{repository}` is not a repository name"));
-        }
-        let tag_ok = (1..=128).contains(&tag.len())
-            && tag.as_bytes()[0] != b'.'
-            && tag.as_bytes()[0] != b'-'
-            && tag
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
-        if !tag_ok {
-            return Err(format!("`{tag}` is not a tag (at most 128 characters)"));
-        }
-        let repository = if registry == "docker.io" && !repository.contains('/') {
-            format!("library/{repository}")
-        } else {
-            repository.to_owned()
-        };
-        Ok(Self {
-            registry: registry.to_owned(),
-            repository,
-            tag: tag.to_owned(),
-        })
+/// The watched reference: `oci_registry::ImageRef::parse`, plus Keel's own refusals
+/// (contracts/config.md). Keel watches a tag over `https`, so a digest reference and an `http://`
+/// registry are refused here with a reason the operator can act on.
+///
+/// # Errors
+///
+/// Why `s` isn't a reference to watch.
+pub fn parse_watched_image(s: &str) -> Result<ImageRef, String> {
+    let s = s.trim();
+    if s.starts_with("http://") {
+        return Err("names an http:// registry; registries are reached over https".into());
     }
-}
-
-impl fmt::Display for WatchedImage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}/{}:{}", self.registry, self.repository, self.tag)
+    if s.contains("://") {
+        return Err("is a URL; write it as [registry/]repository[:tag]".into());
     }
-}
-
-/// How the update check signs in to the registry. Becomes `oci_registry::Credentials` (T020).
-/// `Debug` never shows the password.
-#[derive(Clone)]
-pub enum RegistryCredentials {
-    Anonymous,
-    Basic {
-        username: String,
-        password: SecretString,
-    },
-}
-
-impl fmt::Debug for RegistryCredentials {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Anonymous => f.write_str("Anonymous"),
-            Self::Basic { username, .. } => f
-                .debug_struct("Basic")
-                .field("username", username)
-                .field("password", &"[redacted]")
-                .finish(),
-        }
+    let image = ImageRef::parse(s).map_err(|e| format!("is refused ({e})"))?;
+    if matches!(image.reference(), Reference::Digest(_)) {
+        return Err("carries a digest; a digest never changes, so watch a tag".into());
     }
+    Ok(image)
 }
 
 /// `--tls-cert` and `--tls-key`: paths only; [`crate::tls::load`] reads them at start.
@@ -981,7 +891,7 @@ impl Config {
         let image = image
             .as_deref()
             .unwrap_or("docker.io/mbround18/keel:latest");
-        let image = WatchedImage::parse(image)
+        let image = parse_watched_image(image)
             .or_else(|why| refuse(format!("KEEL_UPDATE_IMAGE: `{image}` {why}")))?;
 
         let username = r.pick_quiet(
@@ -991,8 +901,8 @@ impl Config {
         );
         let password = r.secret("update_registry_password", "KEEL_UPDATE_REGISTRY_PASSWORD")?;
         let credentials = match (username, password) {
-            (Some(username), Some(password)) => RegistryCredentials::Basic { username, password },
-            (None, None) => RegistryCredentials::Anonymous,
+            (Some(username), Some(password)) => Credentials::Basic { username, password },
+            (None, None) => Credentials::Anonymous,
             (Some(_), None) => {
                 return refuse(
                     "KEEL_UPDATE_REGISTRY_USERNAME is set but KEEL_UPDATE_REGISTRY_PASSWORD \
@@ -1592,11 +1502,11 @@ mod tests {
         assert_eq!(c.update.interval, Duration::from_secs(6 * 3600));
         assert_eq!(
             c.update.image.to_string(),
-            "docker.io/mbround18/keel:latest"
+            "registry-1.docker.io/mbround18/keel:latest"
         );
         assert!(matches!(
             c.update.credentials,
-            RegistryCredentials::Anonymous
+            Credentials::Anonymous
         ));
         assert_eq!(c.build.digest, None);
         assert_eq!(c.build.display(), "development build");
@@ -1654,20 +1564,21 @@ mod tests {
 
     #[test]
     fn watched_image_follows_the_registry_rules() {
+        // `Display` is the crate's canonical form: Docker Hub is its API host.
         for (input, want) in [
-            ("mbround18/keel", "docker.io/mbround18/keel:latest"),
-            ("keel", "docker.io/library/keel:latest"),
+            ("mbround18/keel", "registry-1.docker.io/mbround18/keel:latest"),
+            ("keel", "registry-1.docker.io/library/keel:latest"),
             (
                 "index.docker.io/mbround18/keel:1",
-                "docker.io/mbround18/keel:1",
+                "registry-1.docker.io/mbround18/keel:1",
             ),
-            ("docker.io/keel:2", "docker.io/library/keel:2"),
+            ("docker.io/keel:2", "registry-1.docker.io/library/keel:2"),
             ("ghcr.io/a/b/c:v1.2_3-x", "ghcr.io/a/b/c:v1.2_3-x"),
             ("localhost/keel", "localhost/keel:latest"),
             ("registry:5000/keel:1", "registry:5000/keel:1"),
         ] {
             assert_eq!(
-                WatchedImage::parse(input).unwrap().to_string(),
+                parse_watched_image(input).unwrap().to_string(),
                 want,
                 "{input}"
             );
@@ -1683,9 +1594,14 @@ mod tests {
             long_tag.as_str(),
             "keel:-x",
         ] {
-            assert!(WatchedImage::parse(bad).is_err(), "{bad}");
+            assert!(parse_watched_image(bad).is_err(), "{bad}");
         }
-        assert!(WatchedImage::parse(&format!("keel:{}", "a".repeat(128))).is_ok());
+        assert!(parse_watched_image(&format!("keel:{}", "a".repeat(128))).is_ok());
+        // Keel's own refusals, on top of the crate's, say what to do instead.
+        let why = parse_watched_image(&format!("mbround18/keel@{DIGEST}")).unwrap_err();
+        assert!(why.contains("watch a tag"), "{why}");
+        let why = parse_watched_image("http://registry.example/keel").unwrap_err();
+        assert!(why.contains("https"), "{why}");
     }
 
     #[test]
@@ -1749,7 +1665,7 @@ mod tests {
             ("KEEL_UPDATE_REGISTRY_PASSWORD", "pa55word"),
         ]))
         .unwrap();
-        let RegistryCredentials::Basic { username, password } = &c.update.credentials else {
+        let Credentials::Basic { username, password } = &c.update.credentials else {
             panic!("{:?}", c.update.credentials);
         };
         assert_eq!(username, "robot");
@@ -1778,7 +1694,7 @@ mod tests {
         pairs.push(("KEEL_UPDATE_REGISTRY_PASSWORD_FILE", &path_s));
         let c = resolve(&pairs).unwrap();
         std::fs::remove_dir_all(&dir).unwrap();
-        let RegistryCredentials::Basic { password, .. } = &c.update.credentials else {
+        let Credentials::Basic { password, .. } = &c.update.credentials else {
             panic!("{:?}", c.update.credentials);
         };
         assert_eq!(password.expose_secret(), "fr0m-file");

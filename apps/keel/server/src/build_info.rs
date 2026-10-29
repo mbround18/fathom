@@ -9,41 +9,10 @@
 
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use oci_registry::Platform;
 use url::Url;
 
 use crate::config::{ConfigError, Env, process_env};
-
-/// The platform an index entry is picked for (research R1). Local until `oci_registry::Platform`
-/// replaces it (T020).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Platform {
-    pub os: &'static str,
-    pub architecture: &'static str,
-    pub variant: Option<&'static str>,
-}
-
-impl Platform {
-    /// From `std::env::consts`, in OCI's names: `x86_64` is `amd64`, `aarch64` is `arm64` (`v8`).
-    #[must_use]
-    pub fn current() -> Self {
-        Self::from_consts(std::env::consts::OS, std::env::consts::ARCH)
-    }
-
-    fn from_consts(os: &'static str, arch: &'static str) -> Self {
-        let (architecture, variant) = match arch {
-            "x86_64" => ("amd64", None),
-            "aarch64" => ("arm64", Some("v8")),
-            "x86" => ("386", None),
-            "powerpc64" => ("ppc64le", None),
-            other => (other, None),
-        };
-        Self {
-            os,
-            architecture,
-            variant,
-        }
-    }
-}
 
 /// The running build, fixed for the process.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +26,7 @@ pub struct BuildInfo {
     pub source: Option<Url>,
     /// `sha256:` and 64 lowercase hex characters.
     pub digest: Option<String>,
+    /// The platform an index entry is picked for (research R1), in OCI's names.
     pub platform: Platform,
 }
 
@@ -351,23 +321,10 @@ mod tests {
     }
 
     #[test]
-    fn platforms_use_oci_names() {
-        assert_eq!(
-            Platform::from_consts("linux", "x86_64"),
-            Platform {
-                os: "linux",
-                architecture: "amd64",
-                variant: None
-            }
-        );
-        assert_eq!(
-            Platform::from_consts("linux", "aarch64"),
-            Platform {
-                os: "linux",
-                architecture: "arm64",
-                variant: Some("v8")
-            }
-        );
-        assert_eq!(Platform::current().os, std::env::consts::OS);
+    fn the_platform_is_the_running_one() {
+        // The `std::env::consts` to OCI mapping is the crate's, tested there.
+        let b = build(&[]).unwrap();
+        assert_eq!(b.platform, Platform::current());
+        assert_eq!(b.platform.os, std::env::consts::OS);
     }
 }
