@@ -347,10 +347,11 @@ pub async fn pass(u: &Updates, inputs: Arc<dyn Inputs>, stacks: Vec<String>) {
             let key = Observed::service_key(stack, &s.service);
             let prior = observed.services.get(&key);
             let reference = s.image.as_deref().map(ImageRef::parse).and_then(Result::ok);
-            let local_image = s
-                .running
-                .as_ref()
-                .is_some_and(|r| r.repo_digests.is_empty());
+            // An image with no name left came from a registry once; only its digests are unknown.
+            let local_image = !s.unnamed_image
+                && s.running
+                    .as_ref()
+                    .is_some_and(|r| r.repo_digests.is_empty());
             let eff = policy::effective(
                 ServiceFacts {
                     image: s.image.as_deref(),
@@ -420,9 +421,10 @@ pub async fn pass(u: &Updates, inputs: Arc<dyn Inputs>, stacks: Vec<String>) {
                 image_id: &i.id,
                 repo_digests: &i.repo_digests,
             });
-            let store = running.map_or(host.store, |r| {
-                check::detect_store(r.image_id, r.repo_digests)
-            });
+            let store = match running {
+                Some(r) if !s.unnamed_image => check::detect_store(r.image_id, r.repo_digests),
+                _ => host.store,
+            };
             let verdict = Checker::new(registry.as_ref(), &platform, store, &mut cache)
                 .check(&Target {
                     reference: &reference,
@@ -908,6 +910,58 @@ mod tests {
         pass(&u, inputs, stacks(2)).await;
         assert_eq!(reg.resolves.load(Ordering::SeqCst), 2);
         assert_eq!(view::badge(&view::services(&u)), 2);
+    }
+
+    /// `s0`'s `app` runs an image someone replaced by pulling the tag by hand: the image has no
+    /// name left and only its id is known.
+    struct HandPulled;
+
+    impl Inputs for HandPulled {
+        fn stacks(&self) -> Vec<String> {
+            stacks(1)
+        }
+
+        fn host(&self) -> Option<HostPlatform> {
+            FakeInputs { stacks: stacks(1) }.host()
+        }
+
+        fn services(&self, stack: &str) -> Vec<ServiceInput> {
+            vec![ServiceInput {
+                service: "app".into(),
+                image: Some(format!("registry.test/{stack}:1")),
+                replicas: 1,
+                running: Some(ImageInfo {
+                    id: "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+                        .into(),
+                    ..ImageInfo::default()
+                }),
+                unnamed_image: true,
+                ..ServiceInput::default()
+            }]
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_container_whose_image_lost_its_name_is_matched_by_image_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let clock: Arc<dyn Clock> = Arc::new(TokioClock::new());
+        let reg = Arc::new(FakeRegistry::new(clock.clone()));
+        *reg.digest.lock().unwrap() = Ok(D_NEW.into());
+        let u = open(dir.path(), clock, reg.clone());
+        turn_on(&u, 3600);
+        pass(&u, Arc::new(HandPulled), stacks(1)).await;
+        let s = &u.store.observed().services["s0/app"];
+        assert_eq!(
+            s.state,
+            UpdateState::Available,
+            "not \"no container runs\", not a local image: {:?}",
+            s.reason
+        );
+        assert_eq!(s.reason, None);
+        let running = s.running.as_ref().unwrap();
+        assert!(running.image_id.ends_with("9999"));
+        assert_eq!(running.repo_digest, None);
+        assert_eq!(s.available.as_ref().unwrap().digest, D_NEW);
     }
 
     #[tokio::test(start_paused = true)]

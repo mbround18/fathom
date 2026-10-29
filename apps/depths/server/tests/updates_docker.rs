@@ -521,6 +521,38 @@ fn a_multi_arch_repush_of_the_same_image_is_not_an_update() {
     assert!(lab.nothing_to_update(&stack));
 }
 
+/// A newer image pulled by hand takes the tag, and the image the container runs is left without a
+/// name (under the containerd store the daemon no longer inspects it). The service still shows
+/// its container, by image id, with the new image waiting.
+#[test]
+fn a_hand_pulled_tag_leaves_the_running_image_unnamed_and_the_service_updatable() {
+    if !enabled() {
+        return;
+    }
+    let mut lab = Lab::new();
+    lab.push("app", "1", &dockerfile("1", "1000", true));
+    lab.push("side", "1", &dockerfile("1", "1000", true));
+    let stack = lab.stack("unnamed", &two_services(&lab));
+    let old = image_id(&lab.reference("app", "1")).unwrap();
+
+    // As `docker pull` would leave it: the tag names the new image, the old one has no name.
+    lab.push("app", "1", &dockerfile("2", "1000", true));
+    lab.release();
+    assert_ne!(image_id(&lab.reference("app", "1")), Some(old.clone()));
+    lab.check(&stack);
+
+    let observed = lab.u().store().observed();
+    let app = &observed.services[&format!("{stack}/app")];
+    assert_eq!(app.state, UpdateState::Available, "{:?}", app.reason);
+    assert_eq!(app.reason, None);
+    assert_eq!(
+        app.running.as_ref().map(|r| r.image_id.as_str()),
+        Some(old.as_str()),
+        "matched by the container's image id"
+    );
+    assert!(!lab.nothing_to_update(&stack));
+}
+
 /// The update flow both store tests run.
 fn update_recreates_only_the_changed_service(lab: &mut Lab, suffix: &str) {
     lab.push("app", "1", &dockerfile("1", "1000", true));

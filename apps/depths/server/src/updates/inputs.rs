@@ -30,6 +30,9 @@ pub struct ServiceInput {
     pub replicas: u32,
     /// The image the (first) container runs; `None` without a container.
     pub running: Option<ImageInfo>,
+    /// The container's image has no name left (a pull moved its tag to a newer image) and the
+    /// daemon no longer describes it: `running` holds only its id.
+    pub unnamed_image: bool,
 }
 
 pub trait Inputs: Send + Sync {
@@ -115,7 +118,8 @@ impl Inputs for RuntimeInputs {
         } else {
             self.runtime.inspect_security(&ids).unwrap_or_default()
         };
-        let mut image_of: BTreeMap<String, String> = BTreeMap::new();
+        // Each service's image id, and its container's user.
+        let mut image_of: BTreeMap<String, (String, String)> = BTreeMap::new();
         let mut labels_from_container = std::collections::BTreeSet::new();
         for c in &containers {
             let Some(service) = &c.service else { continue };
@@ -144,11 +148,13 @@ impl Inputs for RuntimeInputs {
                 labels_from_container.insert(service.clone());
             }
             if !i.image.is_empty() {
-                image_of.entry(service.clone()).or_insert(i.image.clone());
+                image_of
+                    .entry(service.clone())
+                    .or_insert((i.image.clone(), i.config.user.clone()));
             }
         }
         let image_ids: Vec<String> = {
-            let mut v: Vec<String> = image_of.values().cloned().collect();
+            let mut v: Vec<String> = image_of.values().map(|(id, _)| id.clone()).collect();
             v.sort();
             v.dedup();
             v
@@ -159,8 +165,10 @@ impl Inputs for RuntimeInputs {
             self.runtime.image_inspect(&image_ids).unwrap_or_default()
         };
         for svc in &mut services {
-            if let Some(id) = image_of.get(&svc.service) {
-                svc.running = images.iter().find(|i| &i.id == id).cloned();
+            if let Some((id, user)) = image_of.get(&svc.service) {
+                let (running, unnamed) = running_image(&images, id, user);
+                svc.running = Some(running);
+                svc.unnamed_image = unnamed;
             }
         }
         services
@@ -168,6 +176,31 @@ impl Inputs for RuntimeInputs {
 
     fn watchtower(&self) -> Vec<super::watchtower::Seen> {
         super::watchtower::running(&*self.runtime)
+    }
+}
+
+/// The image a container runs, by the container's image id, never by name: after someone pulls a
+/// newer image by hand, the tag names the new image and the container's own image may have no
+/// name left. Under the containerd image store `docker image inspect` no longer finds such an
+/// image, so the id alone stands for it (`true`): the check still compares it with the tag. Its
+/// user is then the container's `Config.User`, so a root escalation is still held.
+pub fn running_image(images: &[ImageInfo], id: &str, container_user: &str) -> (ImageInfo, bool) {
+    let found = images.iter().find(|i| {
+        i.id == id
+            || i.repo_digests
+                .iter()
+                .any(|d| d.rsplit_once('@').is_some_and(|(_, d)| d == id))
+    });
+    match found {
+        Some(i) => (i.clone(), false),
+        None => (
+            ImageInfo {
+                id: id.to_owned(),
+                user: Some(container_user.to_owned()).filter(|u| !u.trim().is_empty()),
+                ..ImageInfo::default()
+            },
+            true,
+        ),
     }
 }
 
@@ -256,6 +289,30 @@ mod tests {
         assert_eq!(listed.platform.as_deref(), Some("linux/arm64"));
         assert_eq!(app.user, None);
         assert!(parse_compose("not json").is_empty());
+    }
+
+    #[test]
+    fn the_running_image_is_found_by_the_containers_image_id() {
+        let named = ImageInfo {
+            id: "sha256:aaaa".into(),
+            repo_tags: vec!["nginx:1.27".into()],
+            repo_digests: vec!["nginx@sha256:bbbb".into()],
+            user: Some("101".into()),
+            ..ImageInfo::default()
+        };
+        let images = [named.clone()];
+        assert_eq!(running_image(&images, "sha256:aaaa", "0"), (named.clone(), false));
+        // Under the containerd store the id is the digest it was pulled by.
+        assert_eq!(running_image(&images, "sha256:bbbb", "0"), (named, false));
+
+        // A pull moved the tag away and the daemon no longer describes the image: the id stands
+        // for it, with the container's user.
+        let (gone, unnamed) = running_image(&images, "sha256:cccc", "1000");
+        assert!(unnamed);
+        assert_eq!(gone.id, "sha256:cccc");
+        assert!(gone.repo_tags.is_empty() && gone.repo_digests.is_empty());
+        assert_eq!(gone.user.as_deref(), Some("1000"));
+        assert_eq!(running_image(&[], "sha256:cccc", "").0.user, None);
     }
 
     // --- label source (T070) -------------------------------------------------------------------
