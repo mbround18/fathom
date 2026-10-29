@@ -261,7 +261,7 @@ Watchtower pauses Auto. The label rules themselves are in Phase 2 (T015–T018).
 
 - [X] T082 Run the `impeccable` skill over `apps/depths/web/src/features/updates/` and the stack page and nav it touches (critique, then polish, then harden), and apply its findings. Re-run the five update Playwright projects one at a time.
 - [ ] T083 Merge the agent branches into `main`, then remove their worktrees and branches.
-- [ ] T084 In the main session, run quickstart §2 (`DEPTHS_IT_DOCKER=1 cargo test -p depths-server --test updates_docker`) and walk quickstart §3 on the dev compose.
+- [X] T084 *(2026-10-29: §2 updates_docker 8/8; §3 scripted as tests/update_walkthrough.rs, 7/7 against real Docker)* In the main session, run quickstart §2 (`DEPTHS_IT_DOCKER=1 cargo test -p depths-server --test updates_docker`) and walk quickstart §3 on the dev compose.
 - [ ] T085 Run the full gate once, with `scripts/ci.sh`, in the main session. Report the wall time, the slowest steps, the delta and one speed-up idea.
 - [ ] T086 Run `scripts/hygiene.sh`, then `docker builder prune --filter until=24h` if any images were built. Delete any kind cluster this work created.
 - [ ] T087 (last) Make the brochure and guide screenshots of Updates (list with states, batch preview, policy sheet, Watchtower banner, phone layout) with a capture spec in `apps/depths/web/tests/promo/updates.capture.spec.ts` against the fake backend, fixture stacks only. Screen each for hostnames, emails, tokens, registry names and real stack names before committing to `docs/guides/depths/img/`.
