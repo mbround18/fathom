@@ -40,6 +40,7 @@ const ADMIN_ACTIONS: ReadonlySet<Cmd['type']> = new Set<Cmd['type']>([
   'RemoveUser',
   'PreviewFileOp',
   'PreviewUpdateChange',
+  'PreviewUpdateBatch',
 ])
 /** Commands with no assertion of their own: a stale session finishes a ceremony first. */
 const FRESH_FIRST: ReadonlySet<Cmd['type']> = new Set<Cmd['type']>(['PutUser', 'RemoveUser', 'PreviewFileOp'])
@@ -154,6 +155,13 @@ export class FakePasskeys {
       this.guarded.add(preview.preview_id)
     }
     return preview
+  }
+
+  /** `stamp` for previews that are not a `Preview` (062's `UpdatePreview`): the request, if one is due. */
+  stampId(previewId: string): PasskeyRequest | undefined {
+    if (!(this.enabled && this.stale && this.items.length > 0)) return undefined
+    this.guarded.add(previewId)
+    return this.request()
   }
 
   /** A `Confirm` of a guarded or removal preview, answered here; `null` to go on. */

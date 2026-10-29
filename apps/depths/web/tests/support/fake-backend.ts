@@ -85,10 +85,12 @@ import type {
 import { CloseCode, PROTOCOL_VERSION } from '../../src/protocol/generated/constants'
 import { FakeFiles, FILE_LIMITS, fakeMount, type FileHttpReply } from './fake-files'
 import { FakePasskeys } from './fake-passkeys'
+import { FakeUpdates } from './fake-updates'
 
 export { expect }
 export { DIR_PAGE_SIZE, FakeFiles, FILE_LIMITS, mountId, type RefusalTarget } from './fake-files'
 export { FakePasskeys } from './fake-passkeys'
+export { FakeUpdates, type StackScript } from './fake-updates'
 
 export type CmdType = Cmd['type']
 export type CmdOf<T extends CmdType> = Extract<Cmd, { type: T }>
@@ -604,7 +606,6 @@ export class FakeBackend {
   updates: UpdatesView | null = null
   /** Spec 062: `CheckUpdatesNow` answers `CheckBusy` with this while set. */
   checkBusySecs: number | null = null
-  private readonly updatePreviews = new Map<string, UpdateSettings>()
   /** 053: every stack's mounts and their files; seed with `files.addMount`, `files.write`, … */
   readonly files: FakeFiles = new FakeFiles(
     () => this.me,
@@ -616,6 +617,26 @@ export class FakeBackend {
     () => this.me,
     () => String(++this.seq),
   )
+
+  /** 062 US2–US5: batch runs and every update change; script runs with `updateRuns.scripts`. */
+  readonly updateRuns: FakeUpdates = new FakeUpdates({
+    view: () => this.updates,
+    setView: (v) => {
+      this.updates = v
+    },
+    actor: () => {
+      const who = this.me?.identity ?? fixtures.me().identity
+      return { provider: who.provider, subject: who.subject, username: who.username }
+    },
+    admin: () => this.me?.role === 'admin',
+    audit: (over) => this.recordAudit(over),
+    passkeys: this.passkeys,
+    nextId: () => String(++this.seq),
+    lint: (stack) => this.lint[stack] ?? [],
+    enforce: () => this.composePolicy === 'enforce',
+    push: (e) => this.push(e),
+    now: NOW,
+  })
 
   readonly sockets: FakeSocket[] = []
   readonly http: HttpCall[] = []
@@ -802,7 +823,7 @@ export class FakeBackend {
       case 'PreviewOp':
         return RESTRICTED_OPS.has(cmd.data.op.kind)
       case 'Confirm': {
-        if (this.updatePreviews.has(cmd.data.preview_id)) return false
+        if (this.updateRuns.owns(cmd.data.preview_id)) return false
         // 053 R12: listing is all the restricted view gets of files, so no file change confirms.
         if (this.files.owns(cmd.data.preview_id)) return false
         const p = this.previews.get(cmd.data.preview_id)
@@ -1218,15 +1239,7 @@ export class FakeBackend {
         if (stepped) return stepped
         // 051 FR-018: a preview with escape findings under `enforce` runs only acknowledged.
         if (this.files.owns(cmd.data.preview_id)) return this.files.confirm(cmd.data.preview_id, may)
-        const settings = this.updatePreviews.get(cmd.data.preview_id)
-        if (settings !== undefined) {
-          this.updatePreviews.delete(cmd.data.preview_id)
-          if (this.updates === null) return denied('feature_disabled')
-          if (!admin) return denied()
-          this.updates = { ...this.updates, settings }
-          this.recordAudit({ action: 'update_settings', outcome: { kind: 'succeeded' } })
-          return [{ type: 'UpdatesChanged', data: this.updates }]
-        }
+        if (this.updateRuns.owns(cmd.data.preview_id)) return this.updateRuns.confirm(cmd)
         const held = this.previews.get(cmd.data.preview_id)
         if (held?.preview.ack_required && !held.used && cmd.data.acknowledge_findings !== true) {
           return [{ type: 'Denied', data: { reason: 'compose_blocked', detail: 'acknowledge the findings to deploy' } }]
@@ -1241,6 +1254,7 @@ export class FakeBackend {
       }
 
       case 'Cancel': {
+        if (this.updateRuns.ownsOp(cmd.data.operation_id)) return this.updateRuns.cancel(cmd.data.operation_id)
         const i = this.held.findIndex((h) => h.operationId === cmd.data.operation_id)
         if (i < 0) return [{ type: 'Invalid', data: { reason: 'no such operation' } }]
         this.held.splice(i, 1)
@@ -1405,43 +1419,11 @@ export class FakeBackend {
         if (this.checkBusySecs !== null) return [{ type: 'CheckBusy', data: { retry_after_secs: this.checkBusySecs } }]
         return [{ type: 'CheckStarted' }]
 
-      case 'PreviewUpdateChange': {
-        if (this.updates === null || cmd.data.kind !== 'settings') return denied('feature_disabled')
-        if (!admin) return denied()
-        const before = this.updates.settings
-        const after = cmd.data.data
-        if (after.interval_secs < 3600)
-          return [{ type: 'Invalid', data: { reason: `interval_secs is ${String(after.interval_secs)}; the minimum is 3600 (one hour)` } }]
-        const lines: string[] = []
-        const word = (b: boolean): string => (b ? 'on' : 'off')
-        if (before.checks_enabled !== after.checks_enabled)
-          lines.push(`update checks: ${word(before.checks_enabled)} -> ${word(after.checks_enabled)}`)
-        if (before.interval_secs !== after.interval_secs)
-          lines.push(`check interval: every ${String(before.interval_secs / 3600)} h -> every ${String(after.interval_secs / 3600)} h`)
-        if (lines.length === 0) return [{ type: 'Invalid', data: { reason: 'nothing to change' } }]
-        this.seq += 1
-        const preview_id = `00000000-0000-4000-8062-${String(this.seq).padStart(12, '0')}`
-        this.updatePreviews.set(preview_id, after)
-        return [
-          {
-            type: 'Preview',
-            data: this.passkeys.stamp({
-              preview_id,
-              stack: '',
-              kind: 'update',
-              steps: [],
-              file_diff: lines.join('\n'),
-              reaches: { containers: [], networks: [], volumes: [] },
-              destructive: false,
-              stack_hash: '',
-              expires_at: '2026-10-28T12:05:00Z',
-            }),
-          },
-        ]
-      }
+      case 'PreviewUpdateChange':
+        return this.updateRuns.previewChange(cmd.data)
 
       case 'PreviewUpdateBatch':
-        return denied('feature_disabled')
+        return this.updateRuns.previewBatch(cmd.data.stacks)
     }
   }
 

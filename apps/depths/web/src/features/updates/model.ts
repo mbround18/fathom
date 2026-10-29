@@ -1,8 +1,25 @@
 /**
- * Image updates (spec 062 US1): labels, tones and filters for the Updates page and the stack page.
+ * Image updates (spec 062): labels, tones and filters for the Updates page and the stack page.
  * Pure, so the page and the unit tests share it.
  */
-import type { Exclusion, Me, RegistryAuth, ServiceUpdate, UpdateSettings, UpdateState } from '@/protocol/generated'
+import type {
+  AuditEntry,
+  Exclusion,
+  LabelEffect,
+  LabelRule,
+  MaintenanceWindow,
+  Me,
+  PolicySource,
+  RegistryAuth,
+  RunTrigger,
+  ServiceUpdate,
+  StackOutcome,
+  UpdatePolicy,
+  UpdateRun,
+  UpdateSettings,
+  UpdateState,
+  Weekday,
+} from '@/protocol/generated'
 
 export const STATE_LABEL: Record<UpdateState, string> = {
   not_checked: 'Not checked',
@@ -157,7 +174,7 @@ export function exclusionText(e: Exclusion): string {
         ? 'outside the configured scope (no scope label)'
         : `outside the configured scope (scope ${e.scope})`
     case 'no_pull':
-      return 'pull_policy never: Depths does not pull it'
+      return 'a com.centurylinklabs.watchtower.no-pull=true label: Depths does not pull it'
     case 'depths_itself':
       return "Depths' own container: Depths never updates itself"
   }
@@ -178,4 +195,162 @@ export function untilText(iso: string, now: number = Date.now()): string {
   const min = Math.round(ms / 60_000)
   if (min < 90) return `in ${String(min)} min`
   return `in ${String(Math.round(min / 60))} h`
+}
+
+// --- US2: batches and runs ----------------------------------------------------------------------
+
+/** Stacks with at least one service that has a newer image, sorted: what a batch can update. */
+export function updatableStacks(services: readonly ServiceUpdate[]): string[] {
+  return stacksOf(services.filter((s) => s.state === 'available'))
+}
+
+export function outcomeText(o: StackOutcome): string {
+  switch (o.kind) {
+    case 'updated':
+      return 'Updated'
+    case 'held':
+      return 'Held'
+    case 'skipped':
+      return `Skipped: ${o.reason}`
+    case 'failed':
+      return 'Failed'
+    case 'rolled_back':
+      return 'Rolled back'
+    case 'rollback_failed':
+      return 'Rollback failed'
+    case 'interrupted':
+      return 'Interrupted'
+    case 'stale':
+      return 'Skipped: the stack changed, preview again'
+  }
+}
+
+/** Border and text tone of an outcome; the words always carry the meaning. */
+export function outcomeTone(o: StackOutcome): string {
+  switch (o.kind) {
+    case 'updated':
+      return 'border-status-ok/60 text-status-ok'
+    case 'held':
+    case 'skipped':
+    case 'stale':
+    case 'rolled_back':
+      return 'border-status-warn/60 text-status-warn'
+    case 'failed':
+    case 'rollback_failed':
+    case 'interrupted':
+      return 'border-status-err/60 text-status-err'
+  }
+}
+
+export function triggerText(t: RunTrigger): string {
+  if (t.kind === 'manual') return `by ${t.actor.username}`
+  const names = [...new Set(Object.values(t.on_behalf_of).map((a) => a.username))]
+  return names.length ? `scheduled, on behalf of ${names.join(', ')}` : 'scheduled'
+}
+
+/** A run's audit entries for one stack: its own (`update.run_id`), and removals inside its window. */
+export function runEntries(run: UpdateRun, stack: string, entries: readonly AuditEntry[]): AuditEntry[] {
+  const from = run.started_at
+  const to = run.finished_at
+  return entries.filter(
+    (e) =>
+      e.stack === stack &&
+      (e.update ? e.update.run_id === run.run_id : e.action === 'image_remove' && e.at >= from && (to === null || e.at <= to)),
+  )
+}
+
+// --- US3: policies and windows ------------------------------------------------------------------
+
+export const POLICY_LABEL: Record<UpdatePolicy, string> = { off: 'Off', notify: 'Notify', auto: 'Auto' }
+
+export const POLICY_HELP: Record<UpdatePolicy, string> = {
+  off: 'Never checked or updated.',
+  notify: 'Checked, and shown here when a newer image exists. Nothing is installed until you update it.',
+  auto: 'Checked, and installed in the maintenance window on your behalf. A failed health check rolls back.',
+}
+
+export const WEEKDAYS: readonly { day: Weekday; short: string }[] = [
+  { day: 'mon', short: 'Mon' },
+  { day: 'tue', short: 'Tue' },
+  { day: 'wed', short: 'Wed' },
+  { day: 'thu', short: 'Thu' },
+  { day: 'fri', short: 'Fri' },
+  { day: 'sat', short: 'Sat' },
+  { day: 'sun', short: 'Sun' },
+]
+
+/** `every day 03:00–05:00`, `Sat, Sun 01:00–05:00`; an end before the start crosses midnight. */
+export function windowText(w: MaintenanceWindow): string {
+  const days =
+    w.days.length === 7
+      ? 'every day'
+      : WEEKDAYS.filter((d) => w.days.includes(d.day))
+          .map((d) => d.short)
+          .join(', ')
+  return `${days} ${w.start}–${w.end}`
+}
+
+/** Why a window can't be saved, as the server checks it; `null` when it can. */
+export function windowProblem(w: MaintenanceWindow): string | null {
+  const hhmm = /^([01]\d|2[0-3]):[0-5]\d$/
+  if (w.days.length === 0) return 'Choose at least one day.'
+  if (!hhmm.test(w.start) || !hhmm.test(w.end)) return 'Times are HH:MM, 24-hour.'
+  if (w.start === w.end) return 'The window ends when it starts: choose a different end.'
+  return null
+}
+
+/** The server's zone has no /etc/localtime: windows are in UTC. */
+export function isUtcZone(zone: string): boolean {
+  return zone.startsWith('UTC')
+}
+
+export const HEALTH_TIMEOUT = { min: 30, max: 1800 } as const
+
+/** Why the settings can't be saved; `null` when they can. */
+export function settingsProblem(s: UpdateSettings): string | null {
+  const t = s.health_timeout_secs
+  if (!Number.isInteger(t) || t < HEALTH_TIMEOUT.min || t > HEALTH_TIMEOUT.max)
+    return `The health timeout is ${String(HEALTH_TIMEOUT.min)} to ${String(HEALTH_TIMEOUT.max)} seconds.`
+  if (s.scope !== undefined && !/^[A-Za-z0-9._-]{1,64}$/.test(s.scope)) return 'A scope is letters, digits, dot, dash or underscore.'
+  return windowProblem(s.window)
+}
+
+// --- US4: Watchtower labels ---------------------------------------------------------------------
+
+const LABEL_RULE: Record<LabelRule, string> = {
+  enable: 'enable label',
+  monitor_only: 'monitor-only label',
+  scope: 'scope label',
+  no_pull: 'no-pull label',
+}
+
+/** Where a service's effective policy comes from. */
+export function sourceText(src: PolicySource): string {
+  switch (src.kind) {
+    case 'stack_policy':
+      return 'stack policy'
+    case 'default':
+      return 'default'
+    case 'label':
+      return LABEL_RULE[src.rule]
+  }
+}
+
+export function labelEffectText(e: LabelEffect): string {
+  switch (e.kind) {
+    case 'applied':
+      return 'applied'
+    case 'not_run':
+      return `not run: ${e.reason}`
+    case 'not_used':
+      return `not used: ${e.reason}`
+    case 'unrecognised':
+      return 'not recognised: ignored'
+  }
+}
+
+/** `com.centurylinklabs.watchtower.monitor-only` → `monitor-only`; the bare marker stays whole. */
+export function labelName(key: string): string {
+  const prefix = 'com.centurylinklabs.watchtower.'
+  return key.startsWith(prefix) ? key.slice(prefix.length) : key
 }

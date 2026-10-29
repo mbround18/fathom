@@ -1,15 +1,18 @@
 /**
- * `/admin/updates` (spec 062 US1, T041): every service's image update state, read-only.
+ * `/admin/updates` (spec 062): every service's image update state, and what to do about it.
  *
- * - Check now, the time zone and the next check in the header.
+ * - Check now, the time zone and the next check in the header (US1).
  * - While checks are off: what checking does, and a "Turn checks on" that goes through a preview.
+ * - The Watchtower banner and the settings sheet (US3-US5, `./Schedule`).
  * - Filters by state and stack, then one virtualised scroller (the audit log's pattern), each
- *   service a grid row on wide screens and a card on narrow ones.
- * - The registries Depths has talked to, how it authenticates to each, and any back-off.
+ *   service a grid row on wide screens and a card on narrow ones. Stacks with a newer image can be
+ *   selected and updated together (US2, `./BatchDialogs`); a held image can be applied anyway and
+ *   a rejected one offered again.
+ * - Stack policies, recent runs and the registries Depths has talked to.
  *
- * Nothing here updates a container: batch updates and Auto come with later user stories.
+ * Every change is a preview first, then a passkey on Confirm (054).
  */
-import { ArrowClockwiseIcon, FingerprintIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
+import { ArrowClockwiseIcon, MagnifyingGlassIcon } from '@phosphor-icons/react'
 import {
   Button,
   Dialog,
@@ -25,7 +28,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from '@/app/Link'
 import { useUntrusted } from '@/features/network/model'
 import { formatTime } from '@/features/stacks/model'
-import type { ServiceUpdate, UpdatesView, UpdateSettings } from '@/protocol/generated'
+import type { ServiceUpdate, UpdateChange, UpdatesView, UpdateSettings } from '@/protocol/generated'
+
+import { BatchDialog, RunDialog, StepUpNote } from './BatchDialogs'
 
 import {
   authText,
@@ -36,6 +41,7 @@ import {
   INTERVALS,
   intervalText,
   isSelf,
+  isUtcZone,
   reasonOf,
   runningText,
   SELF_UPDATE_STEPS,
@@ -43,9 +49,12 @@ import {
   STATE_ORDER,
   stacksOf,
   untilText,
+  updatableStacks,
   withChecks,
   type StateFilter,
 } from './model'
+import { Policies, RecentRuns, SettingsSheet, WatchtowerBanner, ZoneNote } from './Schedule'
+import { LabelList, PolicyLine } from './ServicePolicy'
 import { useUpdates, type CheckStatus } from './store'
 import { UpdateStateChip } from './UpdateStateChip'
 
@@ -80,7 +89,9 @@ export default function UpdatesPage() {
       ) : (
         <Body view={view} />
       )}
-      <SettingsDialog />
+      <ChangeDialog />
+      <BatchDialog />
+      <RunDialog />
     </section>
   )
 }
@@ -102,6 +113,12 @@ function Header({ view }: { view: UpdatesView | null }) {
               ? `Checks ${intervalText(view.settings.interval_secs)}${view.next_check ? `, next ${untilText(view.next_check)}` : ''}`
               : 'Checks are off'}
             <span className="hidden sm:inline"> · {view.zone}</span>
+            {view.next_window && (
+              <span data-field="next-window" className="hidden sm:inline">
+                {' '}
+                · Auto window {untilText(view.next_window)}
+              </span>
+            )}
           </span>
         )}
         <span className="flex-1" />
@@ -159,8 +176,11 @@ function Body({ view }: { view: UpdatesView }) {
     )
   return (
     <>
-      {view.settings.checks_enabled ? <SettingsStrip settings={view.settings} /> : <ChecksOff settings={view.settings} />}
+      <WatchtowerBanner view={view} />
+      {view.settings.checks_enabled ? <SettingsStrip view={view} /> : <ChecksOff settings={view.settings} />}
       <ServiceList services={view.services} />
+      <Policies view={view} />
+      <RecentRuns view={view} />
       <Registries view={view} />
     </>
   )
@@ -207,8 +227,9 @@ function ChecksOff({ settings }: { settings: UpdateSettings }) {
   )
 }
 
-/** Checks are on: change the interval or turn them off. */
-function SettingsStrip({ settings }: { settings: UpdateSettings }) {
+/** Checks are on: change the interval, turn them off, or open every setting. */
+function SettingsStrip({ view }: { view: UpdatesView }) {
+  const settings = view.settings
   const preview = useUpdates((s) => s.previewSettings)
   const blocked = useUntrusted()
   if (blocked !== null) return null
@@ -234,6 +255,49 @@ function SettingsStrip({ settings }: { settings: UpdateSettings }) {
       </label>
       <Button variant="ghost" size="sm" data-action="turn-checks-off" onClick={() => preview(withChecks(settings, false))}>
         Turn checks off
+      </Button>
+      <SettingsSheet view={view} />
+      <span data-field="cleanup-state" className="text-muted-foreground">
+        {settings.cleanup ? 'Replaced images are removed' : 'Replaced images are kept'}
+      </span>
+      {isUtcZone(view.zone) && <ZoneNote zone={view.zone} />}
+    </div>
+  )
+}
+
+/** Select stacks with a newer image, then preview updating them. */
+function BatchBar({ services }: { services: readonly ServiceUpdate[] }) {
+  const selected = useUpdates((s) => s.selected)
+  const setSelected = useUpdates((s) => s.setSelected)
+  const previewBatch = useUpdates((s) => s.previewBatch)
+  const running = useUpdates((s) => s.run !== null && !s.run.finished)
+  const blocked = useUntrusted()
+  const updatable = useMemo(() => updatableStacks(services), [services])
+  if (blocked !== null || updatable.length === 0) return null
+  const chosen = selected.filter((s) => updatable.includes(s))
+  const all = chosen.length === updatable.length
+  return (
+    <div
+      data-testid="updates-batch-bar"
+      className="flex min-w-0 shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-2 py-1.5 text-xs"
+    >
+      <label className="flex items-center gap-1">
+        <input
+          type="checkbox"
+          data-action="select-all"
+          checked={all}
+          ref={(el) => {
+            if (el) el.indeterminate = chosen.length > 0 && !all
+          }}
+          onChange={() => setSelected(all ? [] : updatable)}
+        />
+        <span>Every stack with an update ({String(updatable.length)})</span>
+      </label>
+      <span className="flex-1" />
+      <Button size="sm" data-action="preview-batch" disabled={chosen.length === 0 || running} onClick={previewBatch}>
+        {chosen.length === 0
+          ? 'Select stacks to update'
+          : `Update ${String(chosen.length)} ${chosen.length === 1 ? 'stack' : 'stacks'}`}
       </Button>
     </div>
   )
@@ -264,6 +328,7 @@ function ServiceList({ services }: { services: readonly ServiceUpdate[] }) {
 
   return (
     <>
+      <BatchBar services={services} />
       <div
         role="group"
         aria-label="Filter services"
@@ -344,6 +409,12 @@ function Row({ s, index }: { s: ServiceUpdate; index: number }) {
   const reason = reasonOf(s)
   const excluded = s.effective.excluded
   const available = availableText(s)
+  const selected = useUpdates((st) => st.selected.includes(s.stack))
+  const toggle = useUpdates((st) => st.toggleStack)
+  const preview = useUpdates((st) => st.previewChange)
+  const blocked = useUntrusted()
+  const selectable = blocked === null && s.state === 'available'
+  const target = s.available?.digest
   return (
     <div
       role="row"
@@ -354,6 +425,16 @@ function Row({ s, index }: { s: ServiceUpdate; index: number }) {
     >
       <span className={LABEL}>Service</span>
       <span role="cell" className="min-w-0">
+        {selectable && (
+          <input
+            type="checkbox"
+            data-select-stack={s.stack}
+            aria-label={`Select ${s.stack} for update`}
+            className="mr-1 align-middle"
+            checked={selected}
+            onChange={() => toggle(s.stack)}
+          />
+        )}
         <Link to={`/stacks/${encodeURIComponent(s.stack)}`} className="hover:text-primary">
           {s.stack}
         </Link>
@@ -384,6 +465,30 @@ function Row({ s, index }: { s: ServiceUpdate; index: number }) {
           {reason ?? (excluded ? exclusionText(excluded) : '')}
         </p>
       )}
+      <p className="col-span-full flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+        <PolicyLine s={s} />
+        {blocked === null && target && s.state === 'held' && (
+          <Button
+            variant="outline"
+            size="sm"
+            data-action="apply-held"
+            onClick={() => preview({ kind: 'apply_held', data: { stack: s.stack, service: s.service, digest: target } })}
+          >
+            Apply anyway
+          </Button>
+        )}
+        {blocked === null && target && s.state === 'rejected' && (
+          <Button
+            variant="outline"
+            size="sm"
+            data-action="retry"
+            onClick={() => preview({ kind: 'retry', data: { stack: s.stack, service: s.service, digest: target } })}
+          >
+            Offer again
+          </Button>
+        )}
+      </p>
+      <LabelList s={s} />
       {isSelf(s) && (
         <div data-field="self-steps" className="col-span-full min-w-0 text-muted-foreground">
           Update Depths by hand, in the directory that holds its compose file:
@@ -429,56 +534,70 @@ function Registries({ view }: { view: UpdatesView }) {
   )
 }
 
-/** The settings change, before it is saved. */
-function SettingsDialog() {
-  const flow = useUpdates((s) => s.settings)
+const CHANGE_TITLE: Record<UpdateChange['kind'], string> = {
+  settings: 'Change update settings',
+  policy: 'Change the update policy',
+  ack_watchtower: 'Resume Auto updates',
+  retry: 'Offer the image again',
+  apply_held: 'Apply the held image',
+}
+
+/** Any update change (settings, a policy, a Watchtower answer, retry, apply held), before it is saved. */
+function ChangeDialog() {
+  const flow = useUpdates((s) => s.change)
   const confirm = useUpdates((s) => s.confirm)
   const cancel = useUpdates((s) => s.cancel)
   const open = flow.kind !== 'idle'
+  const shown = flow.kind === 'preview' || flow.kind === 'verifying' || flow.kind === 'confirming' ? flow : null
+  const starts = flow.kind !== 'idle' && flow.change.kind === 'apply_held'
   return (
     <Dialog open={open} onOpenChange={(o) => !o && cancel()}>
-      <DialogContent data-testid="updates-settings-dialog">
+      <DialogContent
+        data-testid="updates-settings-dialog"
+        data-change={flow.kind === 'idle' ? undefined : flow.change.kind}
+        className="max-h-[90dvh] overflow-y-auto"
+      >
         <DialogHeader>
-          <DialogTitle>Change update settings</DialogTitle>
-          <DialogDescription>Nothing changes until you confirm. The change is recorded in the audit log.</DialogDescription>
+          <DialogTitle>{flow.kind === 'idle' ? 'Change' : CHANGE_TITLE[flow.change.kind]}</DialogTitle>
+          <DialogDescription>
+            {starts
+              ? 'Only this service is recreated. A new image that fails its health check is rolled back.'
+              : 'Nothing changes until you confirm. The change is recorded in the audit log.'}
+          </DialogDescription>
         </DialogHeader>
         {flow.kind === 'previewing' ? (
           <p role="status" className="text-xs text-muted-foreground">
             Preparing the change…
           </p>
         ) : flow.kind === 'refused' ? (
-          <p role="alert" className="text-xs text-status-err">
+          <p role="alert" data-refusal className="text-xs text-status-err">
             {flow.reason}
           </p>
-        ) : flow.kind === 'preview' || flow.kind === 'verifying' || flow.kind === 'confirming' ? (
+        ) : shown ? (
           <>
             <pre data-field="summary" className="border border-border p-2 font-mono text-xs whitespace-pre-wrap">
-              {flow.preview.file_diff ?? ''}
+              {shown.preview.file_diff ?? ''}
             </pre>
-            {flow.stepUp && (
-              <p data-step-up className="flex items-start gap-1 text-xs text-muted-foreground">
-                <FingerprintIcon aria-hidden className="mt-0.5 size-3 shrink-0" />
-                <span>
-                  {flow.kind === 'verifying'
-                    ? 'Follow your browser’s passkey prompt…'
-                    : 'Confirming asks for your passkey: this needs a fresh check that it’s you.'}
-                </span>
-              </p>
+            {shown.preview.steps.length > 0 && (
+              <details className="text-xs">
+                <summary className="cursor-pointer text-muted-foreground">
+                  Steps ({String(shown.preview.steps.length)})
+                </summary>
+                <pre className="mt-0.5 overflow-x-auto border border-border p-1 font-mono">
+                  {shown.preview.steps.map((st) => st.argv.join(' ')).join('\n')}
+                </pre>
+              </details>
             )}
-            {flow.note && (
-              <p role="alert" data-refusal className="border border-status-warn/60 bg-status-warn/10 p-1.5 text-xs text-status-warn">
-                {flow.note}
-              </p>
-            )}
+            <StepUpNote stepUp={shown.stepUp} verifying={shown.kind === 'verifying'} note={shown.note} />
           </>
         ) : null}
         <DialogFooter>
           <Button variant="ghost" size="sm" onClick={cancel}>
             {flow.kind === 'refused' ? 'Close' : 'Cancel'}
           </Button>
-          {(flow.kind === 'preview' || flow.kind === 'verifying' || flow.kind === 'confirming') && (
-            <Button size="sm" data-action="confirm" disabled={flow.kind !== 'preview'} onClick={confirm}>
-              {flow.kind === 'verifying' ? 'Waiting for passkey…' : 'Confirm'}
+          {shown && (
+            <Button size="sm" data-action="confirm" disabled={shown.kind !== 'preview'} onClick={confirm}>
+              {shown.kind === 'verifying' ? 'Waiting for passkey…' : starts ? 'Apply' : 'Confirm'}
             </Button>
           )}
         </DialogFooter>
