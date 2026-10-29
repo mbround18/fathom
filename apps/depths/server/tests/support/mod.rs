@@ -340,6 +340,31 @@ impl ContainerRuntime for FakeRuntime {
             .map(|j| serde_json::from_value(j).unwrap())
             .collect())
     }
+    /// 062: the snapshot's containers with these ids, reported healthy while they run.
+    fn containers_health(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<depths_core::ports::ContainerHealth>, RuntimeError> {
+        let snap = self.snapshot.lock().unwrap();
+        Ok(snap
+            .projects
+            .values()
+            .flat_map(|p| p.containers.iter())
+            .filter(|c| ids.contains(&c.id))
+            .map(|c| {
+                // The state enum is container-runtime's, not a dependency here.
+                let status = format!("{:?}", c.state).to_lowercase();
+                depths_core::ports::ContainerHealth {
+                    id: c.id.clone(),
+                    image: c.image.clone(),
+                    running: status == "running",
+                    status,
+                    health: depths_core::ports::HealthStatus::Healthy,
+                    restart_count: 0,
+                }
+            })
+            .collect())
+    }
     fn daemon_mode(&self) -> Result<depths_core::security::DaemonMode, RuntimeError> {
         Ok(self.daemon.lock().unwrap().unwrap_or_default())
     }

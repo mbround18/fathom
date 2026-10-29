@@ -134,6 +134,10 @@ pub struct Batch {
     pub cancel: CancelToken,
     /// The `Confirm` it answers: `UpdateRunStarted` is its reply.
     pub reply_to: Option<RequestId>,
+    /// FR-026: a user's 050 `Update`. The reply is the stack's `OpStarted`, as for 050's
+    /// operations (what the stack page waits for), or `Invalid` naming why the stack was skipped;
+    /// `UpdateRunStarted` then goes unanswered.
+    pub reply_on_op: bool,
 }
 
 /// How the runner waits between health reads; tests pass a no-op.
@@ -274,8 +278,9 @@ impl Runner {
             .updates
             .store()
             .update_observed(|o| o.upsert_run(run.clone()));
+        let mut op_reply = batch.reply_to.filter(|_| batch.reply_on_op);
         let _ = tx.blocking_send(EventEnvelope {
-            reply_to: batch.reply_to,
+            reply_to: batch.reply_to.filter(|_| !batch.reply_on_op),
             event: Event::UpdateRunStarted {
                 run_id: run.run_id,
                 trigger: run.trigger.clone(),
@@ -310,8 +315,18 @@ impl Runner {
                     policy,
                     &batch,
                     &tx,
+                    &mut op_reply,
                 )
             };
+            // A manual run whose stack never started still answers its `Confirm`.
+            if let (Some(to), StackOutcome::Skipped { reason }) = (op_reply.take(), &done.outcome) {
+                let _ = tx.blocking_send(EventEnvelope {
+                    reply_to: Some(to),
+                    event: Event::Invalid {
+                        reason: format!("{}: {reason}", job.stack),
+                    },
+                });
+            }
             let mut entry = audit::entry(actor, done.action, batch.ip, done.audited.clone());
             entry.stack = Some(job.stack.clone());
             entry.operation_id = op_id;
@@ -390,6 +405,7 @@ impl Runner {
         policy: ComposePolicy,
         batch: &Batch,
         tx: &mpsc::Sender<EventEnvelope>,
+        op_reply: &mut Option<RequestId>,
     ) -> (Done, Option<OperationId>) {
         let Ok(name) = StackName::parse(&job.stack) else {
             return (Done::skipped("not a valid stack name"), None);
@@ -419,7 +435,10 @@ impl Runner {
         let done = if hash_now.as_deref() != Some(job.stack_hash.as_str()) {
             Done::skipped("stale: preview again")
         } else {
-            send(tx, Event::OpStarted { operation_id });
+            let _ = tx.blocking_send(EventEnvelope {
+                reply_to: op_reply.take(),
+                event: Event::OpStarted { operation_id },
+            });
             run.stacks[i].operation_id = Some(operation_id);
             let mut cur = Cur {
                 name,

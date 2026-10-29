@@ -50,6 +50,18 @@ pub enum Held {
         /// Some stack has an escape-level compose finding (054's step-up rule for `Update`).
         escape: bool,
     },
+    /// FR-026: a user's `PreviewOp { Update }` with checks on, a one-stack run.
+    Manual(ManualUpdate),
+}
+
+/// FR-026: what a user's image update binds, and what its `Confirm` gates on (050's `Update`).
+#[derive(Debug, Clone)]
+pub struct ManualUpdate {
+    pub job: StackJob,
+    /// An escape-level compose finding (054's step-up rule for `Update`).
+    pub escape: bool,
+    /// 051: only an admin who acknowledges the findings may confirm.
+    pub ack_required: bool,
 }
 
 impl Held {
@@ -197,6 +209,18 @@ impl Updates {
                 held: Held::Batch { escape, .. },
                 ..
             }) if s == session => Some(*escape),
+            _ => None,
+        }
+    }
+
+    /// This session's FR-026 manual update `id`, without taking it: what its `Confirm` gates on.
+    pub fn manual_update(&self, session: &str, id: PreviewId) -> Option<ManualUpdate> {
+        match self.pending_lock().0.get(&id) {
+            Some(PendingChange {
+                session: s,
+                held: Held::Manual(m),
+                ..
+            }) if s == session => Some(m.clone()),
             _ => None,
         }
     }

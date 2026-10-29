@@ -1,7 +1,11 @@
 //! Spec 062 over the socket: `ListUpdates`, `CheckUpdatesNow`, `PreviewUpdateBatch`,
 //! `PreviewUpdateChange` and their `Confirm`, the `UpdatesChanged` feed and the `UpdatesBadge`.
 //!
-//! Every command is admin only (`Action::ManageUpdates`), then gated on the network: the page is a
+//! FR-026: a user's 050 `PreviewOp { Update }` comes here too while checks are on
+//! ([`preview_op`]); it keeps 050's gates for `Update`, and its `Confirm` runs a one-stack manual
+//! run whose reply is the stack's `OpStarted`, as for 050's operations.
+//!
+//! Every other command is admin only (`Action::ManageUpdates`), then gated on the network: the page is a
 //! view (`ViewUpdates`, allowed on a restricted network), Check now makes outbound requests, a
 //! batch is an `Update` and a change is `ManageUpdates` (all three need a trusted network).
 //!
@@ -17,7 +21,8 @@ use depths_core::role::{self, Access, Action, CommandKind};
 use depths_protocol::{
     Actor, AuditAction, AuditChange, AuditOutcome, AuditUpdate, DenyReason, Event, EventEnvelope,
     MaintenanceWindow, OperationKind, PasskeyAssertion, Preview, PreviewId, Reach, RequestId,
-    RunId, RunTrigger, StackName, Step, StepStdin, UpdateChange, UpdatePolicy, WatchtowerAnswer,
+    RunId, RunTrigger, StackName, StackUpdatePlan, Step, StepStdin, UpdateChange, UpdatePolicy,
+    UpdateState, WatchtowerAnswer,
 };
 use serde_json::Value;
 use tokio::sync::broadcast;
@@ -28,7 +33,7 @@ use crate::audit;
 use crate::http::AppState;
 use crate::updates::Updates;
 use crate::updates::batch::{self, Only, StackPreview};
-use crate::updates::change::{self, Held};
+use crate::updates::change::{self, Held, ManualUpdate};
 use crate::updates::inputs::RuntimeInputs;
 use crate::updates::run::{Batch, Runner, StackJob};
 use crate::updates::scheduler::CheckNowRefused;
@@ -349,6 +354,157 @@ pub async fn preview_batch(
             ),
         },
     )
+}
+
+/// FR-026: a user's 050 `PreviewOp { Update }`. While checks are on and the stack has update
+/// states, the preview is this feature's image-update plan for the services with a newer image,
+/// held for a one-stack manual run. `None` when 050's pull-then-up still applies: the feature is
+/// off, checks are off, or no service of the stack has been checked yet.
+///
+/// The caller has already passed 050's gates for `Update` (role on the stack, then the network);
+/// nothing is added here. The step-up is 054's rule for `Update`, as 050's previews carry it.
+pub async fn preview_op(
+    conn: &Conn,
+    access: &Access,
+    id: Option<RequestId>,
+    stack: &StackName,
+) -> Option<EventEnvelope> {
+    let u = conn.app.updates.clone()?;
+    let name = stack.as_str().to_owned();
+    let known = view::stack_services(&u, &name)
+        .iter()
+        .any(|s| s.state != UpdateState::NotChecked);
+    if !image_update(u.checks_enabled(), known) {
+        return None;
+    }
+    if let Some(busy) = conn.app.ops.busy(&name) {
+        return Some(reply(id, busy.into()));
+    }
+    let p = match previews(conn, &u, vec![name.clone()], None).await {
+        Ok(mut v) => v.pop()?,
+        Err(why) => return Some(invalid(id, why)),
+    };
+    let Some(job) = p.job else {
+        return Some(invalid(id, nothing_to_update(&p.plan)));
+    };
+    let shown: Vec<String> = job.pins.iter().map(|p| p.service.clone()).collect();
+    let runtime = conn.app.runtime.clone();
+    let project = name.clone();
+    let containers = tokio::task::spawn_blocking(move || {
+        runtime
+            .containers_by_project()
+            .ok()
+            .and_then(|snap| snap.projects.get(&project).cloned())
+            .map(|p| {
+                p.containers
+                    .into_iter()
+                    .filter(|c| c.service.as_ref().is_some_and(|s| shown.contains(s)))
+                    .map(|c| c.name)
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
+    .await
+    .unwrap_or_default();
+    let cwd = conn.app.store.root().join(&name).display().to_string();
+    let expires = expiry(&u);
+    let stack_hash = job.stack_hash.clone();
+    let preview_id = u.hold_change(change::PendingChange {
+        session: conn.session.clone(),
+        held: Held::Manual(ManualUpdate {
+            job,
+            escape: p.escape,
+            ack_required: p.plan.ack_required,
+        }),
+        expires,
+    });
+    Some(reply(
+        id,
+        Event::Preview(Preview {
+            preview_id,
+            stack: name,
+            kind: OperationKind::Update,
+            steps: p
+                .plan
+                .argv
+                .iter()
+                .map(|argv| Step {
+                    argv: argv.clone(),
+                    cwd: cwd.clone(),
+                    stdin: StepStdin::None,
+                })
+                .collect(),
+            step_up: crate::step_up::preview_request(
+                &conn.app,
+                conn.caller(access.role),
+                CommandKind::Update,
+                p.escape,
+            ),
+            file_diff: Some(manual_summary(&p.plan)),
+            reaches: Reach {
+                containers,
+                ..Reach::default()
+            },
+            destructive: false,
+            stack_hash,
+            expires_at: rfc3339(expires),
+            warnings: p.plan.findings,
+            ack_required: p.plan.ack_required,
+        }),
+    ))
+}
+
+/// FR-026's switch, through core's [`depths_core::plan::update_operation`]: whether 050's
+/// `Update` becomes the image-update plan.
+fn image_update(checks_enabled: bool, states_known: bool) -> bool {
+    matches!(
+        depths_core::plan::update_operation(checks_enabled, states_known, Vec::new(), Vec::new()),
+        depths_core::plan::Operation::ImageUpdate { .. }
+    )
+}
+
+/// Why a user's Update has nothing to install: each service and why it is left.
+fn nothing_to_update(plan: &StackUpdatePlan) -> String {
+    let why: Vec<String> = plan
+        .skipped
+        .iter()
+        .map(|(service, why)| format!("{service}: {why}"))
+        .collect();
+    if why.is_empty() {
+        format!("nothing to update on {}", plan.stack)
+    } else {
+        format!("nothing to update on {} ({})", plan.stack, why.join("; "))
+    }
+}
+
+/// What a user's image update changes, as diff lines: per service the running image (`-`) and
+/// the one installed (`+`), then the services left as they are.
+fn manual_summary(plan: &StackUpdatePlan) -> String {
+    let mut lines = Vec::new();
+    for s in &plan.services {
+        let from = s
+            .running
+            .as_ref()
+            .map(|r| r.repo_digest.clone().unwrap_or_else(|| r.image_id.clone()))
+            .unwrap_or_default();
+        lines.push(format!("-{}: {} {from}", s.service, s.reference));
+        if let Some(a) = &s.available {
+            let version = a
+                .version
+                .as_ref()
+                .map(|v| format!(" ({v})"))
+                .unwrap_or_default();
+            lines.push(format!(
+                "+{}: {} {}{version}",
+                s.service, s.reference, a.digest
+            ));
+        }
+    }
+    for (service, why) in &plan.skipped {
+        lines.push(format!(" {service}: left as it is ({why})"));
+    }
+    lines.push(" only services with a newer image are recreated".into());
+    lines.join("\n")
 }
 
 /// What a change preview shows besides its summary.
@@ -674,6 +830,9 @@ pub async fn confirm(
     let Some(u) = conn.app.updates.clone() else {
         return vec![off(conn, id)];
     };
+    if let Some(m) = u.manual_update(&conn.session, preview_id) {
+        return confirm_manual(conn, &u, access, id, preview_id, acknowledged, assertion, m).await;
+    }
     let (kind, escape) = match u.batch_escape(&conn.session, preview_id) {
         Some(escape) => (CommandKind::Update, escape),
         None => (CommandKind::ManageUpdates, false),
@@ -843,8 +1002,15 @@ pub async fn confirm(
             });
             let _ = conn.app.audit.record(&entry);
             job.acknowledged = acknowledged;
-            start(conn, u, id, run_id, vec![job])
+            run(conn, u, id, run_id, vec![job], false)
         }
+        // `confirm_manual` takes these before they get here.
+        Held::Manual(_) => vec![reply(
+            id,
+            Event::PreviewVoid {
+                reason: depths_protocol::PreviewVoidReason::Unknown,
+            },
+        )],
         Held::Batch { mut jobs, .. } => {
             if jobs.is_empty() {
                 return vec![invalid(
@@ -855,9 +1021,120 @@ pub async fn confirm(
             for j in &mut jobs {
                 j.acknowledged = acknowledged;
             }
-            start(conn, u, id, RunId(uuid::Uuid::new_v4()), jobs)
+            run(conn, u, id, RunId(uuid::Uuid::new_v4()), jobs, false)
         }
     }
+}
+
+/// FR-026: `Confirm` of a user's image update, with 050's gates for `Update` on the stack (role,
+/// network, 054's step-up rule, 051's acknowledgement), then its busy and stale refusals, all
+/// before the preview is claimed so a refusal changes nothing. The run answers with the stack's
+/// `OpStarted`, and its events go to this socket.
+#[allow(clippy::too_many_arguments)]
+async fn confirm_manual(
+    conn: &Conn,
+    u: &Arc<Updates>,
+    access: &Access,
+    id: Option<RequestId>,
+    preview_id: PreviewId,
+    acknowledged: bool,
+    assertion: Option<&PasskeyAssertion>,
+    m: ManualUpdate,
+) -> Vec<EventEnvelope> {
+    let stack = m.job.stack.clone();
+    let permitted = depths_core::StackName::parse(&stack).is_ok_and(|s| {
+        role::permits(
+            access,
+            Some(&s),
+            depths_core::plan::Operation::Update.required_action(),
+        )
+    });
+    if !permitted {
+        return vec![conn.deny(id, Some(&stack), "Update is no longer permitted".into())];
+    }
+    if let Some(refused) = conn.untrusted(id, CommandKind::Update, "Confirm") {
+        return vec![refused];
+    }
+    if let Some(refused) = conn
+        .step_up(
+            id,
+            access.role,
+            CommandKind::Update,
+            m.escape,
+            assertion,
+            "Confirm",
+        )
+        .await
+    {
+        return vec![refused];
+    }
+    let admin = access.role == role::Role::Admin;
+    if m.ack_required && !(acknowledged && admin) {
+        let _ = conn.app.audit.record(&audit::denied(
+            conn.actor.clone(),
+            conn.ip,
+            Some(&stack),
+            "Update confirm refused: escape-level findings not acknowledged",
+        ));
+        let why = if admin {
+            "this preview has escape-level compose findings; deploy anyway only by acknowledging \
+             them"
+        } else {
+            "this preview has escape-level compose findings that only an admin may acknowledge"
+        };
+        return vec![reply(
+            id,
+            crate::ops::Refusal::ComposeBlocked(why.into()).into(),
+        )];
+    }
+    if let Some(busy) = conn.app.ops.busy(&stack) {
+        return vec![reply(id, busy.into())];
+    }
+    let store = conn.app.store.clone();
+    let name = stack.clone();
+    let hash_now = tokio::task::spawn_blocking(move || {
+        depths_core::StackName::parse(&name)
+            .ok()
+            .and_then(|n| store.entry(&n).ok())
+            .and_then(|e| e.content_hash)
+            .map(|h| h.as_str().to_owned())
+    })
+    .await
+    .ok()
+    .flatten();
+    if hash_now.as_deref() != Some(m.job.stack_hash.as_str()) {
+        let _ = u.take_change(&conn.session, preview_id);
+        return vec![reply(
+            id,
+            Event::PreviewVoid {
+                reason: depths_protocol::PreviewVoidReason::StackChanged,
+            },
+        )];
+    }
+    let mut job = match u.take_change(&conn.session, preview_id) {
+        Ok(change::PendingChange {
+            held: Held::Manual(m),
+            ..
+        }) => m.job,
+        Ok(_) => {
+            return vec![reply(
+                id,
+                Event::PreviewVoid {
+                    reason: depths_protocol::PreviewVoidReason::Unknown,
+                },
+            )];
+        }
+        Err(reason) => return vec![reply(id, Event::PreviewVoid { reason })],
+    };
+    job.acknowledged = acknowledged && admin;
+    run(
+        conn,
+        u.clone(),
+        id,
+        RunId(uuid::Uuid::new_v4()),
+        vec![job],
+        true,
+    )
 }
 
 fn json<T: serde::Serialize>(v: &T) -> Value {
@@ -901,14 +1178,15 @@ fn saved(
     }
 }
 
-/// Starts a confirmed run on the blocking pool. `UpdateRunStarted` is its reply, so nothing is
-/// returned here.
-fn start(
+/// Starts a confirmed run on the blocking pool. `UpdateRunStarted` is its reply (with
+/// `reply_on_op`, a user's FR-026 Update: the stack's `OpStarted`), so nothing is returned here.
+fn run(
     conn: &Conn,
     u: Arc<Updates>,
     id: Option<RequestId>,
     run_id: RunId,
     jobs: Vec<StackJob>,
+    reply_on_op: bool,
 ) -> Vec<EventEnvelope> {
     let runner = Runner {
         ops: conn.app.ops.clone(),
@@ -924,10 +1202,93 @@ fn start(
         jobs,
         cancel: CancelToken::new(),
         reply_to: id,
+        reply_on_op,
     };
     let tx = conn.out.clone();
     tokio::task::spawn_blocking(move || {
         runner.run(batch, tx);
     });
     Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn plan(skipped: &[(&str, &str)]) -> StackUpdatePlan {
+        StackUpdatePlan {
+            stack: "web".into(),
+            services: Vec::new(),
+            skipped: skipped
+                .iter()
+                .map(|(s, w)| ((*s).to_owned(), (*w).to_owned()))
+                .collect(),
+            argv: Vec::new(),
+            findings: Vec::new(),
+            ack_required: false,
+        }
+    }
+
+    #[test]
+    fn the_image_update_needs_checks_on_and_a_known_state() {
+        assert!(image_update(true, true));
+        assert!(!image_update(false, true), "checks off: 050's Update");
+        assert!(
+            !image_update(true, false),
+            "nothing checked yet: 050's Update"
+        );
+        assert!(!image_update(false, false));
+    }
+
+    #[test]
+    fn nothing_to_update_names_each_service_and_why() {
+        assert_eq!(nothing_to_update(&plan(&[])), "nothing to update on web");
+        assert_eq!(
+            nothing_to_update(&plan(&[("app", "up to date"), ("db", "excluded")])),
+            "nothing to update on web (app: up to date; db: excluded)"
+        );
+    }
+
+    #[test]
+    fn the_summary_is_diff_lines_from_running_to_available() {
+        let mut p = plan(&[("db", "up to date")]);
+        p.services.push(depths_protocol::ServiceUpdate {
+            stack: "web".into(),
+            service: "app".into(),
+            reference: "nginx:1".into(),
+            running: Some(depths_protocol::RunningImage {
+                image_id: "sha256:old".into(),
+                repo_digest: Some("nginx@sha256:was".into()),
+                version: None,
+                revision: None,
+            }),
+            available: Some(depths_protocol::AvailableImage {
+                digest: "sha256:new".into(),
+                platform_digest: String::new(),
+                config_digest: String::new(),
+                version: Some("1.2".into()),
+                revision: None,
+                created: None,
+                user: None,
+            }),
+            state: UpdateState::Available,
+            reason: None,
+            effective: depths_protocol::EffectivePolicy {
+                policy: UpdatePolicy::Notify,
+                source: depths_protocol::PolicySource::Default,
+                excluded: None,
+                labels: Vec::new(),
+            },
+            last_checked: None,
+            last_outcome: None,
+            replicas: 1,
+        });
+        assert_eq!(
+            manual_summary(&p),
+            "-app: nginx:1 nginx@sha256:was\n\
+             +app: nginx:1 sha256:new (1.2)\n \
+             db: left as it is (up to date)\n \
+             only services with a newer image are recreated"
+        );
+    }
 }

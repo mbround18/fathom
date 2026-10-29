@@ -713,3 +713,139 @@ async fn the_updates_view_shows_the_auto_queue_state() {
     assert!(v["auto_paused"].is_null(), "{r}");
     server.abort();
 }
+
+/// `web/app` runs an old nginx and a newer one is known by digest.
+fn seed_newer(a: &App) {
+    let mut s = service("web", UpdateState::Available);
+    s.running = Some(depths_protocol::RunningImage {
+        image_id: format!("sha256:{}", "1".repeat(64)),
+        repo_digest: Some(format!("nginx@sha256:{}", "2".repeat(64))),
+        version: Some("1.0".into()),
+        revision: None,
+    });
+    s.available = Some(depths_protocol::AvailableImage {
+        digest: format!("sha256:{}", "3".repeat(64)),
+        platform_digest: format!("sha256:{}", "4".repeat(64)),
+        config_digest: format!("sha256:{}", "5".repeat(64)),
+        version: Some("1.1".into()),
+        revision: None,
+        created: None,
+        user: None,
+    });
+    updates(a)
+        .store()
+        .update_observed(|o| {
+            o.services.insert("web/app".into(), s);
+        })
+        .unwrap();
+}
+
+fn update_op(stack: &str) -> Value {
+    cmd(
+        "PreviewOp",
+        json!({ "stack": stack, "op": { "kind": "update" } }),
+    )
+}
+
+fn argvs(preview: &Value) -> Vec<String> {
+    preview["event"]["data"]["steps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            s["argv"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|a| a.as_str().unwrap().to_owned())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_users_update_is_the_image_update_plan_while_checks_are_on() {
+    // FR-026 (T048): a user on an assigned stack.
+    let a = updates_app();
+    seed_newer(&a);
+    checks_on(&a);
+    // Running and healthy, so the run's health wait passes on its first read.
+    a.set_containers(vec![support::container(
+        "web",
+        "app",
+        "running",
+        "Up 1 hour",
+    )]);
+    grant(&a, USER, &["web"]);
+    let (mut ws, server, _) = open(&a, USER).await;
+    let r = ask(&mut ws, 1, update_op("web")).await;
+    assert_eq!(r["event"]["type"], "Preview", "{r}");
+    assert_eq!(r["event"]["data"]["kind"], "update", "{r}");
+    let steps = argvs(&r);
+    let digest = format!("sha256:{}", "3".repeat(64));
+    assert!(
+        steps
+            .iter()
+            .any(|s| s.contains("pull") && s.contains(&format!("@{digest}"))),
+        "pulls by digest: {steps:?}"
+    );
+    assert!(
+        steps
+            .iter()
+            .any(|s| s.contains("up -d") && s.contains("--no-deps")),
+        "recreates only the service: {steps:?}"
+    );
+    assert!(
+        !steps
+            .iter()
+            .any(|s| s.contains("compose") && s.ends_with(" pull")),
+        "not 050's pull of every image: {steps:?}"
+    );
+    let summary = r["event"]["data"]["file_diff"].as_str().unwrap();
+    assert!(
+        summary.contains(&format!("+app: nginx {digest} (1.1)")),
+        "{summary}"
+    );
+
+    // Confirm answers like 050's operations: the stack's OpStarted, then OpFinished.
+    let id = r["event"]["data"]["preview_id"].clone();
+    let r = confirm(&mut ws, 2, &id).await;
+    assert_eq!(r["event"]["type"], "OpStarted", "{r}");
+    let done = next_of(&mut ws, "OpFinished").await;
+    assert_eq!(
+        done["event"]["data"]["operation_id"], r["event"]["data"]["operation_id"],
+        "{done}"
+    );
+    let ran = a.runtime.ran.lock().unwrap().clone();
+    assert!(
+        ran.first()
+            .is_some_and(|argv| argv.iter().any(|x| x.ends_with(&format!("@{digest}")))),
+        "the run pulls the digest shown first: {ran:?}"
+    );
+
+    // A stack the user is not assigned stays 050's denial.
+    let r = ask(&mut ws, 3, update_op("db")).await;
+    assert_eq!(r["event"]["type"], "Denied", "{r}");
+    server.abort();
+}
+
+#[tokio::test]
+async fn a_users_update_is_050s_pull_then_up_while_checks_are_off() {
+    let a = updates_app();
+    seed_newer(&a);
+    grant(&a, USER, &["web"]);
+    let (mut ws, server, _) = open(&a, USER).await;
+    let r = ask(&mut ws, 1, update_op("web")).await;
+    assert_eq!(r["event"]["type"], "Preview", "{r}");
+    assert_eq!(r["event"]["data"]["kind"], "update", "{r}");
+    let steps = argvs(&r);
+    assert!(
+        steps
+            .iter()
+            .any(|s| s.contains("compose") && s.contains(" pull")),
+        "{steps:?}"
+    );
+    assert!(!steps.iter().any(|s| s.contains('@')), "{steps:?}");
+    server.abort();
+}

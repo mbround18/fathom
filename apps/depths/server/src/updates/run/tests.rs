@@ -326,6 +326,7 @@ impl Fx {
                 jobs,
                 cancel,
                 reply_to: None,
+                reply_on_op: false,
             },
             tx,
         );
@@ -526,6 +527,67 @@ fn busy_and_stale_are_skipped_and_a_failure_does_not_stop_the_rest() {
     // A failed pull changed nothing on the host.
     assert!(!f.ran().iter().any(|r| r.contains("depths-keep/a")));
     assert!(f.ops.is_busy("b"), "the other operation keeps its lock");
+}
+
+/// FR-026: a user's 050 `Update` runs as a one-stack manual run whose `Confirm` is answered by
+/// the stack's `OpStarted` (what the stack page waits for), or by `Invalid` when it was skipped.
+fn run_answering(f: &Fx, job: StackJob) -> (UpdateRun, Vec<EventEnvelope>) {
+    let (tx, mut rx) = mpsc::channel(10_000);
+    let run = f.runner.run(
+        Batch {
+            run_id: RunId(uuid::Uuid::new_v4()),
+            trigger: RunTrigger::Manual { actor: admin() },
+            ip: "203.0.113.9".parse().unwrap(),
+            jobs: vec![job],
+            cancel: CancelToken::new(),
+            reply_to: Some(RequestId(42)),
+            reply_on_op: true,
+        },
+        tx,
+    );
+    let mut evs = Vec::new();
+    while let Ok(e) = rx.try_recv() {
+        evs.push(e);
+    }
+    (run, evs)
+}
+
+#[test]
+fn a_manual_update_answers_its_confirm_with_op_started() {
+    let f = fx();
+    let (run, evs) = run_answering(&f, f.job("a"));
+    assert_eq!(outcomes(&run)[0].1, StackOutcome::Updated);
+    let answered: Vec<&Event> = evs
+        .iter()
+        .filter(|e| e.reply_to == Some(RequestId(42)))
+        .map(|e| &e.event)
+        .collect();
+    assert_eq!(answered.len(), 1, "{evs:#?}");
+    assert!(matches!(answered[0], Event::OpStarted { .. }), "{evs:#?}");
+    assert!(
+        evs.iter()
+            .any(|e| matches!(e.event, Event::UpdateRunStarted { .. }) && e.reply_to.is_none())
+    );
+    assert!(
+        evs.iter()
+            .any(|e| matches!(e.event, Event::OpFinished { .. }))
+    );
+
+    let mut stale = f.job("b");
+    stale.stack_hash = "0".repeat(64);
+    let (_, evs) = run_answering(&f, stale);
+    let answered: Vec<&Event> = evs
+        .iter()
+        .filter(|e| e.reply_to == Some(RequestId(42)))
+        .map(|e| &e.event)
+        .collect();
+    assert_eq!(
+        answered,
+        vec![&Event::Invalid {
+            reason: "b: stale: preview again".into()
+        }],
+        "{evs:#?}"
+    );
 }
 
 #[test]

@@ -325,6 +325,7 @@ impl Lab {
                 jobs: vec![job],
                 cancel: CancelToken::new(),
                 reply_to: None,
+                reply_on_op: false,
             },
             tx,
         );

@@ -993,6 +993,14 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
             if role_ok && let Some(refused) = conn.untrusted(id, kind, "PreviewOp") {
                 return vec![refused];
             }
+            // Spec 062 FR-026: while checks are on, 050's Update is the image-update plan. Same
+            // gates as above; a refused role still goes to `Ops::preview`, which audits it.
+            if role_ok
+                && matches!(op, depths_protocol::StackOp::Update)
+                && let Some(answer) = updates::preview_op(conn, &access, id, &stack).await
+            {
+                return vec![answer];
+            }
             let who = conn.who(access);
             match app.ops.preview(&who, &stack, &op).await {
                 Ok(p) => vec![reply(id, Event::Preview(with_step_up(conn, &who, p)))],

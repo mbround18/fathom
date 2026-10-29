@@ -481,7 +481,8 @@ impl Ops {
         Refusal::Denied(denial_reason(&who.access))
     }
 
-    fn busy(&self, stack: &str) -> Option<Refusal> {
+    /// `Busy` when an operation is running on `stack`.
+    pub fn busy(&self, stack: &str) -> Option<Refusal> {
         self.running
             .lock()
             .unwrap()

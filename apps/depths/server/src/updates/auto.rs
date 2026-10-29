@@ -258,6 +258,7 @@ fn run_one(u: &Arc<Updates>, deps: &Deps, stack: &str, set_by: &Actor) {
             jobs: vec![job],
             cancel: depths_core::ports::CancelToken::new(),
             reply_to: None,
+            reply_on_op: false,
         },
         tx,
     );
