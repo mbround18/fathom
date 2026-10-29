@@ -12,8 +12,15 @@ pub struct Digest(String);
 
 impl Digest {
     pub fn parse(s: &str) -> Result<Digest, RegistryError> {
-        let _ = s;
-        todo!()
+        let hex = s
+            .strip_prefix("sha256:")
+            .ok_or_else(|| RegistryError::InvalidReference("digest is not sha256".into()))?;
+        if hex.len() != 64 || !hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+            return Err(RegistryError::InvalidReference(
+                "digest is not 64 lowercase hex characters".into(),
+            ));
+        }
+        Ok(Digest(s.to_string()))
     }
 
     pub fn as_str(&self) -> &str {
@@ -45,8 +52,61 @@ impl ImageRef {
     /// `index.docker.io` mean `registry-1.docker.io`; a single-segment repository on Docker Hub
     /// gets `library/`; no tag means `latest`.
     pub fn parse(s: &str) -> Result<ImageRef, RegistryError> {
-        let _ = s;
-        todo!()
+        let bad = |why: &str| RegistryError::InvalidReference(format!("{why}: {s:?}"));
+        if s.is_empty() {
+            return Err(bad("empty reference"));
+        }
+        if s.contains("://") {
+            return Err(bad("a reference has no scheme"));
+        }
+        let (name, reference) = match s.split_once('@') {
+            Some((name, digest)) => (name, Reference::Digest(Digest::parse(digest)?)),
+            None => {
+                let after_slash = s.rfind('/').map_or(0, |i| i + 1);
+                match s[after_slash..].rfind(':') {
+                    Some(i) => {
+                        let i = after_slash + i;
+                        let tag = &s[i + 1..];
+                        if !valid_tag(tag) {
+                            return Err(bad("invalid tag"));
+                        }
+                        (&s[..i], Reference::Tag(tag.to_string()))
+                    }
+                    None => (s, Reference::Tag("latest".to_string())),
+                }
+            }
+        };
+        let (registry, repository) = match name.split_once('/') {
+            Some((first, rest))
+                if first.contains('.') || first.contains(':') || first == "localhost" =>
+            {
+                (first, rest)
+            }
+            _ => ("", name),
+        };
+        let registry = match registry {
+            "" | "docker.io" | "index.docker.io" => DOCKER_HUB,
+            r => r,
+        };
+        if !registry
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'-' | b':'))
+        {
+            return Err(bad("invalid registry"));
+        }
+        if !repository.split('/').all(valid_component) {
+            return Err(bad("invalid repository"));
+        }
+        let repository = if registry == DOCKER_HUB && !repository.contains('/') {
+            format!("library/{repository}")
+        } else {
+            repository.to_string()
+        };
+        Ok(ImageRef {
+            registry: registry.to_string(),
+            repository,
+            reference,
+        })
     }
 
     /// API host[:port], e.g. `registry-1.docker.io`.
@@ -65,16 +125,57 @@ impl ImageRef {
 
     /// The same registry and repository, by digest.
     pub fn with_digest(&self, d: Digest) -> ImageRef {
-        let _ = d;
-        todo!()
+        ImageRef {
+            registry: self.registry.clone(),
+            repository: self.repository.clone(),
+            reference: Reference::Digest(d),
+        }
+    }
+
+    /// The tag or digest as it goes in a manifest URL.
+    pub(crate) fn reference_str(&self) -> &str {
+        match &self.reference {
+            Reference::Tag(t) => t,
+            Reference::Digest(d) => d.as_str(),
+        }
     }
 }
 
 impl fmt::Display for ImageRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let _ = f;
-        todo!()
+        let sep = match self.reference {
+            Reference::Tag(_) => ':',
+            Reference::Digest(_) => '@',
+        };
+        write!(
+            f,
+            "{}/{}{sep}{}",
+            self.registry,
+            self.repository,
+            self.reference_str()
+        )
     }
+}
+
+/// A path component: lowercase alphanumerics, separated by `.`, `_` or `-`.
+fn valid_component(c: &str) -> bool {
+    let b = c.as_bytes();
+    !b.is_empty()
+        && b.iter()
+            .all(|x| matches!(x, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-'))
+        && b[0].is_ascii_alphanumeric()
+        && b[b.len() - 1].is_ascii_alphanumeric()
+}
+
+/// `[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}`.
+fn valid_tag(t: &str) -> bool {
+    let b = t.as_bytes();
+    !b.is_empty()
+        && b.len() <= 128
+        && (b[0].is_ascii_alphanumeric() || b[0] == b'_')
+        && b
+            .iter()
+            .all(|x| x.is_ascii_alphanumeric() || matches!(x, b'_' | b'.' | b'-'))
 }
 
 #[cfg(test)]
