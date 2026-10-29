@@ -14,6 +14,11 @@
 //! contracts/config.md): `KEEL_OIDC_ROLE_CLAIM`, `KEEL_OIDC_{OWNER,ADMIN,USER}_VALUES` and
 //! `KEEL_OIDC_ROLE_REQUIRED`, each with an `--oidc-…` flag. See [`RoleMapping`].
 //!
+//! The update check (spec 061; contracts/config.md): `KEEL_UPDATE_CHECK`, `KEEL_UPDATE_INTERVAL`,
+//! `KEEL_UPDATE_IMAGE` and `KEEL_UPDATE_REGISTRY_USERNAME`, each with an `--update-…` flag, and
+//! `KEEL_UPDATE_REGISTRY_PASSWORD` or `_FILE` (never a flag). `KEEL_IMAGE_DIGEST`
+//! (`--image-digest`) and the image's `KEEL_BUILD_*` make up [`BuildInfo`]. See [`UpdateConfig`].
+//!
 //! Anything wrong refuses start with one line naming the setting.
 
 use std::fmt;
@@ -24,6 +29,8 @@ use std::time::Duration;
 use clap::{Args, Parser, Subcommand};
 use secrecy::SecretString;
 use url::Url;
+
+use crate::build_info::{BuildInfo, parse_digest};
 
 /// The command line.
 #[derive(Debug, Parser)]
@@ -158,6 +165,23 @@ pub struct Flags {
     /// PEM private key for --tls-cert, read once at start [env: KEEL_TLS_KEY]
     #[arg(long, global = true)]
     pub tls_key: Option<PathBuf>,
+    /// Check the registry for a newer Keel image [env: KEEL_UPDATE_CHECK] [default: false]
+    #[arg(long, global = true)]
+    pub update_check: Option<String>,
+    /// How often to check, at least 1h [env: KEEL_UPDATE_INTERVAL] [default: 6h]
+    #[arg(long, global = true)]
+    pub update_interval: Option<String>,
+    /// The watched image, `[registry/]repository[:tag]` [env: KEEL_UPDATE_IMAGE]
+    /// [default: docker.io/mbround18/keel:latest]
+    #[arg(long, global = true)]
+    pub update_image: Option<String>,
+    /// Registry user for the update check; the password is KEEL_UPDATE_REGISTRY_PASSWORD (or
+    /// _FILE), never a flag [env: KEEL_UPDATE_REGISTRY_USERNAME]
+    #[arg(long, global = true)]
+    pub update_registry_username: Option<String>,
+    /// The running image's digest, as deployed [env: KEEL_IMAGE_DIGEST]
+    #[arg(long, global = true)]
+    pub image_digest: Option<String>,
 }
 
 /// Why start-up refused.
@@ -290,6 +314,133 @@ fn parse_values(name: &str, raw: Option<&str>) -> Result<Vec<String>, ConfigErro
         .collect()
 }
 
+/// The update check's settings (spec 061, contracts/config.md). Validated even when checks are
+/// off, so a typo doesn't wait for the day someone turns them on.
+#[derive(Debug, Clone)]
+pub struct UpdateConfig {
+    /// `false`: Keel makes no registry request at all (FR-004).
+    pub check: bool,
+    /// At least an hour.
+    pub interval: Duration,
+    pub image: WatchedImage,
+    pub credentials: RegistryCredentials,
+}
+
+/// The watched reference, `registry/repository:tag`, never with credentials. Parsed here per
+/// contracts/registry.md until `oci_registry::ImageRef` replaces it (T020).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WatchedImage {
+    /// As written, except that `index.docker.io` and no registry are `docker.io`.
+    pub registry: String,
+    /// With `library/` for a single-segment Docker Hub name.
+    pub repository: String,
+    pub tag: String,
+}
+
+impl WatchedImage {
+    /// `[registry/]repository[:tag]`: no registry means `docker.io`, no tag means `latest`. The
+    /// first segment is a registry only when it has a `.` or a `:`, or is `localhost`. Refuses a
+    /// digest, a scheme, an upper-case repository and a tag over 128 characters.
+    ///
+    /// # Errors
+    ///
+    /// Why `s` isn't a reference to watch.
+    pub fn parse(s: &str) -> Result<Self, String> {
+        let s = s.trim();
+        if s.starts_with("http://") {
+            return Err("names an http:// registry; registries are reached over https".into());
+        }
+        if s.contains("://") {
+            return Err("is a URL; write it as [registry/]repository[:tag]".into());
+        }
+        if s.contains('@') {
+            return Err("carries a digest; a digest never changes, so watch a tag".into());
+        }
+        let (registry, rest) = match s.split_once('/') {
+            Some((first, rest))
+                if first.contains('.') || first.contains(':') || first == "localhost" =>
+            {
+                (first, rest)
+            }
+            _ => ("docker.io", s),
+        };
+        let registry = if registry == "index.docker.io" {
+            "docker.io"
+        } else {
+            registry
+        };
+        let (repository, tag) = match rest.rsplit_once(':') {
+            Some((repo, tag)) => (repo, tag),
+            None => (rest, "latest"),
+        };
+        if repository.is_empty() {
+            return Err("has no repository".into());
+        }
+        if repository.bytes().any(|b| b.is_ascii_uppercase()) {
+            return Err("has an upper-case repository".into());
+        }
+        let segment_ok = |seg: &str| {
+            !seg.is_empty()
+                && seg.bytes().all(|b| {
+                    b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
+                })
+                && seg.as_bytes()[0].is_ascii_alphanumeric()
+        };
+        if !repository.split('/').all(segment_ok) {
+            return Err(format!("`{repository}` is not a repository name"));
+        }
+        let tag_ok = (1..=128).contains(&tag.len())
+            && tag.as_bytes()[0] != b'.'
+            && tag.as_bytes()[0] != b'-'
+            && tag
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+        if !tag_ok {
+            return Err(format!("`{tag}` is not a tag (at most 128 characters)"));
+        }
+        let repository = if registry == "docker.io" && !repository.contains('/') {
+            format!("library/{repository}")
+        } else {
+            repository.to_owned()
+        };
+        Ok(Self {
+            registry: registry.to_owned(),
+            repository,
+            tag: tag.to_owned(),
+        })
+    }
+}
+
+impl fmt::Display for WatchedImage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}:{}", self.registry, self.repository, self.tag)
+    }
+}
+
+/// How the update check signs in to the registry. Becomes `oci_registry::Credentials` (T020).
+/// `Debug` never shows the password.
+#[derive(Clone)]
+pub enum RegistryCredentials {
+    Anonymous,
+    Basic {
+        username: String,
+        password: SecretString,
+    },
+}
+
+impl fmt::Debug for RegistryCredentials {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Anonymous => f.write_str("Anonymous"),
+            Self::Basic { username, .. } => f
+                .debug_struct("Basic")
+                .field("username", username)
+                .field("password", &"[redacted]")
+                .finish(),
+        }
+    }
+}
+
 /// `--tls-cert` and `--tls-key`: paths only; [`crate::tls::load`] reads them at start.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TlsFiles {
@@ -324,6 +475,10 @@ pub struct Config {
     pub tls: Option<TlsFiles>,
     /// Instance roles from the OIDC provider's claims; `None` keeps first-user-is-owner.
     pub role_mapping: Option<RoleMapping>,
+    /// The update check (spec 061).
+    pub update: UpdateConfig,
+    /// The running build: the image's `KEEL_BUILD_*` and `--image-digest` (spec 061).
+    pub build: BuildInfo,
     /// `(setting, where it came from)`, for the start-up log. Never values.
     pub sources: Vec<(&'static str, String)>,
 }
@@ -565,6 +720,13 @@ impl Config {
             user: flags.oidc_user_values,
             required: flags.oidc_role_required,
         };
+        let update_flags = UpdateFlags {
+            check: flags.update_check,
+            interval: flags.update_interval,
+            image: flags.update_image,
+            username: flags.update_registry_username,
+            image_digest: flags.image_digest,
+        };
 
         let insecure_dev = if flags.insecure_dev {
             r.sources.push(("insecure_dev", "--insecure-dev".into()));
@@ -773,6 +935,7 @@ impl Config {
             .iter()
             .any(|p| matches!(p, ProviderConfig::Oidc { .. }));
         let role_mapping = Self::role_mapping(&mut r, role_flags, has_oidc)?;
+        let (update, build) = Self::update(&mut r, update_flags)?;
 
         Ok(Config {
             listen,
@@ -794,8 +957,71 @@ impl Config {
             insecure_dev,
             tls,
             role_mapping,
+            update,
+            build,
             sources: r.sources,
         })
+    }
+
+    /// The update check settings and the running build, validated per contracts/config.md
+    /// (FR-009), whether or not checks are on.
+    fn update(
+        r: &mut Resolver<'_>,
+        f: UpdateFlags,
+    ) -> Result<(UpdateConfig, BuildInfo), ConfigError> {
+        const MIN_INTERVAL: Duration = Duration::from_secs(3600);
+        let check = r.pick("update_check", f.check, "KEEL_UPDATE_CHECK");
+        let check = parse_bool("KEEL_UPDATE_CHECK", check.as_deref().unwrap_or("false"))?;
+        let interval = r.pick("update_interval", f.interval, "KEEL_UPDATE_INTERVAL");
+        let interval = parse_duration("KEEL_UPDATE_INTERVAL", interval.as_deref().unwrap_or("6h"))?;
+        if interval < MIN_INTERVAL {
+            return refuse("KEEL_UPDATE_INTERVAL: must be at least 1h");
+        }
+        let image = r.pick("update_image", f.image, "KEEL_UPDATE_IMAGE");
+        let image = image
+            .as_deref()
+            .unwrap_or("docker.io/mbround18/keel:latest");
+        let image = WatchedImage::parse(image)
+            .or_else(|why| refuse(format!("KEEL_UPDATE_IMAGE: `{image}` {why}")))?;
+
+        let username = r.pick_quiet(
+            "update_registry_username",
+            f.username,
+            "KEEL_UPDATE_REGISTRY_USERNAME",
+        );
+        let password = r.secret("update_registry_password", "KEEL_UPDATE_REGISTRY_PASSWORD")?;
+        let credentials = match (username, password) {
+            (Some(username), Some(password)) => RegistryCredentials::Basic { username, password },
+            (None, None) => RegistryCredentials::Anonymous,
+            (Some(_), None) => {
+                return refuse(
+                    "KEEL_UPDATE_REGISTRY_USERNAME is set but KEEL_UPDATE_REGISTRY_PASSWORD \
+                     (or _FILE) is not",
+                );
+            }
+            (None, Some(_)) => {
+                return refuse(
+                    "KEEL_UPDATE_REGISTRY_PASSWORD is set but KEEL_UPDATE_REGISTRY_USERNAME \
+                     (--update-registry-username) is not",
+                );
+            }
+        };
+
+        let digest = r
+            .pick_quiet("image_digest", f.image_digest, "KEEL_IMAGE_DIGEST")
+            .map(|d| parse_digest("KEEL_IMAGE_DIGEST", d.trim().to_owned()))
+            .transpose()?;
+        // The flag's digest wins; `from_vars` validates the env's either way.
+        let build = BuildInfo::from_vars(r.env)?.with_digest(digest);
+        Ok((
+            UpdateConfig {
+                check,
+                interval,
+                image,
+                credentials,
+            },
+            build,
+        ))
     }
 
     /// The OIDC role mapping as System Settings shows it, or `None` without one.
@@ -870,6 +1096,15 @@ impl Config {
     pub fn origin(&self) -> String {
         self.public_url.origin().ascii_serialization()
     }
+}
+
+/// The update check's flags, taken out of [`Flags`] before it is consumed.
+struct UpdateFlags {
+    check: Option<String>,
+    interval: Option<String>,
+    image: Option<String>,
+    username: Option<String>,
+    image_digest: Option<String>,
 }
 
 /// The role mapping's flags, taken out of [`Flags`] before it is consumed.
@@ -1338,5 +1573,214 @@ mod tests {
         .unwrap_err()
         .0;
         assert!(err.contains("KEEL_OIDC_ROLE_REQUIRED"), "{err}");
+    }
+
+    // Spec 061 T019: the update check and the running build (contracts/config.md).
+
+    fn with(extra: &[(&'static str, &'static str)]) -> Vec<(&'static str, &'static str)> {
+        let mut pairs = BASE.to_vec();
+        pairs.extend_from_slice(extra);
+        pairs
+    }
+
+    const DIGEST: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn update_defaults_per_the_contract() {
+        let c = resolve(BASE).unwrap();
+        assert!(!c.update.check);
+        assert_eq!(c.update.interval, Duration::from_secs(6 * 3600));
+        assert_eq!(
+            c.update.image.to_string(),
+            "docker.io/mbround18/keel:latest"
+        );
+        assert!(matches!(
+            c.update.credentials,
+            RegistryCredentials::Anonymous
+        ));
+        assert_eq!(c.build.digest, None);
+        assert_eq!(c.build.display(), "development build");
+        for setting in ["update_check", "update_interval", "update_image"] {
+            assert!(
+                c.sources.contains(&(setting, "default".into())),
+                "{setting}"
+            );
+        }
+        assert!(
+            !c.sources
+                .iter()
+                .any(|(s, _)| s.starts_with("update_registry"))
+        );
+    }
+
+    #[test]
+    fn update_settings_resolve_from_env_and_flags() {
+        let c = resolve(&with(&[
+            ("KEEL_UPDATE_CHECK", "true"),
+            ("KEEL_UPDATE_INTERVAL", "2h"),
+            ("KEEL_UPDATE_IMAGE", "ghcr.io/mbround18/keel:edge"),
+            ("KEEL_IMAGE_DIGEST", DIGEST),
+            ("KEEL_BUILD_VERSION", "0.2.0"),
+        ]))
+        .unwrap();
+        assert!(c.update.check);
+        assert_eq!(c.update.interval, Duration::from_secs(7200));
+        assert_eq!(c.update.image.to_string(), "ghcr.io/mbround18/keel:edge");
+        assert_eq!(c.build.digest.as_deref(), Some(DIGEST));
+        assert_eq!(c.build.display(), "0.2.0");
+
+        let other = format!("sha256:{}", "f".repeat(64));
+        let pairs = with(&[("KEEL_IMAGE_DIGEST", DIGEST)]);
+        let env = env_of(&pairs);
+        let flags = Flags {
+            update_check: Some("yes".into()),
+            update_image: Some("localhost:5000/keel".into()),
+            image_digest: Some(other.clone()),
+            ..Flags::default()
+        };
+        let c = Config::resolve(flags, &env).unwrap();
+        assert!(c.update.check);
+        assert_eq!(c.update.image.to_string(), "localhost:5000/keel:latest");
+        assert_eq!(c.build.digest, Some(other));
+        assert!(
+            c.sources
+                .contains(&("update_image", "--update-image".into()))
+        );
+        assert!(
+            c.sources
+                .contains(&("image_digest", "--image-digest".into()))
+        );
+    }
+
+    #[test]
+    fn watched_image_follows_the_registry_rules() {
+        for (input, want) in [
+            ("mbround18/keel", "docker.io/mbround18/keel:latest"),
+            ("keel", "docker.io/library/keel:latest"),
+            (
+                "index.docker.io/mbround18/keel:1",
+                "docker.io/mbround18/keel:1",
+            ),
+            ("docker.io/keel:2", "docker.io/library/keel:2"),
+            ("ghcr.io/a/b/c:v1.2_3-x", "ghcr.io/a/b/c:v1.2_3-x"),
+            ("localhost/keel", "localhost/keel:latest"),
+            ("registry:5000/keel:1", "registry:5000/keel:1"),
+        ] {
+            assert_eq!(
+                WatchedImage::parse(input).unwrap().to_string(),
+                want,
+                "{input}"
+            );
+        }
+        let long_tag = format!("keel:{}", "a".repeat(129));
+        for bad in [
+            "mbround18/Keel",
+            &format!("mbround18/keel@{DIGEST}"),
+            "http://registry.example/keel",
+            "https://registry.example/keel",
+            "ghcr.io/",
+            "keel:",
+            long_tag.as_str(),
+            "keel:-x",
+        ] {
+            assert!(WatchedImage::parse(bad).is_err(), "{bad}");
+        }
+        assert!(WatchedImage::parse(&format!("keel:{}", "a".repeat(128))).is_ok());
+    }
+
+    #[test]
+    fn invalid_update_settings_refuse_naming_the_variable() {
+        let long_tag = format!("keel:{}", "a".repeat(129));
+        let image_digest = format!("mbround18/keel@{DIGEST}");
+        let cases: Vec<(&str, &str)> = vec![
+            ("KEEL_UPDATE_CHECK", "maybe"),
+            ("KEEL_UPDATE_INTERVAL", "soon"),
+            ("KEEL_UPDATE_INTERVAL", "59m"),
+            ("KEEL_UPDATE_IMAGE", "mbround18/Keel"),
+            ("KEEL_UPDATE_IMAGE", &image_digest),
+            ("KEEL_UPDATE_IMAGE", "http://registry.example/keel"),
+            ("KEEL_UPDATE_IMAGE", &long_tag),
+            ("KEEL_IMAGE_DIGEST", "sha256:abc"),
+            ("KEEL_IMAGE_DIGEST", "latest"),
+            ("KEEL_BUILD_DATE", "yesterday"),
+        ];
+        for (key, value) in cases {
+            let pairs: Vec<_> = BASE.iter().copied().chain([(key, value)]).collect();
+            let err = resolve(&pairs).unwrap_err().0;
+            assert!(err.contains(key), "{key}={value}: {err}");
+        }
+        // Checks off still validates (FR-009).
+        let err = resolve(&with(&[
+            ("KEEL_UPDATE_CHECK", "false"),
+            ("KEEL_UPDATE_INTERVAL", "10m"),
+        ]))
+        .unwrap_err()
+        .0;
+        assert!(err.contains("KEEL_UPDATE_INTERVAL"), "{err}");
+    }
+
+    #[test]
+    fn registry_credentials_come_in_pairs() {
+        let err = resolve(&with(&[("KEEL_UPDATE_REGISTRY_USERNAME", "robot")]))
+            .unwrap_err()
+            .0;
+        assert!(err.contains("KEEL_UPDATE_REGISTRY_PASSWORD"), "{err}");
+        let err = resolve(&with(&[("KEEL_UPDATE_REGISTRY_PASSWORD", "pa55word")]))
+            .unwrap_err()
+            .0;
+        assert!(err.contains("KEEL_UPDATE_REGISTRY_USERNAME"), "{err}");
+        let err = resolve(&with(&[
+            ("KEEL_UPDATE_REGISTRY_USERNAME", "robot"),
+            ("KEEL_UPDATE_REGISTRY_PASSWORD", "pa55word"),
+            (
+                "KEEL_UPDATE_REGISTRY_PASSWORD_FILE",
+                "/run/secrets/registry",
+            ),
+        ]))
+        .unwrap_err()
+        .0;
+        assert!(err.contains("KEEL_UPDATE_REGISTRY_PASSWORD_FILE"), "{err}");
+    }
+
+    #[test]
+    fn registry_password_never_reaches_debug_or_sources() {
+        let c = resolve(&with(&[
+            ("KEEL_UPDATE_REGISTRY_USERNAME", "robot"),
+            ("KEEL_UPDATE_REGISTRY_PASSWORD", "pa55word"),
+        ]))
+        .unwrap();
+        let RegistryCredentials::Basic { username, password } = &c.update.credentials else {
+            panic!("{:?}", c.update.credentials);
+        };
+        assert_eq!(username, "robot");
+        assert_eq!(password.expose_secret(), "pa55word");
+        let dbg = format!("{c:?}");
+        assert!(!dbg.contains("pa55word"), "{dbg}");
+        assert!(dbg.contains("robot"), "{dbg}");
+        for (_, from) in &c.sources {
+            assert!(!from.contains("pa55word"));
+        }
+        assert!(c.sources.contains(&(
+            "update_registry_password",
+            "KEEL_UPDATE_REGISTRY_PASSWORD".into()
+        )));
+    }
+
+    #[test]
+    fn registry_password_reads_from_a_file() {
+        let dir = std::env::temp_dir().join(format!("keel-config-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("registry-password");
+        std::fs::write(&path, "fr0m-file\n").unwrap();
+        let path_s = path.to_str().unwrap().to_owned();
+        let mut pairs: Vec<(&str, &str)> = BASE.to_vec();
+        pairs.push(("KEEL_UPDATE_REGISTRY_USERNAME", "robot"));
+        pairs.push(("KEEL_UPDATE_REGISTRY_PASSWORD_FILE", &path_s));
+        let c = resolve(&pairs).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        let RegistryCredentials::Basic { password, .. } = &c.update.credentials else {
+            panic!("{:?}", c.update.credentials);
+        };
+        assert_eq!(password.expose_secret(), "fr0m-file");
     }
 }

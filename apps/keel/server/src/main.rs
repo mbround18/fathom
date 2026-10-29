@@ -242,6 +242,8 @@ async fn serve(cfg: Config, tls: Option<tokio_rustls::TlsAcceptor>, exporting: b
         static_dir = %cfg.static_dir.display(),
         insecure_dev = cfg.insecure_dev,
         otel = exporting,
+        build = %cfg.build.display(),
+        update_check = cfg.update.check,
         sources = ?cfg.sources,
         "keel serving"
     );
