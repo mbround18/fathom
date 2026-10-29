@@ -145,6 +145,8 @@ pub struct AppState {
     /// The owner-only System workspace (spec 060, US7): loaded from `system_config` at start by
     /// [`AppState::load_system_workspace`], updated on configure and remove.
     pub system_workspace: Arc<RwLock<Option<Uuid>>>,
+    /// The update notice (spec 061): the running build and the in-memory update status.
+    pub updates: Arc<crate::updates::Updates>,
 }
 
 impl FromRef<AppState> for AuthState {
@@ -169,6 +171,10 @@ impl AppState {
         let (revocations, _) = broadcast::channel(256);
         let passkeys = Arc::new(Passkeys::new(&cfg, db.clone(), clock.clone()));
         let cfg_log_cap = cfg.run_log_cap;
+        let updates = Arc::new(crate::updates::Updates::new(
+            cfg.build.clone(),
+            cfg.update.clone(),
+        ));
         Self {
             previews: Arc::new(Previews::new(clock.clone())),
             logins: Arc::new(LoginStore::new(LOGIN_TTL, LOGIN_CAP).with_cookie(cookies.login)),
@@ -191,6 +197,7 @@ impl AppState {
             ssh: crate::hosts::Ssh::default(),
             reviews: Arc::new(crate::review::Overrides::default()),
             system_workspace: Arc::new(RwLock::new(None)),
+            updates,
         }
     }
 

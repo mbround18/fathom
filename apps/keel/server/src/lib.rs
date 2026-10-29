@@ -44,5 +44,6 @@ pub mod settings;
 // The owner-only System workspace (spec 060 US7)
 pub mod system;
 
-// The running build (spec 061)
+// The running build and the update notice (spec 061)
 pub mod build_info;
+pub mod updates;
