@@ -455,6 +455,26 @@ pub trait ContainerRuntime: Send + Sync {
         Err(RuntimeError::Unsupported)
     }
 
+    /// One `docker image inspect` of these references or image ids, in one call (spec 062). An
+    /// image that is not on the host is left out, not an error. Empty `refs` runs nothing.
+    fn image_inspect(&self, refs: &[String]) -> Result<Vec<ImageInfo>, RuntimeError> {
+        let _ = refs;
+        Err(RuntimeError::Unsupported)
+    }
+
+    /// One `docker inspect` of these containers (full ids), reduced to what the post-update
+    /// health wait reads (spec 062 research R6). A container that is gone is left out. Empty
+    /// `ids` runs nothing.
+    fn containers_health(&self, ids: &[String]) -> Result<Vec<ContainerHealth>, RuntimeError> {
+        let _ = ids;
+        Err(RuntimeError::Unsupported)
+    }
+
+    /// The host's platform and image store, from `docker info` (spec 062 research R2).
+    fn host_platform(&self) -> Result<HostPlatform, RuntimeError> {
+        Err(RuntimeError::Unsupported)
+    }
+
     /// Runs commands in order, stopping at the first that does not succeed.
     fn run_steps(
         &self,
@@ -475,6 +495,72 @@ pub trait ContainerRuntime: Send + Sync {
         }
         Ok(StepOutcome::Succeeded)
     }
+}
+
+// ---------------------------------------------------------------------------
+// Image updates (spec 062)
+// ---------------------------------------------------------------------------
+
+/// One image as the daemon holds it (`docker image inspect`), reduced to what update checks read.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ImageInfo {
+    /// The image id (`sha256:...`). Under the classic store it is the config digest; under the
+    /// containerd store, the index or manifest digest it was pulled by.
+    pub id: String,
+    pub repo_tags: Vec<String>,
+    /// `<repo>@sha256:...`: the digests this image is known by in registries.
+    pub repo_digests: Vec<String>,
+    pub os: String,
+    pub architecture: String,
+    pub variant: Option<String>,
+    /// `Config.User`; `None` when empty.
+    pub user: Option<String>,
+    pub created: Option<String>,
+    /// `Config.Labels`.
+    pub labels: BTreeMap<String, String>,
+}
+
+/// A container's healthcheck state (`State.Health.Status`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HealthStatus {
+    /// The container has no healthcheck.
+    None,
+    Starting,
+    Healthy,
+    Unhealthy,
+}
+
+/// One container, as the health wait reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContainerHealth {
+    /// Full container id.
+    pub id: String,
+    /// The image id it runs.
+    pub image: String,
+    /// `State.Running`.
+    pub running: bool,
+    /// `State.Status` (`running`, `exited`, `restarting`, ...).
+    pub status: String,
+    pub health: HealthStatus,
+    /// `RestartCount`.
+    pub restart_count: u32,
+}
+
+/// How the daemon stores images, which decides what an image id is (research R2 step 6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageStore {
+    /// Graph drivers: the image id is the config digest.
+    Classic,
+    /// The containerd snapshotter (`driver-type io.containerd.snapshotter.v1`): the image id is
+    /// the index or manifest digest.
+    Containerd,
+}
+
+/// The host's platform, normalised to OCI names, and its image store.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostPlatform {
+    pub platform: crate::updates::registry::Platform,
+    pub store: ImageStore,
 }
 
 fn stdin_for<'a>(

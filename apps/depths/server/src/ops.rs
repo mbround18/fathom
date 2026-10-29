@@ -1152,7 +1152,11 @@ mod tests {
     use std::collections::BTreeSet;
 
     use depths_core::plan::RunStep;
-    use depths_core::ports::{OutputStream, RuntimeSnapshot, Validation};
+    use depths_core::ports::{
+        ContainerHealth, HealthStatus, HostPlatform, ImageInfo, ImageStore, OutputStream,
+        RuntimeSnapshot, Validation,
+    };
+    use depths_core::updates::registry::Platform;
     use depths_protocol::{AuditAction, AuditFilter, Provider};
 
     #[derive(Default)]
@@ -1165,6 +1169,12 @@ mod tests {
         validation: Mutex<Option<Validation>>,
         /// Every validate step and the draft it was given.
         validated: Mutex<Vec<(RunStep, String)>>,
+        /// Spec 062: the images on the host, by reference or id.
+        images: Mutex<Vec<(String, ImageInfo)>>,
+        /// Spec 062: what each `containers_health` call answers, in order; the last repeats.
+        health: Mutex<std::collections::VecDeque<Vec<ContainerHealth>>>,
+        /// Spec 062: the host's image store; `None` answers `Unsupported`.
+        store: Mutex<Option<ImageStore>>,
     }
 
     impl ContainerRuntime for Mock {
@@ -1216,6 +1226,96 @@ mod tests {
         ) -> Result<(), RuntimeError> {
             Err(RuntimeError::Unsupported)
         }
+        fn image_inspect(&self, refs: &[String]) -> Result<Vec<ImageInfo>, RuntimeError> {
+            let images = self.images.lock().unwrap();
+            Ok(refs
+                .iter()
+                .filter_map(|r| images.iter().find(|(k, _)| k == r).map(|(_, i)| i.clone()))
+                .collect())
+        }
+        fn containers_health(&self, ids: &[String]) -> Result<Vec<ContainerHealth>, RuntimeError> {
+            let mut seq = self.health.lock().unwrap();
+            let now = if seq.len() > 1 {
+                seq.pop_front().unwrap_or_default()
+            } else {
+                seq.front().cloned().unwrap_or_default()
+            };
+            Ok(now.into_iter().filter(|c| ids.contains(&c.id)).collect())
+        }
+        fn host_platform(&self) -> Result<HostPlatform, RuntimeError> {
+            let store = (*self.store.lock().unwrap()).ok_or(RuntimeError::Unsupported)?;
+            Ok(HostPlatform {
+                platform: Platform {
+                    os: "linux".into(),
+                    architecture: "amd64".into(),
+                    variant: None,
+                },
+                store,
+            })
+        }
+    }
+
+    /// Spec 062 scripting for the update tests.
+    impl Fx {
+        /// An image the host holds, found by `key` (a reference or an id).
+        fn image(&self, key: &str, info: ImageInfo) {
+            self.mock.images.lock().unwrap().push((key.into(), info));
+        }
+        /// What successive health reads answer; the last one repeats.
+        fn health(&self, seq: Vec<Vec<ContainerHealth>>) {
+            *self.mock.health.lock().unwrap() = seq.into();
+        }
+        fn store(&self, store: ImageStore) {
+            *self.mock.store.lock().unwrap() = Some(store);
+        }
+    }
+
+    fn healthy(id: &str, health: HealthStatus, restarts: u32) -> ContainerHealth {
+        ContainerHealth {
+            id: id.into(),
+            image: "sha256:new".into(),
+            running: true,
+            status: "running".into(),
+            health,
+            restart_count: restarts,
+        }
+    }
+
+    #[test]
+    fn the_mock_scripts_images_health_and_the_store() {
+        let f = fx(PREVIEW_TTL);
+        assert!(matches!(
+            f.mock.host_platform(),
+            Err(RuntimeError::Unsupported)
+        ));
+        f.store(ImageStore::Containerd);
+        assert_eq!(
+            f.mock.host_platform().unwrap().store,
+            ImageStore::Containerd
+        );
+        f.image(
+            "nginx:1",
+            ImageInfo {
+                id: "sha256:old".into(),
+                ..ImageInfo::default()
+            },
+        );
+        let got = f
+            .mock
+            .image_inspect(&["gone:1".into(), "nginx:1".into()])
+            .unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].id, "sha256:old");
+        f.health(vec![
+            vec![healthy("c1", HealthStatus::Starting, 0)],
+            vec![healthy("c1", HealthStatus::Healthy, 0)],
+        ]);
+        let ids = ["c1".to_owned()];
+        let read = |m: &Mock| m.containers_health(&ids).unwrap()[0].health;
+        assert_eq!(read(&f.mock), HealthStatus::Starting);
+        assert_eq!(read(&f.mock), HealthStatus::Healthy);
+        assert_eq!(read(&f.mock), HealthStatus::Healthy, "the last repeats");
+        assert!(f.mock.containers_health(&["c2".into()]).unwrap().is_empty());
     }
 
     struct Fx {

@@ -22,11 +22,14 @@ use container_runtime::inventory::{ContainerRow, list_containers_labelled};
 use container_runtime::runner::{CmdOutput, RunError, Runner};
 use depths_core::plan::{DOCKER, RunStep};
 use depths_core::ports::{
-    CancelToken, ContainerRuntime, OutputChunk, OutputSink, OutputStream, ProjectContainers,
-    RuntimeError, RuntimeSnapshot, ShellSession, StepOutcome, StreamId, StreamSink, UsageSample,
-    Validation, ValidationIssue,
+    CancelToken, ContainerHealth, ContainerRuntime, HealthStatus, HostPlatform, ImageInfo,
+    ImageStore, OutputChunk, OutputSink, OutputStream, ProjectContainers, RuntimeError,
+    RuntimeSnapshot, ShellSession, StepOutcome, StreamId, StreamSink, UsageSample, Validation,
+    ValidationIssue,
 };
 use depths_core::security::{DaemonMode, Inspect, valid_container_arg};
+use depths_core::updates::registry::Platform;
+use serde_json::Value;
 
 pub mod helper;
 mod streams;
@@ -447,6 +450,227 @@ impl ContainerRuntime for CliRuntime {
         }
         parse_security_options(&out.stdout)
     }
+
+    fn image_inspect(&self, refs: &[String]) -> Result<Vec<ImageInfo>, RuntimeError> {
+        if refs.is_empty() {
+            return Ok(Vec::new());
+        }
+        if let Some(bad) = refs.iter().find(|r| !valid_image_arg(r)) {
+            return Err(RuntimeError::Failed(format!(
+                "refused to inspect {bad:?}: not an image reference"
+            )));
+        }
+        let mut args = vec!["image", "inspect", "--"];
+        args.extend(refs.iter().map(String::as_str));
+        let out = Mapped(self)
+            .run(DOCKER, &args)
+            .map_err(|e| self.unavailable(e))?;
+        parse_image_inspect(&out.stdout, out.success, &out.stderr)
+    }
+
+    fn containers_health(&self, ids: &[String]) -> Result<Vec<ContainerHealth>, RuntimeError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        if let Some(bad) = ids.iter().find(|id| !valid_container_arg(id)) {
+            return Err(RuntimeError::Failed(format!(
+                "refused to inspect {bad:?}: not a container id"
+            )));
+        }
+        let mut args = vec!["inspect", "--type", "container", "--"];
+        args.extend(ids.iter().map(String::as_str));
+        let out = Mapped(self)
+            .run(DOCKER, &args)
+            .map_err(|e| self.unavailable(e))?;
+        parse_containers_health(&out.stdout, out.success, &out.stderr)
+    }
+
+    fn host_platform(&self) -> Result<HostPlatform, RuntimeError> {
+        let out = Mapped(self)
+            .run(DOCKER, &["info", "--format", INFO_FORMAT])
+            .map_err(|e| self.unavailable(e))?;
+        if !out.success {
+            return Err(RuntimeError::Unavailable(out.stderr.trim_end().to_owned()));
+        }
+        parse_docker_info(&out.stdout)
+    }
+}
+
+/// `docker info` reduced to the three fields [`parse_docker_info`] reads.
+const INFO_FORMAT: &str = r#"{"OSType":{{json .OSType}},"Architecture":{{json .Architecture}},"DriverStatus":{{json .DriverStatus}}}"#;
+
+/// An image reference or id that cannot be read as an option: no leading `-`, no whitespace or
+/// control characters, bounded.
+fn valid_image_arg(r: &str) -> bool {
+    !r.is_empty()
+        && r.len() <= 512
+        && !r.starts_with('-')
+        && r.bytes().all(|b| b.is_ascii_graphic())
+}
+
+/// A `docker inspect`-style array, read whenever it parses: a missing object makes docker exit
+/// non-zero but still print the others. Empty output is an error only when docker did not say
+/// "No such".
+fn inspect_array(
+    what: &str,
+    stdout: &str,
+    success: bool,
+    stderr: &str,
+) -> Result<Vec<Value>, RuntimeError> {
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return if success || stderr.contains("No such") {
+            Ok(Vec::new())
+        } else {
+            Err(RuntimeError::Unavailable(stderr.trim_end().to_owned()))
+        };
+    }
+    serde_json::from_str::<Vec<Value>>(trimmed)
+        .map_err(|e| RuntimeError::Failed(format!("{what}: unreadable output: {e}")))
+}
+
+fn text(v: &Value, key: &str) -> String {
+    v.get(key)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_owned()
+}
+
+fn non_empty(s: String) -> Option<String> {
+    (!s.is_empty()).then_some(s)
+}
+
+fn strings(v: &Value, key: &str) -> Vec<String> {
+    v.get(key)
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `docker image inspect`'s array, reduced to [`ImageInfo`] (spec 062).
+pub fn parse_image_inspect(
+    stdout: &str,
+    success: bool,
+    stderr: &str,
+) -> Result<Vec<ImageInfo>, RuntimeError> {
+    let items = inspect_array("docker image inspect", stdout, success, stderr)?;
+    Ok(items
+        .iter()
+        .map(|i| {
+            let config = i.get("Config").unwrap_or(&Value::Null);
+            ImageInfo {
+                id: text(i, "Id"),
+                repo_tags: strings(i, "RepoTags"),
+                repo_digests: strings(i, "RepoDigests"),
+                os: text(i, "Os"),
+                architecture: text(i, "Architecture"),
+                variant: non_empty(text(i, "Variant")),
+                user: non_empty(text(config, "User")),
+                created: non_empty(text(i, "Created")),
+                labels: config
+                    .get("Labels")
+                    .and_then(Value::as_object)
+                    .map(|m| {
+                        m.iter()
+                            .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_owned())))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            }
+        })
+        .collect())
+}
+
+/// `docker inspect --type container`'s array, reduced to [`ContainerHealth`] (spec 062 R6).
+pub fn parse_containers_health(
+    stdout: &str,
+    success: bool,
+    stderr: &str,
+) -> Result<Vec<ContainerHealth>, RuntimeError> {
+    let items = inspect_array("docker inspect", stdout, success, stderr)?;
+    Ok(items
+        .iter()
+        .map(|c| {
+            let state = c.get("State").unwrap_or(&Value::Null);
+            let health = match state
+                .get("Health")
+                .and_then(|h| h.get("Status"))
+                .and_then(Value::as_str)
+            {
+                Some("healthy") => HealthStatus::Healthy,
+                Some("unhealthy") => HealthStatus::Unhealthy,
+                Some("starting") => HealthStatus::Starting,
+                _ => HealthStatus::None,
+            };
+            ContainerHealth {
+                id: text(c, "Id"),
+                image: text(c, "Image"),
+                running: state
+                    .get("Running")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                status: text(state, "Status"),
+                health,
+                restart_count: c
+                    .get("RestartCount")
+                    .and_then(Value::as_u64)
+                    .and_then(|n| u32::try_from(n).ok())
+                    .unwrap_or(0),
+            }
+        })
+        .collect())
+}
+
+/// The containerd snapshotter's `DriverStatus` entry.
+const CONTAINERD_DRIVER: &str = "io.containerd.snapshotter.v1";
+
+/// `docker info` (`OSType`, `Architecture`, `DriverStatus`): the host platform in OCI names and
+/// the image store. `Architecture` is the kernel's (`uname -m`), so it is normalised as
+/// containerd's `platforms` package does.
+pub fn parse_docker_info(stdout: &str) -> Result<HostPlatform, RuntimeError> {
+    let v: Value = serde_json::from_str(stdout.trim())
+        .map_err(|e| RuntimeError::Failed(format!("docker info: unreadable output: {e}")))?;
+    let os = text(&v, "OSType");
+    let arch = text(&v, "Architecture");
+    if os.is_empty() || arch.is_empty() {
+        return Err(RuntimeError::Failed(
+            "docker info: no OSType or Architecture".into(),
+        ));
+    }
+    let (architecture, variant) = match arch.as_str() {
+        "x86_64" | "x86-64" | "amd64" => ("amd64", None),
+        "aarch64" | "arm64" => ("arm64", Some("v8")),
+        "armv7l" | "armv7" | "armhf" => ("arm", Some("v7")),
+        "armv6l" | "armv6" | "armel" => ("arm", Some("v6")),
+        "i386" | "i486" | "i586" | "i686" | "386" => ("386", None),
+        other => (other, None),
+    };
+    let containerd = v
+        .get("DriverStatus")
+        .and_then(Value::as_array)
+        .is_some_and(|rows| {
+            rows.iter().any(|row| {
+                row.get(0).and_then(Value::as_str) == Some("driver-type")
+                    && row.get(1).and_then(Value::as_str) == Some(CONTAINERD_DRIVER)
+            })
+        });
+    Ok(HostPlatform {
+        platform: Platform {
+            os,
+            architecture: architecture.to_owned(),
+            variant: variant.map(str::to_owned),
+        },
+        store: if containerd {
+            ImageStore::Containerd
+        } else {
+            ImageStore::Classic
+        },
+    })
 }
 
 /// `docker inspect`'s array. A missing container makes docker exit non-zero but still print the
@@ -678,5 +902,226 @@ mod tests {
         let s = t.into_string();
         assert!(s.len() <= STDERR_TAIL_BYTES);
         assert!(s.ends_with("last\n"));
+    }
+
+    // --- spec 062: image updates --------------------------------------------------------
+
+    /// Captured from `docker image inspect nginx:1.27` (fields trimmed to those read).
+    const IMAGE_INSPECT: &str = r#"[{
+        "Id": "sha256:aaaa",
+        "RepoTags": ["nginx:1.27"],
+        "RepoDigests": ["nginx@sha256:bbbb"],
+        "Created": "2026-10-01T12:00:00.123Z",
+        "Config": {"User": "", "Labels": {"org.opencontainers.image.version": "1.27.2"}},
+        "Architecture": "arm64",
+        "Variant": "v8",
+        "Os": "linux"
+    }, {
+        "Id": "sha256:cccc",
+        "RepoTags": null,
+        "RepoDigests": null,
+        "Config": {"User": "101:101", "Labels": null},
+        "Architecture": "amd64",
+        "Os": "linux"
+    }]"#;
+
+    #[test]
+    fn image_inspect_reads_ids_digests_platform_and_config() {
+        let got = parse_image_inspect(IMAGE_INSPECT, true, "").unwrap();
+        assert_eq!(got.len(), 2);
+        let a = &got[0];
+        assert_eq!(a.id, "sha256:aaaa");
+        assert_eq!(a.repo_tags, vec!["nginx:1.27".to_owned()]);
+        assert_eq!(a.repo_digests, vec!["nginx@sha256:bbbb".to_owned()]);
+        assert_eq!(
+            (a.os.as_str(), a.architecture.as_str(), a.variant.as_deref()),
+            ("linux", "arm64", Some("v8"))
+        );
+        assert_eq!(a.user, None, "an empty user is none");
+        assert_eq!(a.created.as_deref(), Some("2026-10-01T12:00:00.123Z"));
+        assert_eq!(
+            a.labels
+                .get("org.opencontainers.image.version")
+                .map(String::as_str),
+            Some("1.27.2")
+        );
+        let b = &got[1];
+        assert!(b.repo_tags.is_empty() && b.repo_digests.is_empty() && b.labels.is_empty());
+        assert_eq!(
+            (b.user.as_deref(), b.variant.as_deref()),
+            (Some("101:101"), None)
+        );
+    }
+
+    #[test]
+    fn image_inspect_leaves_out_a_missing_image() {
+        // docker prints the images it found, then fails for the rest.
+        let one =
+            parse_image_inspect(IMAGE_INSPECT, false, "Error: No such image: gone:1").unwrap();
+        assert_eq!(one.len(), 2);
+        assert!(
+            parse_image_inspect("[]", false, "Error: No such image: gone:1")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            parse_image_inspect(
+                "",
+                false,
+                "Error response from daemon: No such image: gone:1"
+            )
+            .unwrap()
+            .is_empty()
+        );
+        assert!(matches!(
+            parse_image_inspect("", false, "Cannot connect to the Docker daemon"),
+            Err(RuntimeError::Unavailable(_))
+        ));
+        assert!(matches!(
+            parse_image_inspect("nope", true, ""),
+            Err(RuntimeError::Failed(_))
+        ));
+    }
+
+    #[test]
+    fn image_inspect_refuses_a_reference_that_could_be_an_option() {
+        let rt = CliRuntime::new("/nonexistent/docker");
+        for bad in ["--format=x", "-q", "", "a b", "a\nb"] {
+            assert!(
+                matches!(
+                    rt.image_inspect(&[bad.into()]),
+                    Err(RuntimeError::Failed(_))
+                ),
+                "{bad:?}"
+            );
+        }
+        assert!(rt.image_inspect(&[]).unwrap().is_empty());
+    }
+
+    /// Captured from `docker inspect --type container`: one with a healthcheck, one without,
+    /// one restarting.
+    const CONTAINER_INSPECT: &str = r#"[{
+        "Id": "c1", "Image": "sha256:aaaa", "RestartCount": 0,
+        "State": {"Status": "running", "Running": true, "Health": {"Status": "healthy", "FailingStreak": 0}}
+    }, {
+        "Id": "c2", "Image": "sha256:cccc", "RestartCount": 3,
+        "State": {"Status": "restarting", "Running": true}
+    }, {
+        "Id": "c3", "Image": "sha256:dddd", "RestartCount": 0,
+        "State": {"Status": "exited", "Running": false, "Health": {"Status": "unhealthy"}}
+    }, {
+        "Id": "c4", "Image": "sha256:eeee",
+        "State": {"Status": "running", "Running": true, "Health": {"Status": "starting"}}
+    }]"#;
+
+    #[test]
+    fn container_health_reads_state_health_and_restarts() {
+        let got = parse_containers_health(CONTAINER_INSPECT, true, "").unwrap();
+        let want = [
+            (
+                "c1",
+                "sha256:aaaa",
+                true,
+                "running",
+                HealthStatus::Healthy,
+                0,
+            ),
+            (
+                "c2",
+                "sha256:cccc",
+                true,
+                "restarting",
+                HealthStatus::None,
+                3,
+            ),
+            (
+                "c3",
+                "sha256:dddd",
+                false,
+                "exited",
+                HealthStatus::Unhealthy,
+                0,
+            ),
+            (
+                "c4",
+                "sha256:eeee",
+                true,
+                "running",
+                HealthStatus::Starting,
+                0,
+            ),
+        ];
+        assert_eq!(got.len(), want.len());
+        for (g, (id, image, running, status, health, restarts)) in got.iter().zip(want) {
+            assert_eq!(
+                (
+                    g.id.as_str(),
+                    g.image.as_str(),
+                    g.running,
+                    g.status.as_str(),
+                    g.health,
+                    g.restart_count
+                ),
+                (id, image, running, status, health, restarts)
+            );
+        }
+        assert!(
+            parse_containers_health("", false, "Error: No such container: c9")
+                .unwrap()
+                .is_empty()
+        );
+        let rt = CliRuntime::new("/nonexistent/docker");
+        assert!(matches!(
+            rt.containers_health(&["-x".into()]),
+            Err(RuntimeError::Failed(_))
+        ));
+        assert!(rt.containers_health(&[]).unwrap().is_empty());
+    }
+
+    fn info(os: &str, arch: &str, driver_status: &str) -> String {
+        format!(
+            r#"{{"OSType":"{os}","Architecture":"{arch}","Driver":"overlay2","DriverStatus":{driver_status}}}"#
+        )
+    }
+
+    #[test]
+    fn docker_info_gives_the_oci_platform() {
+        let classic = r#"[["Backing Filesystem","extfs"],["Supports d_type","true"]]"#;
+        let cases = [
+            ("x86_64", "amd64", None),
+            ("amd64", "amd64", None),
+            ("aarch64", "arm64", Some("v8")),
+            ("arm64", "arm64", Some("v8")),
+            ("armv7l", "arm", Some("v7")),
+            ("armv6l", "arm", Some("v6")),
+            ("i686", "386", None),
+            ("s390x", "s390x", None),
+            ("ppc64le", "ppc64le", None),
+            ("riscv64", "riscv64", None),
+        ];
+        for (uname, arch, variant) in cases {
+            let p = parse_docker_info(&info("linux", uname, classic)).unwrap();
+            assert_eq!(
+                (
+                    p.platform.os.as_str(),
+                    p.platform.architecture.as_str(),
+                    p.platform.variant.as_deref()
+                ),
+                ("linux", arch, variant),
+                "{uname}"
+            );
+            assert_eq!(p.store, ImageStore::Classic);
+        }
+    }
+
+    #[test]
+    fn docker_info_detects_the_containerd_store() {
+        let containerd = r#"[["driver-type","io.containerd.snapshotter.v1"]]"#;
+        let p = parse_docker_info(&info("linux", "x86_64", containerd)).unwrap();
+        assert_eq!(p.store, ImageStore::Containerd);
+        let p = parse_docker_info(&info("linux", "x86_64", "null")).unwrap();
+        assert_eq!(p.store, ImageStore::Classic);
+        assert!(parse_docker_info("<no value>").is_err());
+        assert!(parse_docker_info(r#"{"OSType":"","Architecture":"x86_64"}"#).is_err());
     }
 }
