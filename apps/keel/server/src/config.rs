@@ -1504,10 +1504,7 @@ mod tests {
             c.update.image.to_string(),
             "registry-1.docker.io/mbround18/keel:latest"
         );
-        assert!(matches!(
-            c.update.credentials,
-            Credentials::Anonymous
-        ));
+        assert!(matches!(c.update.credentials, Credentials::Anonymous));
         assert_eq!(c.build.digest, None);
         assert_eq!(c.build.display(), "development build");
         for setting in ["update_check", "update_interval", "update_image"] {
@@ -1566,7 +1563,10 @@ mod tests {
     fn watched_image_follows_the_registry_rules() {
         // `Display` is the crate's canonical form: Docker Hub is its API host.
         for (input, want) in [
-            ("mbround18/keel", "registry-1.docker.io/mbround18/keel:latest"),
+            (
+                "mbround18/keel",
+                "registry-1.docker.io/mbround18/keel:latest",
+            ),
             ("keel", "registry-1.docker.io/library/keel:latest"),
             (
                 "index.docker.io/mbround18/keel:1",

@@ -7,9 +7,9 @@
 //! value is `None`, shown as "unknown". A malformed one refuses start, naming the variable: a
 //! malformed build is a broken image, not a runtime choice.
 
+use oci_registry::Platform;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
-use oci_registry::Platform;
 use url::Url;
 
 use crate::config::{ConfigError, Env, process_env};
