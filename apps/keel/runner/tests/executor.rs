@@ -940,7 +940,9 @@ async fn params_are_a_private_file_after_secret_vars_and_before_forced_vars() {
     );
     let record = host.record();
     assert!(
-        extra_vars(&args(&record)).iter().all(|e| e.starts_with('@')),
+        extra_vars(&args(&record))
+            .iter()
+            .all(|e| e.starts_with('@')),
         "{record}"
     );
     assert_eq!(

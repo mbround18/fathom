@@ -474,10 +474,7 @@ mod tests {
         let target = keel_trust::CommitId::parse(&"2".repeat(40)).unwrap();
         let now = 1_800_000_000;
         let expires_at = format_utc(now + 3_600).unwrap();
-        let params = BTreeMap::from([(
-            "keel_server_image_digest".to_owned(),
-            DIGEST.to_owned(),
-        )]);
+        let params = BTreeMap::from([("keel_server_image_digest".to_owned(), DIGEST.to_owned())]);
         let none = BTreeMap::new();
         let verify = |approval: &Approval, assigned: &BTreeMap<String, String>| {
             let run = run_context(WS, BINDING, RUN, "keel-server", None, assigned);
@@ -494,7 +491,11 @@ mod tests {
 
         // Approved with the params the run was assigned: verifies.
         let with = key.approve(&base, &target, &expires_at, &params);
-        assert!(verify(&with, &params).is_ok(), "{:?}", verify(&with, &params));
+        assert!(
+            verify(&with, &params).is_ok(),
+            "{:?}",
+            verify(&with, &params)
+        );
 
         // Approved without them (or for another value): the challenge differs, so it doesn't.
         let without = key.approve(&base, &target, &expires_at, &none);

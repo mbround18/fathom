@@ -11,9 +11,12 @@
 //!   replay and base again, the commit range from its own base (`unsigned`, `downgrade`), and
 //!   any approvals against its pinned passkeys and quorum (`bad_override`). It reads
 //!   `.keel/jobs.yaml` from the target commit, checks the job's profiles against `allowed_profiles`
-//!   (`profile_not_allowed`), checks the commit out into a private run directory and runs
+//!   (`profile_not_allowed`) and any job params Keel sent against the ones the job declares there
+//!   (`params_mismatch`, spec 061), checks the commit out into a private run directory and runs
 //!   `ansible-playbook` against this host only: `--limit <inventory_name>` and
-//!   `ansible_connection=local` are forced, whatever the job says.
+//!   `ansible_connection=local` are forced, whatever the job says. Params reach Ansible as
+//!   `-e @params.json` (`0600`), after the secret vars and before the forced vars. In signed mode
+//!   they are part of the override challenge the host rebuilds.
 //!
 //! A run that cannot be set up (a bad pack, a job that does not exist, a credential the host does
 //! not accept, ...) ends with a `Log` saying why and `Finished` with exit code
@@ -226,6 +229,8 @@ struct Assignment {
     pack_size: u64,
     /// Keel's override quorum; the host counts `max(its own, this)`.
     quorum: Option<u32>,
+    /// Job params (spec 061), checked against the job's declared params at the target.
+    params: BTreeMap<String, String>,
 }
 
 async fn run(
@@ -253,17 +258,6 @@ async fn run(
         eprintln!("keel-executor: refused a run id with unexpected characters; closing");
         return;
     }
-    // Job params (spec 061 R4) aren't applied by this executor yet. Fail closed rather than run
-    // the job without the values Keel asked for.
-    if !params.is_empty() {
-        finish_unstarted(
-            out,
-            &run_id,
-            SETUP_FAILED,
-            "job params are not supported yet",
-        );
-        return;
-    }
     let a = Assignment {
         run_id,
         workspace,
@@ -274,6 +268,7 @@ async fn run(
         deadline,
         pack_size,
         quorum,
+        params,
     };
     let run_id = a.run_id.clone();
     match prepare_and_run(&a, cfg, out, incoming).await {
@@ -463,7 +458,7 @@ fn authorize(
         &a.run_id,
         &a.job,
         a.quorum,
-        &BTreeMap::new(),
+        &a.params,
     );
     let now = i64::try_from(crate::runner::unix_now()).unwrap_or(i64::MAX);
     let req = keel_trust::RunRequest {
@@ -599,28 +594,31 @@ async fn prepare_and_run(
     let jobvars = run_dir.0.join("jobvars.json");
     let vars = serde_json::to_vec(&def.vars).map_err(|e| fail(e.to_string()))?;
     crate::write_private_new(&jobvars, &vars).map_err(|e| fail(format!("jobvars: {e}")))?;
+    // Only a run with params has a params file, so a run without them is invoked as before 061.
+    let params = if a.params.is_empty() {
+        None
+    } else {
+        let path = run_dir.0.join(PARAMS_FILE);
+        let json = serde_json::to_vec(&a.params).map_err(|e| fail(e.to_string()))?;
+        crate::write_private_new(&path, &json).map_err(|e| fail(format!("params: {e}")))?;
+        Some(path)
+    };
     let forced = run_dir.0.join("forced.json");
     crate::write_private_new(&forced, br#"{"ansible_connection":"local"}"#)
         .map_err(|e| fail(format!("forced vars: {e}")))?;
 
-    let at = |p: &Path| {
-        let mut s = OsString::from("@");
-        s.push(p.as_os_str());
-        s
-    };
     let mut args: Vec<OsString> = vec![
         "-i".into(),
         tree_dir.join(&inventory_path).into(),
         "--limit".into(),
         policy.inventory_name.clone().into(),
-        "-e".into(),
-        at(&jobvars),
-        "-e".into(),
-        at(&run_dir.0.join(secrets::SECRET_VARS_FILE)),
-        // Last, so nothing above can override it.
-        "-e".into(),
-        at(&forced),
     ];
+    args.extend(extra_var_args(
+        &jobvars,
+        &run_dir.0.join(secrets::SECRET_VARS_FILE),
+        params.as_deref(),
+        &forced,
+    ));
     args.extend(secrets.vault_args.iter().cloned());
     args.push(def.playbook.clone().into());
 
@@ -753,6 +751,7 @@ fn read_job(
             ),
         ));
     }
+    check_params(&def.params, &a.params).map_err(|e| Stop::Refuse(Refusal::ParamsMismatch, e))?;
     if !job.missing_credentials.is_empty() {
         return Err(fail(format!(
             "credentials not sent: {}",
@@ -769,6 +768,48 @@ fn read_job(
         .get(&def.inventory)
         .ok_or_else(|| fail(format!("inventory {:?} is not declared", def.inventory)))?;
     Ok((def.clone(), inventory.path.clone()))
+}
+
+/// The run directory's params file, passed as `-e @params.json` (spec 061).
+const PARAMS_FILE: &str = "params.json";
+
+/// Checks the params Keel sent against the ones the job declares at the target: every name must
+/// be declared and every value must fit its kind. A declared param may be left unset. The error
+/// names the param but never echoes its value.
+fn check_params(
+    declared: &BTreeMap<String, manifest::ParamSpec>,
+    sent: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    for (name, value) in sent {
+        let spec = declared
+            .get(name)
+            .ok_or_else(|| format!("param {name:?} is not declared by the job"))?;
+        spec.kind
+            .validate(value)
+            .map_err(|e| format!("param {name:?}: {e}"))?;
+    }
+    Ok(())
+}
+
+/// The `-e` arguments, in precedence order: job vars, secret vars, params (when sent), and the
+/// forced vars last, so nothing before them can override them.
+fn extra_var_args(
+    jobvars: &Path,
+    secret_vars: &Path,
+    params: Option<&Path>,
+    forced: &Path,
+) -> Vec<OsString> {
+    let mut args = Vec::with_capacity(8);
+    for p in [Some(jobvars), Some(secret_vars), params, Some(forced)]
+        .into_iter()
+        .flatten()
+    {
+        let mut at = OsString::from("@");
+        at.push(p.as_os_str());
+        args.push("-e".into());
+        args.push(at);
+    }
+    args
 }
 
 #[cfg(test)]
@@ -827,10 +868,13 @@ mod tests {
             "sha256:0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef",
             "{{ lookup('pipe','id') }}",
         ] {
-            let err = check_params(&declared(), &sent(&[("keel_server_image_digest", bad)]))
-                .unwrap_err();
+            let err =
+                check_params(&declared(), &sent(&[("keel_server_image_digest", bad)])).unwrap_err();
             assert!(err.contains("keel_server_image_digest"), "{err}");
-            assert!(bad.is_empty() || !err.contains(bad), "{bad} echoed: {err}");
+            // "" and "sha256:" are part of the fixed format description, so they can't be told
+            // apart from an echo.
+            let echoed = !matches!(bad, "" | "sha256:") && err.contains(bad);
+            assert!(!echoed, "{bad} echoed: {err}");
         }
     }
 
