@@ -677,6 +677,42 @@ async fn a_token_may_list_runs_but_never_start_or_cancel_one() {
     f.finish().await;
 }
 
+/// Spec 061: a host that refuses a run's params (`params_mismatch`) is recorded as refused with
+/// that reason (migration 0012 widens the `run_hosts.refusal` check).
+#[tokio::test]
+async fn a_params_mismatch_refusal_is_recorded() {
+    let Some(f) = Fixture::new("run_params_mismatch", settings()).await else {
+        return;
+    };
+    f.push("playbooks/web.yaml", "- hosts: web\n").await;
+    let run = f.runs().await[0].0;
+    let _runners = f
+        .attach(|_, id| {
+            FakeRunner::new(id.to_string()).default_script(Script::refuse(
+                keel_exec::frames::Refusal::ParamsMismatch,
+                "keel_server_image_digest is not declared",
+            ))
+        })
+        .await;
+    let (state, _) = f.ended(run, Duration::from_secs(10)).await;
+    assert_eq!(state, "refused");
+    let refusals: Vec<(String, Option<String>)> = sqlx::query_as(
+        "select state, refusal from run_hosts where run_id = $1 order by host_name",
+    )
+    .bind(run)
+    .fetch_all(&f.h.db.owner)
+    .await
+    .expect("run hosts");
+    assert_eq!(refusals.len(), 2);
+    assert!(
+        refusals
+            .iter()
+            .all(|(s, r)| s == "refused" && r.as_deref() == Some("params_mismatch")),
+        "{refusals:?}"
+    );
+    f.finish().await;
+}
+
 #[tokio::test]
 async fn a_manual_run_previews_its_targets_and_secrets_never_reach_the_record() {
     let Some(f) = Fixture::new("run_manual", settings()).await else {
