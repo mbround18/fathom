@@ -89,6 +89,13 @@ export function runFailed(run: RunInfo | null): boolean {
   return run !== null && UNSUCCESSFUL.includes(run.state)
 }
 
+/** The update run that failed, from the run read this session or, after a reload, the status's `last_update_run`. */
+export function failedRunId(status: UpdateStatus, run: RunInfo | null): string | null {
+  if (runFailed(run) && run) return run.id
+  const last = status.last_update_run
+  return last && (UNSUCCESSFUL as readonly string[]).includes(last.outcome) ? last.run : null
+}
+
 export interface Held {
   status: UpdateStatus | null
   line: UpdateStatusLine | null

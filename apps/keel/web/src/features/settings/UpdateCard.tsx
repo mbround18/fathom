@@ -34,7 +34,7 @@ import { CopyBlock } from '@/ui/CopyBlock'
 import { LoadState } from '@/ui/LoadState'
 
 import { Row, ShortCopy, Time } from './build-parts'
-import { canUpdate, cardState, runFailed, shortDigest, shortRevision, showDot, useUpdates, when, type CardState } from './updates'
+import { canUpdate, cardState, failedRunId, shortDigest, shortRevision, showDot, useUpdates, when, type CardState } from './updates'
 
 const H2 = 'font-display text-xs font-semibold tracking-wider uppercase'
 const MUTED = 'text-xs text-muted-foreground'
@@ -234,12 +234,13 @@ function UpdateAction({ status }: { status: UpdateStatus }) {
     )
   }
   if (!canUpdate(status) || available === null) return null
+  const failed = failedRunId(status, run)
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      {runFailed(run) && run && (
+      {failed !== null && (
         <p role="alert" data-update-run="failed" className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-status-err">
           The update failed; Keel is still running {status.running.display}.
-          <Link to={`/runs/${run.id}`} className="text-accent-neon hover:underline">
+          <Link to={`/runs/${failed}`} className="text-accent-neon hover:underline">
             Open the failed run
           </Link>
         </p>
@@ -253,7 +254,7 @@ function UpdateAction({ status }: { status: UpdateStatus }) {
             }}
           >
             <ArrowCircleUpIcon aria-hidden />
-            {runFailed(run) ? 'Try the update again' : 'Update Keel'}
+            {failed !== null ? 'Try the update again' : 'Update Keel'}
           </Button>
           <span className={MUTED}>Runs keel-server in the System workspace. You’ll see a preview first.</span>
         </div>

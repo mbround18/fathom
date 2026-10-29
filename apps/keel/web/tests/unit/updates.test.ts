@@ -10,6 +10,7 @@ import {
   canUpdate,
   cardState,
   reduce,
+  failedRunId,
   runFailed,
   shortDigest,
   shortRevision,
@@ -50,6 +51,7 @@ const updateFixtures = {
     digest_compare: true,
     update_path: { kind: 'run' },
     update_run: null,
+    last_update_run: null,
     ...over,
   }),
   off: (): UpdateStatus => ({ ...updateFixtures.status('up_to_date'), enabled: false, state: 'not_checked', outcome: null, available: null }),
@@ -161,5 +163,13 @@ describe('formatting', () => {
     expect(runFailed({ ...run, state: 'failed' })).toBe(true)
     expect(runFailed({ ...run, state: 'succeeded' })).toBe(false)
     expect(runFailed(null)).toBe(false)
+  })
+  it('a failed update survives a reload through last_update_run', () => {
+    const last = (outcome: string) => ({ run: 'r9', outcome, digest: AVAILABLE_DIGEST, ended_at: '2026-10-28T13:00:00Z' })
+    const run = updateFixtures.run('r', AVAILABLE_DIGEST)
+    expect(failedRunId(updateFixtures.status(), null)).toBe(null)
+    expect(failedRunId(updateFixtures.status('update_available', { last_update_run: last('failed') }), null)).toBe('r9')
+    expect(failedRunId(updateFixtures.status('update_available', { last_update_run: last('succeeded') }), null)).toBe(null)
+    expect(failedRunId(updateFixtures.status(), { ...run, state: 'refused' })).toBe('r')
   })
 })
