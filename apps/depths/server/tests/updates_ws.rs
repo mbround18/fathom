@@ -282,9 +282,9 @@ async fn a_settings_change_is_previewed_confirmed_and_audited_with_before_and_af
     let mut settings = r["event"]["data"]["settings"].clone();
     assert_eq!(settings["checks_enabled"], false);
 
-    // Settings other than the two US1 takes are refused.
+    // Out-of-range values are refused (every setting is changeable since US3 to US5).
     let mut other = settings.clone();
-    other["cleanup"] = json!(true);
+    other["health_timeout_secs"] = json!(5);
     let r = ask(
         &mut ws,
         2,

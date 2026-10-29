@@ -842,11 +842,18 @@ async fn run(app: AppState, session: Option<Session>, ip: IpAddr, mut socket: We
                     }
                 }
             }
-            alive = updates::recv(&mut conn.updates) => {
-                if alive {
-                    conn.updates.pending = true;
+            signal = updates::recv(&mut conn.updates) => match signal {
+                updates::Signal::Changed => conn.updates.pending = true,
+                updates::Signal::Gone => {}
+                updates::Signal::Run(ev) => {
+                    let access = conn.access();
+                    if updates::may_watch_runs(&mut conn.updates, &access)
+                        && !send(&mut socket, &ev).await
+                    {
+                        return;
+                    }
                 }
-            }
+            },
             () = tokio::time::sleep_until(updates_next), if updates_due => {
                 let access = conn.access();
                 for r in &conn.updates.flush(&app, &access) {
@@ -1025,11 +1032,17 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
                     blocking(move || files::confirm(&app, &who, preview_id).map(|e| vec![e]));
                 return answers(id, answer.await);
             }
-            // Spec 062: an update settings change.
+            // Spec 062: an update change or batch.
             if updates::owns(conn, preview_id) {
-                return vec![
-                    updates::confirm(conn, &access, id, preview_id, assertion.as_ref()).await,
-                ];
+                return updates::confirm(
+                    conn,
+                    &access,
+                    id,
+                    preview_id,
+                    acknowledge_findings,
+                    assertion.as_ref(),
+                )
+                .await;
             }
             // The preview was authorised when made; the network may have changed since.
             if let Some(k) = app.ops.preview_kind(&conn.session, preview_id)
@@ -1155,19 +1168,11 @@ async fn dispatch(conn: &mut Conn, access: Access, text: &str) -> Vec<EventEnvel
         Cmd::ListUpdates => vec![updates::list(conn, &access, id)],
         Cmd::CheckUpdatesNow { stacks } => vec![updates::check_now(conn, &access, id, stacks)],
         Cmd::PreviewUpdateChange(change) => {
-            vec![updates::preview_change(conn, &access, id, change)]
+            vec![updates::preview_change(conn, &access, id, change).await]
         }
-        // Batches come with US2.
-        Cmd::PreviewUpdateBatch { .. } => vec![conn.deny_reason(
-            id,
-            None,
-            DenyReason::FeatureDisabled,
-            if app.updates.is_none() {
-                "image updates are off (DEPTHS_UPDATES)".into()
-            } else {
-                "image updates are not available yet (spec 062)".into()
-            },
-        )],
+        Cmd::PreviewUpdateBatch { stacks } => {
+            vec![updates::preview_batch(conn, &access, id, stacks).await]
+        }
         Cmd::OpenLogs {
             target,
             tail,
