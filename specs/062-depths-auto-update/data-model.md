@@ -224,6 +224,18 @@ pub enum StackOutcome { Updated, Held, Skipped { reason: String }, Failed, Rolle
 - The phase is written (fsync) before each mutating step; an open stack run found at start becomes
   `Interrupted` (FR-018, research R5).
 
+## Auto last run (`update-state.json` → `auto_last_run`)
+
+`{ "<stack>": "2026-10-28" }`: per stack, the window occurrence the Auto queue last ran it in,
+keyed by the local date the occurrence opened (depths-core's `OccurrenceKey`).
+
+- Written (atomic, `0600`, fsync) before the stack runs, so a failed, held or interrupted stack
+  waits for the next occurrence, and a restart inside the same window does not run it again.
+- Read once when the Auto task starts. Missing, from before the field, or unreadable: no record,
+  with a warning; start-up never fails over it. An unreadable `auto_last_run` alone is dropped and
+  the rest of the file kept; an unreadable file is moved aside as above.
+- A digest Auto rolled back is not here: it is in `updates.json → rejected`, which a restart reads.
+
 ## Keep tags (on the Docker host)
 
 `depths-keep/<stack>:<service>-previous` and `depths-keep/<stack>:<service>-held`, names sanitised

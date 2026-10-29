@@ -11,8 +11,9 @@
 //! be an administrator (FR-025); otherwise the stack is listed in `paused_policies` until another
 //! administrator saves the policy.
 //!
-//! The occurrence each stack last ran is kept in memory: a restart inside an open window runs a
-//! due stack again at most once (misfit noted in the report).
+//! The occurrence each stack last ran is written to `update-state.json` before the stack runs, so
+//! a restart inside an open window does not run it again. A digest that was rolled back is in
+//! `updates.json`'s `rejected` list, so it is skipped after a restart too.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -209,6 +210,11 @@ pub fn tick(
         }
         // Marked before it runs: a failed or held stack waits for the next occurrence.
         last_run.insert(d.stack.clone(), d.occurrence.key);
+        if let Err(e) = u.store().update_observed(|o| {
+            o.auto_last_run.insert(d.stack.clone(), d.occurrence.key);
+        }) {
+            tracing::warn!(stack = %d.stack, "cannot record the Auto run on disk: {e}");
+        }
         run_stack(&d.stack, &d.set_by);
         ran += 1;
     }
@@ -283,7 +289,8 @@ fn run_one(u: &Arc<Updates>, deps: &Deps, stack: &str, set_by: &Actor) {
 /// The Auto task: a tick, then sleep until the next window opens or something changes.
 pub async fn run(u: Arc<Updates>, deps: Arc<Deps>) {
     let mut changes = u.subscribe_changes();
-    let mut last_run: BTreeMap<String, OccurrenceKey> = BTreeMap::new();
+    // What the last process recorded, so a restart inside a window does not run a stack again.
+    let mut last_run: BTreeMap<String, OccurrenceKey> = u.store().observed().auto_last_run;
     loop {
         let ticked = {
             let (u, deps) = (u.clone(), deps.clone());

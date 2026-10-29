@@ -5,8 +5,10 @@
 //!   [`Decided::Unreadable`] and never rewritten: checks are off, Auto is paused, and the page
 //!   shows the path and the error.
 //! - `update-state.json`: what Depths observed (per-service results, the resolution cache,
-//!   backoff, the run journal, keep tags). **Unreadable:** moved aside to
-//!   `update-state.json.unreadable-<ts>` and rebuilt; it holds nothing a person typed.
+//!   backoff, the run journal, keep tags, the window occurrence Auto last ran each stack in).
+//!   **Unreadable:** moved aside to `update-state.json.unreadable-<ts>` and rebuilt; it holds
+//!   nothing a person typed. An unreadable `auto_last_run` alone is dropped with a warning and the
+//!   rest kept: no record means a due stack may run once more in the window open now.
 //!
 //! Both are written as `users.rs` writes `users.json`: a 0600 temp file in the same directory,
 //! fsync, rename over, fsync the directory.
@@ -17,7 +19,7 @@ use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use depths_core::updates::window::Clock;
+use depths_core::updates::window::{Clock, OccurrenceKey};
 use depths_protocol::{
     Actor, MaintenanceWindow, Provider, RunId, ServiceUpdate, StackName, StackUpdatePolicy,
     TimeOfDay, UpdatePolicy, UpdateRun, UpdateScope, UpdateSettings, UpdatesAvailability,
@@ -411,6 +413,25 @@ pub struct Observed {
     /// that points back to one is `moved_back` (research R1 step 7).
     #[serde(default)]
     pub history: BTreeMap<String, Vec<String>>,
+    /// By stack: the window occurrence (the local date it opened) the Auto queue last ran it in,
+    /// written before the run starts. A restart inside that window does not run the stack again.
+    #[serde(default, deserialize_with = "lenient_last_run")]
+    pub auto_last_run: BTreeMap<String, OccurrenceKey>,
+}
+
+/// `auto_last_run` as stored, or no record (with a warning) when it does not parse.
+fn lenient_last_run<'de, D>(d: D) -> Result<BTreeMap<String, OccurrenceKey>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).unwrap_or_else(|error| {
+        tracing::warn!(
+            %error,
+            "update-state.json: auto_last_run is unreadable; Auto has no record of its last runs"
+        );
+        BTreeMap::new()
+    }))
 }
 
 /// Digests kept per service in [`Observed::history`].
@@ -426,6 +447,7 @@ impl Default for Observed {
             journal: Vec::new(),
             keep: Vec::new(),
             history: BTreeMap::new(),
+            auto_last_run: BTreeMap::new(),
         }
     }
 }
@@ -1054,6 +1076,72 @@ mod tests {
         let again = open(d.path()).observed();
         assert_eq!(again, s.observed());
         assert_eq!(again.open_runs().count(), 1);
+    }
+
+    fn key(d: &str) -> OccurrenceKey {
+        OccurrenceKey(d.parse().unwrap())
+    }
+
+    #[test]
+    fn the_auto_last_run_persists_privately_and_reloads() {
+        let d = tempfile::tempdir().unwrap();
+        let s = open(d.path());
+        assert!(s.observed().auto_last_run.is_empty(), "missing: no record");
+        s.update_observed(|o| {
+            o.auto_last_run.insert("media".into(), key("2026-10-28"));
+            o.auto_last_run.insert("web".into(), key("2026-10-27"));
+        })
+        .unwrap();
+        let mode = std::fs::metadata(d.path().join(STATE_FILE))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+        let raw: Value =
+            serde_json::from_slice(&std::fs::read(d.path().join(STATE_FILE)).unwrap()).unwrap();
+        assert_eq!(
+            raw["auto_last_run"],
+            json!({ "media": "2026-10-28", "web": "2026-10-27" })
+        );
+        let again = open(d.path()).observed();
+        assert_eq!(again.auto_last_run["media"], key("2026-10-28"));
+        assert_eq!(again.auto_last_run, s.observed().auto_last_run);
+    }
+
+    #[test]
+    fn a_corrupt_auto_last_run_is_no_record_and_the_rest_is_kept() {
+        // Only the record is bad: it is dropped, the journal stays.
+        let d = tempfile::tempdir().unwrap();
+        let mut o = Observed::default();
+        o.upsert_run(run(1, true));
+        let mut v = serde_json::to_value(&o).unwrap();
+        v["auto_last_run"] = json!({ "media": "not a date", "web": 7 });
+        std::fs::write(d.path().join(STATE_FILE), v.to_string()).unwrap();
+        let s = open(d.path()).observed();
+        assert!(s.auto_last_run.is_empty());
+        assert_eq!(s.journal.len(), 1);
+        v["auto_last_run"] = json!("garbage");
+        std::fs::write(d.path().join(STATE_FILE), v.to_string()).unwrap();
+        assert!(open(d.path()).observed().auto_last_run.is_empty());
+
+        // The whole file is bad: moved aside, and start-up goes on with no record.
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(
+            d.path().join(STATE_FILE),
+            br#"{"version":1,"auto_last_run":{"media":"2026-10-28"#,
+        )
+        .unwrap();
+        assert!(open(d.path()).observed().auto_last_run.is_empty());
+        assert!(
+            d.path()
+                .join("update-state.json.unreadable-20261028T093000Z")
+                .exists()
+        );
+
+        // A file from before the field: no record.
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join(STATE_FILE), br#"{"version":1}"#).unwrap();
+        assert!(open(d.path()).observed().auto_last_run.is_empty());
     }
 
     #[test]

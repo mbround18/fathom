@@ -822,3 +822,85 @@ fn a_restart_during_the_health_wait_records_the_run_interrupted_with_the_real_im
     });
     lab.release();
 }
+
+/// The runs `stack` is in, from the journal on disk.
+fn runs_of(lab: &Lab, stack: &str) -> Vec<UpdateRun> {
+    lab.u()
+        .store()
+        .observed()
+        .journal
+        .into_iter()
+        .filter(|r| r.stacks.iter().any(|s| s.stack == stack))
+        .collect()
+}
+
+/// Auto updates a stack in its window; Depths restarts inside the same window with another
+/// update waiting, and the queue does not run the stack a second time: the occurrence it ran in
+/// is on disk.
+#[test]
+fn a_restart_inside_the_window_does_not_run_an_auto_stack_again() {
+    if !enabled() {
+        return;
+    }
+    let _one = serial();
+    let mut lab = Lab::with(ROOT, ENV);
+    lab.push("app", "1", &dockerfile("1.0.0", "1000", true));
+    let stack = lab.stack("once", &compose(&lab.reference("app", "1")));
+    lab.rt.block_on(async {
+        let (mut ws, server, _, mut auth) = admin(&lab).await;
+        auto_now(&mut ws, 2, &mut auth, &stack).await;
+        server.abort();
+    });
+    let first = repush(&lab, &dockerfile("1.1.0", "1000", true));
+    lab.check(&stack);
+    assert_eq!(lab.state(&stack, "app"), UpdateState::Available);
+
+    lab.start_tasks();
+    let deadline = std::time::Instant::now() + RUN;
+    let ran = loop {
+        let runs = runs_of(&lab, &stack);
+        if runs.iter().any(|r| r.finished_at.is_some()) {
+            break runs;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the Auto run finished"
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    assert_eq!(ran.len(), 1, "{ran:#?}");
+    assert_eq!(
+        ran[0].stacks[0].outcome,
+        Some(StackOutcome::Updated),
+        "{ran:#?}"
+    );
+    let updated = lab.container(&stack, "app");
+    assert_eq!(running_image(&updated).1, first);
+
+    // The same window, a new process, and another update the queue would install if it forgot.
+    assert_eq!(lab.restart(), 0, "nothing was left open");
+    repush(&lab, &dockerfile("1.2.0", "1000", true));
+    lab.check(&stack);
+    assert_eq!(lab.state(&stack, "app"), UpdateState::Available);
+    let mut passes = lab.u().auto_passes();
+    lab.start_tasks();
+    lab.rt.block_on(async {
+        // A pass runs its stacks before it counts as finished, so a second run would show now.
+        tokio::time::timeout(RUN, passes.wait_for(|p| p.finished >= 1))
+            .await
+            .expect("an Auto pass finished")
+            .unwrap();
+    });
+    assert_eq!(
+        runs_of(&lab, &stack).len(),
+        1,
+        "no second run in the window"
+    );
+    assert_eq!(
+        lab.container(&stack, "app"),
+        updated,
+        "nothing was recreated"
+    );
+    assert_eq!(lab.state(&stack, "app"), UpdateState::Available);
+    lab.release();
+}

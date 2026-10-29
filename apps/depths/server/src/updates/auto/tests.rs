@@ -251,6 +251,40 @@ fn when_the_window_closes_the_stack_in_progress_finishes_and_the_rest_wait() {
 }
 
 #[test]
+fn the_last_run_is_on_disk_before_the_stack_runs_and_survives_a_restart() {
+    let f = fx();
+    f.auto_stack("a");
+    f.clock.set(at(26, 3, 30));
+    let data = f._dir.path().join("data");
+    let mut seen = None;
+    tick(
+        &f.u,
+        &Utc0,
+        &only_admin,
+        &mut BTreeMap::new(),
+        &mut |s, _| {
+            // A crash during the run must not run it again in this window.
+            let on_disk = crate::updates::store::Store::open(&data, f.clock.clone())
+                .unwrap()
+                .observed()
+                .auto_last_run;
+            seen = on_disk.get(s).copied();
+        },
+    );
+    let key = OccurrenceKey(NaiveDate::from_ymd_opt(2026, 10, 26).unwrap());
+    assert_eq!(seen, Some(key));
+
+    // A new process reads it back: nothing is due until the next occurrence.
+    let reopened = crate::updates::store::Store::open(&data, f.clock.clone())
+        .unwrap()
+        .observed()
+        .auto_last_run;
+    assert!(f.plan(&reopened).due.is_empty());
+    f.clock.set(at(27, 3, 0));
+    assert_eq!(f.plan(&reopened).due.len(), 1, "the next opening runs it");
+}
+
+#[test]
 fn a_rejected_digest_waits_and_a_newer_one_is_tried() {
     let f = fx();
     f.policy("a", UpdatePolicy::Auto, "admin", None);
