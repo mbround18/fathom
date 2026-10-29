@@ -260,7 +260,11 @@ function SettingsStrip({ view }: { view: UpdatesView }) {
       <span data-field="cleanup-state" className="text-muted-foreground">
         {settings.cleanup ? 'Replaced images are removed' : 'Replaced images are kept'}
       </span>
-      {isUtcZone(view.zone) && <ZoneNote zone={view.zone} />}
+      {isUtcZone(view.zone) && (
+        <div className="basis-full sm:basis-auto sm:border-l sm:border-border sm:pl-2">
+          <ZoneNote zone={view.zone} />
+        </div>
+      )}
     </div>
   )
 }

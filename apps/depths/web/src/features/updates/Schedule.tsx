@@ -286,7 +286,7 @@ export function Policies({ view }: { view: UpdatesView }) {
         A stack nobody has changed is Notify. Auto installs new images in the maintenance window ({windowText(view.settings.window)}
         {view.next_window ? `, next ${formatTime(view.next_window)}` : ''}), on behalf of the administrator who set it.
       </p>
-      <ul className="mt-1 flex flex-col">
+      <ul className="mt-1 flex max-h-[30dvh] flex-col overflow-y-auto">
         {stacks.map((stack) => (
           <PolicyRow
             key={stack}
@@ -511,7 +511,7 @@ export function RecentRuns({ view }: { view: UpdatesView }) {
   return (
     <details data-testid="updates-runs" className="shrink-0 border-t border-border px-2 py-1.5 text-xs">
       <summary className="cursor-pointer text-muted-foreground">Recent runs ({String(runs.length)})</summary>
-      <ul className="mt-1 flex flex-col gap-1.5">
+      <ul className="mt-1 flex max-h-[30dvh] flex-col gap-1.5 overflow-y-auto">
         {runs.map((r) => (
           <RunItem key={r.run_id} run={r} entries={entries} />
         ))}
