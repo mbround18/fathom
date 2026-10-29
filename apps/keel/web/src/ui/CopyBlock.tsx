@@ -7,17 +7,9 @@ import { CheckIcon, CopyIcon, EyeIcon, EyeSlashIcon } from '@phosphor-icons/reac
 import { Button } from '@companion/ui'
 import { useEffect, useId, useState } from 'react'
 
-const COPIED_MS = 2000
+import { copyText } from './clipboard'
 
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await globalThis.navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    // No clipboard (an insecure context, or permission denied): the value is selectable anyway.
-    return false
-  }
-}
+const COPIED_MS = 2000
 
 export function CopyBlock({
   label,
