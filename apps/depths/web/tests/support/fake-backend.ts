@@ -1195,10 +1195,8 @@ export class FakeBackend {
         const plan = op.kind === 'update' ? this.updateRuns.stackPlan(stack) : null
         if (plan !== null) {
           // 062 FR-026: the image-update plan, its findings and rollback notes as the preview's warnings.
-          if (plan.services.length === 0) {
-            const why = plan.skipped.map(([service, reason]) => `${service}: ${reason}`).join('; ')
-            return [{ type: 'Invalid', data: { reason: `nothing to update on ${stack}${why ? ` (${why})` : ''}` } }]
-          }
+          // Nothing to install is information, as for a batch: nothing held, asked or audited.
+          if (plan.services.length === 0) return [{ type: 'NothingToUpdate', data: { stacks: [plan] } }]
           const steps = plan.argv.map((argv): Step => ({ argv, cwd: `/stacks/${stack}`, stdin: 'none' }))
           const preview = this.makePreview(s, 'update', steps, null, false)
           preview.warnings = plan.findings

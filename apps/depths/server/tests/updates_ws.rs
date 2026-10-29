@@ -826,6 +826,32 @@ async fn a_users_update_is_the_image_update_plan_while_checks_are_on() {
 }
 
 #[tokio::test]
+async fn a_users_update_with_nothing_to_install_is_information_not_a_refusal() {
+    // FR-026, as for a batch: the seeded state has no digest to pin, so nothing would run. The
+    // answer carries the stack's plan and its reasons; nothing is held, asked or audited.
+    let a = updates_app();
+    seed(&a);
+    checks_on(&a);
+    grant(&a, USER, &["web"]);
+    let (mut ws, server, _) = open(&a, USER).await;
+    let audited = a.audit_entries().len();
+    let r = ask(&mut ws, 1, update_op("web")).await;
+    assert_eq!(r["event"]["type"], "NothingToUpdate", "{r}");
+    let stacks = r["event"]["data"]["stacks"].as_array().unwrap();
+    assert_eq!(stacks.len(), 1, "{r}");
+    assert_eq!(stacks[0]["stack"], "web", "{r}");
+    assert_eq!(stacks[0]["services"], json!([]), "{r}");
+    assert!(
+        stacks[0]["skipped"]
+            .as_array()
+            .is_some_and(|s| s.iter().any(|p| p[0] == "app")),
+        "says why app is left: {r}"
+    );
+    assert_eq!(a.audit_entries().len(), audited);
+    server.abort();
+}
+
+#[tokio::test]
 async fn a_users_update_is_050s_pull_then_up_while_checks_are_off() {
     let a = updates_app();
     seed_newer(&a);

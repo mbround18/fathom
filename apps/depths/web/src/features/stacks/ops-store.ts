@@ -3,7 +3,8 @@
  *
  * - `requestPreview(req)` sends `PreviewOp` or `PreviewSave`. The reply is a `Preview` the dialog
  *   shows verbatim, or a refusal (`Busy`, `Denied`, `Invalid`, and for a save `ValidationFailed`
- *   or `Conflict`). Only one preview flow is open at a time; a newer request (say, a destructive
+ *   or `Conflict`). An image update (062 FR-026) with nothing to install answers
+ *   `NothingToUpdate`: the flow shows it as information, with nothing to confirm. Only one preview flow is open at a time; a newer request (say, a destructive
  *   option switched on) makes every reply to the older one stale.
  * - `confirm()` sends `Confirm{preview_id}`. `OpStarted` closes the flow and opens an operation
  *   for that stack; `PreviewVoid` or `Busy` keeps the flow open with the refusal.
@@ -35,6 +36,7 @@ import type {
   StackDraft,
   PasskeyRequest,
   StackOp,
+  StackUpdatePlan,
   ValidationError,
 } from '@/protocol/generated'
 import { stepUpAssertion } from '@/features/passkeys/api'
@@ -54,8 +56,11 @@ export type Refusal =
   | { kind: 'lost' }
   | StepUpRefusal
 
-/** `verifying`: the browser's passkey prompt is open, nothing has been sent yet. */
-export type FlowPhase = 'previewing' | 'ready' | 'verifying' | 'confirming' | 'refused'
+/**
+ * `verifying`: the browser's passkey prompt is open, nothing has been sent yet. `up_to_date`: an
+ * image update (062 FR-026) found nothing to install; information, with nothing to confirm.
+ */
+export type FlowPhase = 'previewing' | 'ready' | 'verifying' | 'confirming' | 'refused' | 'up_to_date'
 
 export interface Flow {
   request: PreviewRequest
@@ -68,6 +73,8 @@ export interface Flow {
    * `StepUpRequired` carried. `null` once spent (or never asked for).
    */
   stepUp?: PasskeyRequest | null
+  /** The plans of an image update with nothing to install, each service and why it is left. */
+  upToDate?: readonly StackUpdatePlan[]
 }
 
 export interface OpRun {
@@ -237,6 +244,14 @@ onServerEvent(({ reply_to, event }) => {
       const { flow } = useOps.getState()
       if (!flow || asked.token !== token) return
       useOps.setState({ flow: { ...flow, phase: 'ready', preview: event.data, refusal: null, stepUp: event.data.step_up ?? null } })
+      return
+    }
+    case 'NothingToUpdate': {
+      if (asked?.kind !== 'preview' || reply_to === undefined) return
+      pending.delete(reply_to)
+      const { flow } = useOps.getState()
+      if (!flow || asked.token !== token) return
+      useOps.setState({ flow: { ...flow, phase: 'up_to_date', preview: null, refusal: null, upToDate: event.data.stacks } })
       return
     }
     case 'OpStarted': {

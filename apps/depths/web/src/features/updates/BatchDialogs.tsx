@@ -16,7 +16,7 @@ import { useEffect, useRef } from 'react'
 import type { PasskeyRequest, StackUpdatePlan } from '@/protocol/generated'
 
 import { availableText, composeFindings, outcomeText, outcomeTone, runningText, triggerText } from './model'
-import { RollbackNotes } from './PlanNotes'
+import { RollbackNotes, UpToDate } from './PlanNotes'
 import { useUpdates, type LiveRun } from './store'
 
 /** 054: the preview asks for a passkey on Confirm; `note` says why the last try did not go through. */
@@ -73,7 +73,7 @@ export function BatchDialog() {
             {flow.reason}
           </p>
         ) : flow.kind === 'up_to_date' ? (
-          <UpToDate stacks={flow.stacks} />
+          <UpToDate stacks={flow.stacks} named />
         ) : shown ? (
           <>
             <ol className="flex flex-col gap-2">
@@ -109,25 +109,6 @@ export function BatchDialog() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
-}
-
-function UpToDate({ stacks }: { stacks: readonly StackUpdatePlan[] }) {
-  return (
-    <div className="flex flex-col gap-1 text-xs">
-      <p role="status" data-up-to-date>
-        Everything is up to date.
-      </p>
-      <ul aria-label="Left as they are" className="flex flex-col gap-0.5 text-muted-foreground">
-        {stacks.flatMap((p) =>
-          p.skipped.map(([service, why]) => (
-            <li key={`${p.stack}/${service}`} data-plan-skipped={`${p.stack}/${service}`} className="min-w-0 break-words">
-              {p.stack}/{service}: {why}
-            </li>
-          )),
-        )}
-      </ul>
-    </div>
   )
 }
 

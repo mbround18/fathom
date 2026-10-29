@@ -9,6 +9,8 @@
  *   the stack's name typed before Confirm enables.
  * - Confirm sends the `preview_id`. Radix traps focus; Escape and Cancel dismiss without sending
  *   anything, so nothing runs.
+ * - An image update (062 FR-026) with nothing to install says everything is up to date, with each
+ *   service and why it is left: information, closed with Close, nothing to confirm.
  */
 import { CopyIcon, FingerprintIcon, WarningIcon } from '@phosphor-icons/react'
 import {
@@ -25,7 +27,7 @@ import {
 import { useId, useState, type ReactNode } from 'react'
 
 import { useSession } from '@/app/session-store'
-import { RollbackNotes } from '@/features/updates/PlanNotes'
+import { RollbackNotes, UpToDate } from '@/features/updates/PlanNotes'
 import type { ComposeWarning, Preview, StackOp, Step } from '@/protocol/generated'
 
 import { argvLine, KIND_LABEL, refusalText } from './argv'
@@ -283,6 +285,7 @@ function Body({ flow, admin }: { flow: Flow; admin: boolean }) {
   const { preview, request, phase, refusal } = flow
   let main: ReactNode
   if (preview) main = <PreviewBody preview={preview} request={request} />
+  else if (phase === 'up_to_date') main = <UpToDate stacks={flow.upToDate ?? []} />
   else if (phase === 'previewing') {
     main = (
       <p role="status" data-pane-state="loading" className="text-xs text-muted-foreground">
@@ -354,6 +357,7 @@ export function PreviewDialog() {
   const ackRequired = flow.preview?.ack_required ?? false
   const canConfirm = flow.phase === 'ready' && flow.preview !== null && typedOk && (!ackRequired || acked)
   const canRetry = flow.refusal?.kind === 'void' || flow.refusal?.kind === 'busy' || flow.refusal?.kind === 'lost'
+  const upToDate = flow.phase === 'up_to_date'
 
   return (
     <Dialog open onOpenChange={(o) => !o && dismiss()}>
@@ -367,7 +371,7 @@ export function PreviewDialog() {
             {KIND_LABEL[kind]} {service !== null ? `${service} in ` : ''}
             {stack}
           </DialogTitle>
-          <DialogDescription>Nothing runs until you confirm.</DialogDescription>
+          <DialogDescription>{upToDate ? 'Nothing to run.' : 'Nothing runs until you confirm.'}</DialogDescription>
         </DialogHeader>
         <Body flow={flow} admin={admin} />
         {destructive && flow.preview && (
@@ -400,15 +404,15 @@ export function PreviewDialog() {
           </div>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={dismiss}>
-            Cancel
+          <Button variant="outline" onClick={dismiss} data-action={upToDate ? 'close' : undefined}>
+            {upToDate ? 'Close' : 'Cancel'}
           </Button>
           {canRetry && (
             <Button variant="secondary" onClick={retry}>
               Preview again
             </Button>
           )}
-          {flow.phase !== 'refused' && (
+          {flow.phase !== 'refused' && !upToDate && (
             <Button
               variant={destructive ? 'destructive' : 'default'}
               disabled={!canConfirm}

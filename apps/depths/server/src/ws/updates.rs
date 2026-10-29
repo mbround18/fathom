@@ -363,7 +363,8 @@ pub async fn preview_batch(
 /// FR-026: a user's 050 `PreviewOp { Update }`. While checks are on and the stack has update
 /// states, the preview is this feature's image-update plan for the services with a newer image,
 /// held for a one-stack manual run. `None` when 050's pull-then-up still applies: the feature is
-/// off, checks are off, or no service of the stack has been checked yet.
+/// off, checks are off, or no service of the stack has been checked yet. When no service would
+/// be recreated the answer is `NothingToUpdate`, as for a batch: nothing is held, asked or audited.
 ///
 /// The caller has already passed 050's gates for `Update` (role on the stack, then the network);
 /// nothing is added here. The step-up is 054's rule for `Update`, as 050's previews carry it.
@@ -389,7 +390,12 @@ pub async fn preview_op(
         Err(why) => return Some(invalid(id, why)),
     };
     let Some(job) = p.job else {
-        return Some(invalid(id, nothing_to_update(&p.plan)));
+        return Some(reply(
+            id,
+            Event::NothingToUpdate {
+                stacks: vec![p.plan],
+            },
+        ));
     };
     let shown: Vec<String> = job.pins.iter().map(|p| p.service.clone()).collect();
     let runtime = conn.app.runtime.clone();
@@ -465,20 +471,6 @@ fn image_update(checks_enabled: bool, states_known: bool) -> bool {
         depths_core::plan::update_operation(checks_enabled, states_known, Vec::new(), Vec::new()),
         depths_core::plan::Operation::ImageUpdate { .. }
     )
-}
-
-/// Why a user's Update has nothing to install: each service and why it is left.
-fn nothing_to_update(plan: &StackUpdatePlan) -> String {
-    let why: Vec<String> = plan
-        .skipped
-        .iter()
-        .map(|(service, why)| format!("{service}: {why}"))
-        .collect();
-    if why.is_empty() {
-        format!("nothing to update on {}", plan.stack)
-    } else {
-        format!("nothing to update on {} ({})", plan.stack, why.join("; "))
-    }
 }
 
 /// What a user's image update changes, as diff lines: per service the running image (`-`) and
@@ -1237,15 +1229,6 @@ mod tests {
             "nothing checked yet: 050's Update"
         );
         assert!(!image_update(false, false));
-    }
-
-    #[test]
-    fn nothing_to_update_names_each_service_and_why() {
-        assert_eq!(nothing_to_update(&plan(&[])), "nothing to update on web");
-        assert_eq!(
-            nothing_to_update(&plan(&[("app", "up to date"), ("db", "excluded")])),
-            "nothing to update on web (app: up to date; db: excluded)"
-        );
     }
 
     #[test]

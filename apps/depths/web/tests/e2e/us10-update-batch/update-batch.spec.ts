@@ -9,7 +9,8 @@
  * - A held image (a breaking-change label) shows its reason and "Apply anyway".
  * - A stack another operation holds is skipped. Stop lets the stack in progress finish and skips
  *   the rest.
- * - A batch with nothing left to update says everything is up to date: information, not an error.
+ * - A batch, or the stack page's Update, with nothing left to update says everything is up to date:
+ *   information, not an error.
  * - A hand-pulled image (no name left) is updated after a note that its old image may not come
  *   back if the update fails, in the batch preview and on the stack page.
  */
@@ -247,4 +248,23 @@ test("the stack page's Update shows the same note, and Confirm still runs it", a
   await backend.waitForCmd('Confirm')
   await expect(stackPreview(page)).toHaveCount(0)
   await expect(page.locator('[data-operation="update"]')).toBeVisible()
+})
+
+test("the stack page's Update with nothing to install says everything is up to date", async ({ page, backend }) => {
+  seed(backend)
+  // Updated elsewhere since the page last heard: the server has nothing left to recreate.
+  const view = backend.updates
+  if (view === null) throw new Error('no updates view')
+  view.services = view.services.map((s) => (s.stack === 'web' ? { ...s, state: 'up_to_date', available: null } : s))
+  await page.goto('/stacks/web')
+  await page.locator('[role="toolbar"][aria-label="Stack actions"] [data-action="update"]').click()
+
+  await expect(stackPreview(page).locator('[data-up-to-date]')).toHaveText('Everything is up to date.')
+  await expect(stackPreview(page).locator('[data-plan-skipped="web/app"]')).toHaveText('app: up to date')
+  await expect(stackPreview(page).locator('[data-plan-skipped="web/cache"]')).toHaveText('cache: up to date')
+  await expect(stackPreview(page).locator('[role="alert"]')).toHaveCount(0)
+  await expect(stackPreview(page).locator('[data-confirm]')).toHaveCount(0)
+  await stackPreview(page).getByRole('button', { name: 'Close' }).first().click()
+  await expect(stackPreview(page)).toHaveCount(0)
+  expect(backend.received.some((c) => c.type === 'Confirm')).toBe(false)
 })

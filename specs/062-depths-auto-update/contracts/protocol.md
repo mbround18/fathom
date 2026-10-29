@@ -45,7 +45,10 @@ pub struct StackUpdatePlan {
     pub services: Vec<ServiceUpdate>,         // only those that will be recreated
     pub skipped: Vec<(String, String)>,       // service, reason (up to date, excluded, rejected…)
     pub argv: Vec<Vec<String>>,               // the steps, as every preview shows them
-    pub findings: Vec<Finding>,               // 051 lint findings for the stack
+    pub findings: Vec<Finding>,               // 051 lint findings for the stack, then an `info`
+                                              // `unnamed_image` note per recreated service whose
+                                              // old image has no name left (rollback may not
+                                              // restore it; the update still runs once confirmed)
     pub ack_required: bool,
 }
 
@@ -76,6 +79,9 @@ pub enum UpdateChange {
 User path (US2 scenario 5, FR-026): users keep 050's `PreviewOp { op: Update }` on assigned stacks. Its
 plan becomes the same per-stack image-update plan (pull by digest, hold check, tag, `up --no-deps`)
 when checks are on and the stack has update states; with checks off it stays 050's pull-then-up.
+When that plan would recreate no service the answer is `NothingToUpdate { stacks: [plan] }`, as for
+a batch: information with each service's reason, not a refusal; nothing is held, no passkey is asked
+and nothing is audited.
 
 ## Events
 
