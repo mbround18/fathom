@@ -15,6 +15,7 @@ and switch back at any time.
 | [Sign-in providers](sign-in.md) | Setting up OIDC, a GitHub OAuth App or a Discord application |
 | [People and access](users.md) | The owner, finding your id, admitting people, assigning stacks, sessions and whitelists |
 | [Networks and the restricted view](security.md) | Which networks are trusted, what an untrusted one can do, getting back in |
+| [Passkeys](passkeys.md) | Registering and confirming, which actions ask again, removing one, recovery codes, and changing the address |
 | [Migrating from Dockge](migrating-from-dockge.md) | Pointing Depths at Dockge's directory, what differs, switching back |
 | [Tabs, logs and shells](tabs-and-shells.md) | Logs, stats and shell tabs, panes, and what happens when a connection drops |
 | [Files in volumes](files.md) | Browsing a stack's volumes, editing config files, transfers, history and limits |

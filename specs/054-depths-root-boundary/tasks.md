@@ -680,7 +680,7 @@ confirm step, with one check covering the window.
   - the residual risk (FR-023);
   - the upgrade notes (stopped escape-level containers are not restarted through Depths; steam
     order).
-- [ ] T077 [P] Write docs/guides/depths/passkeys.md: registering, confirming, step-up and the window,
+- [X] T077 [P] Write docs/guides/depths/passkeys.md: registering, confirming, step-up and the window,
   managing passkeys, the recovery code via `docker compose exec depths depths passkey-recovery`,
   enrolling right after upgrade, and that changing `DEPTHS_PUBLIC_URL`'s host invalidates
   passkeys.
