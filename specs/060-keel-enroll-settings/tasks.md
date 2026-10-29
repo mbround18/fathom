@@ -256,9 +256,9 @@ shape.
 ## Phase 10: Polish and cross-cutting
 
 - [X] T056 Merge the agent branches into `main`, then remove their worktrees and branches.
-- [ ] T057 Run the full gate once, with `scripts/ci.sh`, in the main session. Report the wall time, the slowest steps, the delta and one speed-up idea.
-- [ ] T058 Run `scripts/hygiene.sh`, then `docker builder prune --filter until=24h` if any images were built.
-- [ ] T059 Update `specs/060-keel-enroll-settings/spec.md` status to Implemented, and tick this file.
+- [X] T057 Run the full gate once, with `scripts/ci.sh`, in the main session. Report the wall time, the slowest steps, the delta and one speed-up idea.
+- [X] T058 Run `scripts/hygiene.sh`, then `docker builder prune --filter until=24h` if any images were built.
+- [X] T059 Update `specs/060-keel-enroll-settings/spec.md` status to Implemented, and tick this file.
 
 ---
 
