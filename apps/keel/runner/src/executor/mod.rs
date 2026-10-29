@@ -256,7 +256,12 @@ async fn run(
     // Job params (spec 061 R4) aren't applied by this executor yet. Fail closed rather than run
     // the job without the values Keel asked for.
     if !params.is_empty() {
-        finish_unstarted(out, &run_id, SETUP_FAILED, "job params are not supported yet");
+        finish_unstarted(
+            out,
+            &run_id,
+            SETUP_FAILED,
+            "job params are not supported yet",
+        );
         return;
     }
     let a = Assignment {
