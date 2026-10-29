@@ -358,7 +358,11 @@ mod tests {
             Some("false"),
             "the container's labels win (what Watchtower reads)"
         );
-        assert_eq!(label("db").as_deref(), Some("false"), "compose, no container");
+        assert_eq!(
+            label("db").as_deref(),
+            Some("false"),
+            "compose, no container"
+        );
         assert_eq!(got.iter().find(|s| s.service == "app").unwrap().replicas, 1);
     }
 }

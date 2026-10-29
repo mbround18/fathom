@@ -495,7 +495,12 @@ async fn a_batch_is_previewed_per_stack_and_refuses_an_empty_or_repeated_list() 
     let a = updates_app();
     seed(&a);
     let (mut ws, server, _) = open(&a, OWNER).await;
-    let r = ask(&mut ws, 1, cmd("PreviewUpdateBatch", json!({ "stacks": [] }))).await;
+    let r = ask(
+        &mut ws,
+        1,
+        cmd("PreviewUpdateBatch", json!({ "stacks": [] })),
+    )
+    .await;
     assert_eq!(r["event"]["type"], "Invalid", "{r}");
     let r = ask(
         &mut ws,
@@ -550,10 +555,16 @@ async fn a_policy_change_is_admin_only_trusted_and_audited_with_before_and_after
     assert!(diff.contains("auto"), "{diff}");
     let r = confirm(&mut ws, 2, &r["event"]["data"]["preview_id"]).await;
     assert_eq!(r["event"]["type"], "UpdatesChanged", "{r}");
-    assert_eq!(r["event"]["data"]["policies"]["web"]["policy"], "auto", "{r}");
+    assert_eq!(
+        r["event"]["data"]["policies"]["web"]["policy"], "auto",
+        "{r}"
+    );
     let d = updates(&a).store().decisions().unwrap();
     assert_eq!(d.policies["web"].policy, UpdatePolicy::Auto);
-    assert_eq!(d.policies["web"].set_by.subject, OWNER, "the saver is set_by");
+    assert_eq!(
+        d.policies["web"].set_by.subject, OWNER,
+        "the saver is set_by"
+    );
 
     let entries = a.audit_entries();
     let e = entries
