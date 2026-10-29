@@ -16,7 +16,9 @@ const STORIES = [
   'us4-tabs',
   'us5-access',
   'us6-files',
-  // Spec 062. us7/us8 are 054's (passkeys, guard).
+  // Spec 054 (us8, the guard, has no UI yet).
+  'us7-passkeys',
+  // Spec 062.
   'us9-update-check',
   'us10-update-batch',
   'us11-update-auto',
