@@ -151,10 +151,12 @@ pub enum CommandKind {
     /// Changing update settings, policies, acknowledgements and rejections
     /// (`PreviewUpdateChange` and its confirm).
     ManageUpdates,
+    /// Removing one of one's own passkeys (spec 054 `PreviewPasskeyRemove` and its confirm).
+    ManagePasskeys,
 }
 
 impl CommandKind {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::View,
         Self::Subscribe,
         Self::Start,
@@ -178,6 +180,7 @@ impl CommandKind {
         Self::ViewUpdates,
         Self::CheckUpdates,
         Self::ManageUpdates,
+        Self::ManagePasskeys,
     ];
 
     /// The [`Action`] the volume explorer's kinds need: [`Action::Edit`] for all three, so a
@@ -231,7 +234,40 @@ pub fn restricted_ok(kind: CommandKind) -> bool {
         | K::FilesRead
         | K::FilesWrite
         | K::CheckUpdates
-        | K::ManageUpdates => false,
+        | K::ManageUpdates
+        | K::ManagePasskeys => false,
+    }
+}
+
+/// Whether `kind` needs a fresh passkey assertion (spec 054 FR-017), for every role: opening a
+/// shell; a save or deploy whose compose file has escape-level findings (and so acknowledging
+/// them); any change to a volume; user, role and network-whitelist changes; removing a passkey;
+/// and changing image-update settings (spec 062). A 062 batch update is [`CommandKind::Update`]
+/// per stack, so it needs one when any stack in it has escape findings.
+pub fn step_up_needed(kind: CommandKind, escape_findings: bool) -> bool {
+    use CommandKind as K;
+    match kind {
+        K::Shell
+        | K::FilesWrite
+        | K::ManageUsers
+        | K::ManageNetworks
+        | K::ManageUpdates
+        | K::ManagePasskeys => true,
+        K::Start | K::Restart | K::Update | K::Edit => escape_findings,
+        K::View
+        | K::Subscribe
+        | K::Stop
+        | K::Down
+        | K::Pull
+        | K::Delete
+        | K::RevealEnv
+        | K::ReadAudit
+        | K::AnswerNetwork
+        | K::EndSession
+        | K::FilesList
+        | K::FilesRead
+        | K::ViewUpdates
+        | K::CheckUpdates => false,
     }
 }
 
@@ -355,7 +391,7 @@ mod tests {
     }
 
     /// spec 052 FR-010: (kind, allowed from an untrusted network).
-    const RESTRICTED: [(CommandKind, bool); 23] = [
+    const RESTRICTED: [(CommandKind, bool); 24] = [
         (CommandKind::View, true),
         (CommandKind::Subscribe, true),
         (CommandKind::Start, true),
@@ -379,7 +415,46 @@ mod tests {
         (CommandKind::ViewUpdates, true),
         (CommandKind::CheckUpdates, false),
         (CommandKind::ManageUpdates, false),
+        (CommandKind::ManagePasskeys, false),
     ];
+
+    /// spec 054 FR-017: (kind, step-up without findings, step-up with escape findings).
+    const STEP_UP: [(CommandKind, bool, bool); 24] = [
+        (CommandKind::View, false, false),
+        (CommandKind::Subscribe, false, false),
+        (CommandKind::Start, false, true),
+        (CommandKind::Stop, false, false),
+        (CommandKind::Restart, false, true),
+        (CommandKind::Down, false, false),
+        (CommandKind::Pull, false, false),
+        (CommandKind::Update, false, true),
+        (CommandKind::Delete, false, false),
+        (CommandKind::RevealEnv, false, false),
+        (CommandKind::Edit, false, true),
+        (CommandKind::Shell, true, true),
+        (CommandKind::ReadAudit, false, false),
+        (CommandKind::ManageUsers, true, true),
+        (CommandKind::ManageNetworks, true, true),
+        (CommandKind::AnswerNetwork, false, false),
+        (CommandKind::EndSession, false, false),
+        (CommandKind::FilesList, false, false),
+        (CommandKind::FilesRead, false, false),
+        (CommandKind::FilesWrite, true, true),
+        (CommandKind::ViewUpdates, false, false),
+        (CommandKind::CheckUpdates, false, false),
+        (CommandKind::ManageUpdates, true, true),
+        (CommandKind::ManagePasskeys, true, true),
+    ];
+
+    #[test]
+    fn step_up_covers_the_risky_actions() {
+        assert_eq!(STEP_UP.len(), CommandKind::ALL.len());
+        for (row, kind) in STEP_UP.iter().zip(CommandKind::ALL) {
+            assert_eq!(row.0, kind, "table order follows ALL");
+            assert_eq!(step_up_needed(kind, false), row.1, "{kind:?} without findings");
+            assert_eq!(step_up_needed(kind, true), row.2, "{kind:?} with findings");
+        }
+    }
 
     const UPDATES: [CommandKind; 3] = [
         CommandKind::ViewUpdates,
