@@ -602,7 +602,7 @@ export default function ReviewsPage() {
         id="reviews-title"
         title="Reviews"
         tip={<TermTip term="review" />}
-        description="Runs the early check held back, until someone decides."
+        description="Runs the early check held back, until someone approves or denies them."
         guide={{ guide: 'reviews' }}
       >
         <WorkspacePicker />
