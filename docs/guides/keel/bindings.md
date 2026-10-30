@@ -48,13 +48,12 @@ Before you start, you need:
 - the repository's URL and the branch to follow;
 - a credential, if the repository is private (see [Credentials](#credentials));
 - for SSH, the server's host key line, as in `known_hosts`;
-- the id of the project the binding belongs to.
-
-The Teams page lists each workspace's projects by slug, but the web app does not show project ids
-yet.
+- a project in the workspace for the binding to belong to. Create one under **Administration →
+  Teams** if there is none.
 
 1. Open **Pipelines → Bindings** and choose **New binding**.
-2. Enter the **Project id**.
+2. Pick the **Project**. If the workspace has only one, Keel picks it for you. With none, the form
+   links to Teams to create one.
 3. Enter the **Repository URL** and the **Branch**. The branch is `main` unless you change it.
 4. Choose the **Transport**, **HTTPS** or **SSH**.
 5. Choose the **Credential**, or **None (public)**. Only credentials that match the transport are

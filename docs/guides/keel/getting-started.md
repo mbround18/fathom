@@ -2,7 +2,8 @@
 
 This guide takes a new Keel from empty to its first run. You create a workspace, give people access
 to it, enrol a host, create a receiver for your Git host, bind a repository, and push. Each step
-links to the guide that covers it in full.
+links to the guide that covers it in full. The web app cannot approve a run yet, so your first run
+waits for approval; see [Your first run](#your-first-run).
 
 The first person to sign in becomes the instance **owner**. This guide assumes you are that person,
 or an instance admin.
@@ -105,7 +106,8 @@ A binding ties one branch of your Ansible repository to a project. Keel reads th
    credential**: a **Name**, the **Kind** (**Git HTTPS token** or **Git SSH key**) and the
    **Value**. Choose **Preview credential** and confirm.
 3. Choose **New binding**.
-4. Enter the **Project id**, the **Repository URL** and the **Branch**.
+4. Pick the **Project**, then enter the **Repository URL** and the **Branch**. If the workspace
+   has only one project, Keel picks it for you.
 5. Pick the **Transport** and the **Credential**. For SSH, also paste the server's **Known host
    line**.
 6. Leave **Poll every (seconds)** blank to sync only when a webhook arrives.
@@ -113,8 +115,7 @@ A binding ties one branch of your Ansible repository to a project. Keel reads th
 8. Back on **Receivers**, find your receiver, choose the binding under **Bind to**, and choose
    **Bind**.
 
-See [Bindings and credentials](bindings.md#bind-a-repository) for the details, including a note on
-the project id.
+See [Bindings and credentials](bindings.md#bind-a-repository) for the details.
 
 ## Your first run
 
@@ -130,8 +131,8 @@ A run reaches the hosts in its inventory that the job's `limit` selects, that ar
 workspace, and that serve one of the job's profiles.
 
 Each workspace starts with an approval policy that asks for one approval before a run goes ahead,
-so a new run first shows as **pending_approval**. The web app has no button to approve such a run
-yet.
+so a new run shows as **pending_approval** and stays there. You cannot approve a run from the web
+app yet; that comes in a later release. Until then, your first run does not reach the hosts.
 
 If the binding is in signed mode and the new commits are not all signed by a trusted signer, the
 run waits for a review instead. See [Reviews and trusted signers](reviews.md#approve-or-deny-a-change).
