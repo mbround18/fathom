@@ -31,14 +31,14 @@ export function EmptyState({
   /** One line on why it matters. */
   reason?: ReactNode
   /** Two or three next steps, shown numbered. */
-  steps?: ReactNode[]
+  steps?: ReactNode[] | undefined
   /** The page's one primary button. */
   action?: ReactNode
   /** Who can act, when the person can't ("An owner or admin"); ignored with `action`. */
-  whoCan?: string
+  whoCan?: string | undefined
   /** What they can do ("create receivers"). */
-  verb?: string
-  guide?: GuideRef
+  verb?: string | undefined
+  guide?: GuideRef | undefined
   /** `data-empty-page`: which page's main list this is. */
   page?: string
   children?: ReactNode

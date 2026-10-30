@@ -7,14 +7,19 @@ import { PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Checkbox } from '@companion/ui'
 import { useEffect, useId, useMemo } from 'react'
 
+import { useSession } from '@/app/session-store'
 import { WorkspaceSelect } from '@/app/WorkspacePicker'
 import { RefusalText } from '@/features/teams/parts'
 import type { HostInfo, HostStatus } from '@/protocol/wire'
 import { ConfirmDialog as Confirm } from '@/ui/ConfirmDialog'
 import { CopyBlock } from '@/ui/CopyBlock'
 import { DataTable, type Column } from '@/ui/DataTable'
+import { EmptyState } from '@/ui/EmptyState'
+import { emptyVariant } from '@/ui/empty-variant'
 import { ErrorLine as Alert } from '@/ui/ErrorLine'
 import { H2, LABEL, LINK, STATUS } from '@/ui/form'
+import { LoadState } from '@/ui/LoadState'
+import { NoMatch } from '@/ui/NoMatch'
 import { Page } from '@/ui/Page'
 import { useReveal } from '@/ui/reveal'
 import { PageHeader } from '@/ui/PageHeader'
@@ -22,7 +27,7 @@ import { PageHeader } from '@/ui/PageHeader'
 import { EnrollDialog } from './EnrollDialog'
 import { useEnroll } from './enroll-store'
 import { useHosts } from './store'
-import { useWorkspaces } from './workspaces'
+import { canOperate, useWorkspaces } from './workspaces'
 
 function tone(state: HostStatus): string {
   switch (state) {
@@ -161,13 +166,15 @@ function WorkspacePicker() {
       options={all.map((w) => ({ id: w.id, label: w.system ? `${w.slug} (System)` : w.slug }))}
       value={known ? workspace : (first ?? '')}
       onChange={load}
-      empty="You have no workspace yet. An owner or admin creates one in Teams."
     />
   )
 }
 
-/** Enroll, in the header: offered when the caller can operate on some workspace. */
-function EnrollButton() {
+/**
+ * Enroll, in the header: offered when the caller can operate on some workspace. `quiet` while the
+ * empty list's own Enroll button is the page's one primary action.
+ */
+function EnrollButton({ quiet }: { quiet: boolean }) {
   const { operable } = useWorkspaces()
   const workspace = useHosts((s) => s.workspace)
   const open = useEnroll((s) => s.open)
@@ -176,6 +183,7 @@ function EnrollButton() {
   return (
     <Button
       size="sm"
+      variant={quiet ? 'outline' : 'default'}
       data-enroll-open
       onClick={() => {
         open(start)
@@ -184,6 +192,39 @@ function EnrollButton() {
       <PlusIcon aria-hidden />
       Enroll host
     </Button>
+  )
+}
+
+/** No hosts in the workspace yet (spec 063 FR-011, FR-012). */
+function NoHosts({ workspace, canAct }: { workspace: string; canAct: boolean }) {
+  const open = useEnroll((s) => s.open)
+  return (
+    <EmptyState
+      page="hosts"
+      title="Enroll a host"
+      reason="Keel only runs jobs on hosts that have enrolled."
+      steps={[
+        'Enroll a host to get its one-time command.',
+        'Run the command on the host.',
+        'Run the base profile on it.',
+      ]}
+      action={
+        canAct ? (
+          <Button
+            size="sm"
+            onClick={() => {
+              open(workspace)
+            }}
+          >
+            <PlusIcon aria-hidden />
+            Enroll a host
+          </Button>
+        ) : undefined
+      }
+      whoCan="An operator or workspace admin"
+      verb="enroll hosts"
+      guide={{ guide: 'hosts', anchor: 'enroll-a-host' }}
+    />
   )
 }
 
@@ -231,6 +272,9 @@ export default function HostsPage() {
   const revoke = useHosts((s) => s.revoke)
   const show = useHosts((s) => s.show)
   const changedOnly = useHosts((s) => s.changedOnly)
+  const setChangedOnly = useHosts((s) => s.setChangedOnly)
+  const loaded = useHosts((s) => s.loaded)
+  const me = useSession((s) => s.me)
   const mintedCount = useEnroll((s) => s.mintedCount)
   // Profiles already in use here, offered as chips in the Enroll dialog.
   const suggestions = useMemo(
@@ -274,18 +318,23 @@ export default function HostsPage() {
     if (mintedCount > 0 && workspace) useHosts.getState().load(workspace)
   }, [mintedCount, workspace])
 
+  const variant = emptyVariant({ filtered: changedOnly, canAct: workspace !== null && canOperate(me, workspace) })
+  // The guided state replaces the table only once the list has answered empty and unfiltered.
+  const guided = loaded && hosts.length === 0 && variant !== 'no-match'
+
   return (
     <Page name="hosts" labelledBy="hosts-title">
       <PageHeader
         id="hosts-title"
         title="Hosts"
         description="The machines enrolled in a workspace, their state, and what ran on them outside Keel."
-        actions={<EnrollButton />}
+        actions={<EnrollButton quiet={guided} />}
       >
         <WorkspacePicker />
       </PageHeader>
       <ErrorLine />
-      {workspace && (
+      {workspace && guided && <NoHosts workspace={workspace} canAct={variant === 'guided'} />}
+      {workspace && !guided && (
         <>
           <DataTable
             label="Hosts"
@@ -310,12 +359,23 @@ export default function HostsPage() {
                 </Button>
               )
             }
-            empty={changedOnly ? 'No host reports a run outside Keel.' : 'No hosts yet. Enroll one, then run the snippet on it.'}
+            empty={
+              loaded ? (
+                <NoMatch
+                  what="hosts"
+                  onClear={() => {
+                    setChangedOnly(false)
+                  }}
+                />
+              ) : (
+                <LoadState loading label="Loading hosts…" />
+              )
+            }
           />
           <HostDetailPanel />
-          <SshCaLine />
         </>
       )}
+      {workspace && <SshCaLine />}
       <ConfirmDialog />
       <EnrollDialog suggestions={suggestions} />
     </Page>

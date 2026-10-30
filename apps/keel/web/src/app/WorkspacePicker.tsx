@@ -1,11 +1,16 @@
 /**
  * The workspace picker in a page header (spec 060 T053), one look for every section. A person
- * with no workspace sees why the page is empty and who can fix it.
+ * with no workspace sees why the page is empty and who can fix it: an owner or admin is sent to
+ * Teams to create one, anyone else is told who grants them (spec 063 FR-013).
  */
+import { Button } from '@companion/ui'
 import { useEffect, useId } from 'react'
 
+import { canSeeSettings } from '@/features/settings/tabs'
+import { EmptyState } from '@/ui/EmptyState'
 import { LABEL, Select } from '@/ui/form'
 
+import { Link } from './Link'
 import { useSession } from './session-store'
 
 export interface WorkspaceOption {
@@ -13,25 +18,44 @@ export interface WorkspaceOption {
   label: string
 }
 
-/** The label and select; with no workspaces, the empty line instead. */
+/** No workspace yet: the guided first step for an owner or admin, who grants them for anyone else. */
+function NoWorkspace() {
+  const role = useSession((s) => s.me?.instance_role)
+  const owner = canSeeSettings(role)
+  return (
+    <div className="basis-full">
+      <EmptyState
+        page="workspace-picker"
+        title={owner ? 'Create a workspace' : 'No workspace yet'}
+        reason="Hosts, bindings and runs all live in a workspace."
+        steps={owner ? ['Create a workspace.', 'Grant a team access to it.', 'Enroll a host into it.'] : undefined}
+        action={
+          owner ? (
+            <Button asChild size="sm">
+              <Link to="/teams">Create a workspace</Link>
+            </Button>
+          ) : undefined
+        }
+        whoCan="An owner or admin"
+        verb="grant you a workspace from Teams"
+        guide={{ guide: 'getting-started', anchor: 'create-a-workspace' }}
+      />
+    </div>
+  )
+}
+
+/** The label and select; with no workspaces, the guided empty state instead. */
 export function WorkspaceSelect({
   options,
   value,
   onChange,
-  empty,
 }: {
   options: readonly WorkspaceOption[]
   value: string
   onChange: (id: string) => void
-  empty: string
 }) {
   const id = useId()
-  if (options.length === 0)
-    return (
-      <p data-pane-state="empty" className="text-xs text-muted-foreground">
-        {empty}
-      </p>
-    )
+  if (options.length === 0) return <NoWorkspace />
   return (
     <div className="flex min-w-0 items-center gap-2">
       <label htmlFor={id} className={LABEL}>
@@ -82,7 +106,6 @@ export function GrantWorkspacePicker({
       options={options}
       value={workspace ?? first ?? ''}
       onChange={load}
-      empty="You have no workspace yet. An owner or admin grants one from Teams."
     />
   )
 }

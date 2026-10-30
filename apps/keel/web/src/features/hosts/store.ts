@@ -37,6 +37,8 @@ export function parseProfiles(text: string): string[] {
 export interface HostsState {
   workspace: string | null
   hosts: HostInfo[]
+  /** Whether `hosts` has answered for this workspace, so an empty list means no hosts. */
+  loaded: boolean
   ssh: SshCa | null
   preview: Preview | null
   error: string | null
@@ -75,6 +77,7 @@ function list(workspace: string): void {
 export const useHosts = create<HostsState>()((set, get) => ({
   workspace: null,
   hosts: [],
+  loaded: false,
   ssh: null,
   preview: null,
   error: null,
@@ -83,7 +86,7 @@ export const useHosts = create<HostsState>()((set, get) => ({
   detail: null,
 
   load: (workspace) => {
-    if (get().workspace !== workspace) set({ workspace, hosts: [], open: null, detail: null })
+    if (get().workspace !== workspace) set({ workspace, hosts: [], loaded: false, open: null, detail: null })
     list(workspace)
     send({ type: 'GetSshCa' })
   },
@@ -130,7 +133,7 @@ onServerEvent(({ reply_to, event }) => {
   const ours = reply_to !== undefined && mine.has(reply_to)
   switch (event.type) {
     case 'Hosts':
-      if (ours) useHosts.setState({ hosts: event.data.items })
+      if (ours) useHosts.setState({ hosts: event.data.items, loaded: true })
       break
     case 'Host': {
       const { host } = event.data
