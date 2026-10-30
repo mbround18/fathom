@@ -40,6 +40,7 @@ InfoTip(props: {
   children: ReactNode           // the explanation
   footer?: ReactNode            // e.g. a Learn more link
   className?: string
+  contentData?: Record<`data-${string}`, string>  // put on the popover content
 } & Record<`data-${string}`, string>)  // passed to the trigger
 
 // help/TermTip.tsx (Keel)
