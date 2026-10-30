@@ -121,6 +121,9 @@ function InfoTip({ label, children, footer, className, contentData, ...data }: I
           sideOffset={4}
           collisionPadding={16}
           onOpenAutoFocus={(event) => event.preventDefault()}
+          // Focus never left the trigger, so there is nothing to give back. Radix would refocus the
+          // trigger on close, and that focus would open a hover-opened tip again.
+          onCloseAutoFocus={(event) => event.preventDefault()}
           onPointerEnter={(event) => {
             if (event.pointerType === "mouse") cancelLeave()
           }}
