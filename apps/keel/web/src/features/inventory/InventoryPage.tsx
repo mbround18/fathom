@@ -17,6 +17,7 @@ import { Link } from '@/app/Link'
 import { useSession } from '@/app/session-store'
 import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
 import { canOperate } from '@/features/hosts/workspaces'
+import { TermTip } from '@/help/TermTip'
 import type { InventoryProblem } from '@/protocol/wire'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { DataTable } from '@/ui/DataTable'
@@ -326,6 +327,7 @@ function Detail({ opened }: { opened: Opened }) {
           {inventory.source === 'repo' ? `from ${inventory.path ?? 'a repository'}` : 'managed'} · {inventory.status}
           {inventory.has_schema ? ' · vars checked against a schema' : ''}
         </span>
+        <TermTip term={inventory.source === 'repo' ? 'inventory-repository' : 'inventory-managed'} />
         <div className="ml-auto flex flex-wrap gap-1">
           {inventory.status === 'active' && (
             <Button
@@ -417,7 +419,10 @@ function NewInventory() {
   }
   return (
     <form aria-label="New inventory" onSubmit={submit} className="flex min-w-0 flex-col gap-3 border border-border bg-muted/20 p-3">
-      <h2 className={H2}>New managed inventory</h2>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <h2 className={H2}>New managed inventory</h2>
+        <TermTip term="inventory-managed" />
+      </div>
       <Field label="Name" id={`${id}-name`}>
         <Input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} className="h-8 text-xs" required />
       </Field>
@@ -473,7 +478,8 @@ export default function InventoryPage() {
       <PageHeader
         id="inventory-title"
         title="Inventory"
-        description="The hosts and groups each job runs against, with every revision kept and checked."
+        description="The hosts and groups each job runs against, by revision."
+        guide={{ guide: 'inventory' }}
         actions={
           <Button
             size="sm"

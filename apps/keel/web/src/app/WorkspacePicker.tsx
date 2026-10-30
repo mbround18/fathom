@@ -7,6 +7,7 @@ import { Button } from '@companion/ui'
 import { useEffect, useId } from 'react'
 
 import { canSeeSettings } from '@/features/settings/tabs'
+import { TermTip } from '@/help/TermTip'
 import { EmptyState } from '@/ui/EmptyState'
 import { LABEL, Select } from '@/ui/form'
 
@@ -58,9 +59,12 @@ export function WorkspaceSelect({
   if (options.length === 0) return <NoWorkspace />
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <label htmlFor={id} className={LABEL}>
-        Workspace
-      </label>
+      <span className="inline-flex shrink-0 items-center gap-1">
+        <label htmlFor={id} className={LABEL}>
+          Workspace
+        </label>
+        <TermTip term="workspace" />
+      </span>
       <Select
         id={id}
         className="max-w-full"

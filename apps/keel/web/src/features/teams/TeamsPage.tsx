@@ -12,6 +12,7 @@ import { useEffect, useId, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { canSeeSettings } from '@/features/settings/tabs'
+import { TermTip } from '@/help/TermTip'
 import type { GrantInfo, TeamInfo, WorkspaceInfo } from '@/protocol/wire'
 import { EmptyState } from '@/ui/EmptyState'
 import { H3, Select } from '@/ui/form'
@@ -142,6 +143,7 @@ function Workspaces() {
     <Pane
       id="workspaces"
       title="Workspaces"
+      tip={<TermTip term="workspace" />}
       count={workspaces?.length}
       actions={
         <Button variant="outline" size="sm" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
@@ -305,7 +307,10 @@ function TeamRow({ team, knownProfiles }: { team: TeamInfo; knownProfiles: reado
             <AddMember team={team} />
           </section>
           <section className="flex min-w-0 flex-col border-t border-border pt-3 lg:border-t-0">
-            <h3 className={`px-4 pb-1 ${H3}`}>Grants</h3>
+            <div className="flex min-w-0 items-center gap-1.5 px-4 pb-1">
+              <h3 className={H3}>Grants</h3>
+              <TermTip term="grant" />
+            </div>
             <ul aria-label={`Grants of ${team.name}`} className="min-w-0">
               {team.grants.map((g) => (
                 <li key={g.id} data-grant={`${g.workspace_slug}:${g.role}`} className={ROW}>
@@ -343,6 +348,7 @@ function Teams() {
     <Pane
       id="teams-list"
       title="Teams"
+      tip={<TermTip term="team" />}
       count={teams?.length}
       actions={
         <Button variant="outline" size="sm" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
@@ -403,7 +409,12 @@ export default function TeamsPage() {
   }, [load])
   return (
     <Page name="teams" labelledBy="teams-title">
-      <PageHeader id="teams-title" title="Teams" description="Workspaces, the teams in them, and what each team may run." />
+      <PageHeader
+        id="teams-title"
+        title="Teams"
+        description="Workspaces, the teams in them, and what each team may run."
+        guide={{ guide: 'getting-started', anchor: 'give-people-access' }}
+      />
       <Workspaces />
       <Teams />
       <ChangeDialog />
