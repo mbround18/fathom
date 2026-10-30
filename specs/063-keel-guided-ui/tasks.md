@@ -60,28 +60,28 @@ exist with their anchored headings.
   - `guides/reviews.md`: The early check, Trusted signers, Approve or deny a change.
   - `guides/inventory.md`: Managed and repository inventory.
   - Link all six from `guides/README.md`.
-- [ ] T006 Write `web/tests/unit/guide-links.test.ts`. It should:
+- [X] T006 Write `web/tests/unit/guide-links.test.ts`. It should:
   - read every `guides/*.md` with `node:fs`;
   - collect each file's heading slugs with `slugger()`;
   - grep `web/src/**/*.{ts,tsx}` for `guide: '…'` / `anchor: '…'` pairs, using `GLOSSARY` and an exported list of the refs each page uses;
   - assert that each one resolves. A missing guide or anchor fails with the file and ref named (SC-006).
-- [ ] T007 Implement `web/src/help/guides.ts` per contracts/ui.md:
+- [X] T007 Implement `web/src/help/guides.ts` per contracts/ui.md:
   - `GuideSlug` (literal union of the ten guides) and `GuideRef`;
   - `guideHref(ref)` → `/help/<slug>[#anchor]`;
   - `loadGuide(slug | 'README')` from `import.meta.glob('../../../../../docs/guides/keel/*.md', { query: '?raw', import: 'default' })`, which gives one lazy chunk per guide.
-- [ ] T008 Move `web/src/features/settings/Markdown.tsx` to `web/src/ui/Markdown.tsx`, keeping its safety rules (raw HTML as text, no fetched images, `noopener` links), and update its importers (`EnrollmentTab.tsx`, `EnrollDialog.tsx`, `tests/unit/markdown.test.tsx`). Then add an optional `guideLinks` mode that:
+- [X] T008 Move `web/src/features/settings/Markdown.tsx` to `web/src/ui/Markdown.tsx`, keeping its safety rules (raw HTML as text, no fetched images, `noopener` links), and update its importers (`EnrollmentTab.tsx`, `EnrollDialog.tsx`, `tests/unit/markdown.test.tsx`). Then add an optional `guideLinks` mode that:
   - gives `h2`/`h3` an `id` from one `slugger()` per render;
   - rewrites relative `*.md[#anchor]` links to `guideHref` routes in the same tab;
   - maps images under `img/` to bundled URLs (`import.meta.glob('…/docs/guides/keel/img/*', { query: '?url' })`), leaving other images as links.
   - Extend `markdown.test.tsx` to cover the new mode.
-- [ ] T009 Implement `web/src/ui/GuideLink.tsx`: an internal `Link` to `guideHref(to)`, with default text "Learn more", `data-guide-link={to.guide}`, and an `ArrowRightIcon` that is `aria-hidden`.
-- [ ] T010 Implement `web/src/help/HelpPage.tsx` and register `/help` and `/help/:guide` (lazy) in `web/src/app/routes.tsx`.
+- [X] T009 Implement `web/src/ui/GuideLink.tsx`: an internal `Link` to `guideHref(to)`, with default text "Learn more", `data-guide-link={to.guide}`, and an `ArrowRightIcon` that is `aria-hidden`.
+- [X] T010 Implement `web/src/help/HelpPage.tsx` and register `/help` and `/help/:guide` (lazy) in `web/src/app/routes.tsx`.
   - Render with `ui/Markdown` in `guideLinks` mode, inside `Page` with a sentence-case title taken from the guide's `#` heading.
   - Set `data-help-guide`.
   - An unknown slug renders NotFound.
   - After render, scroll to `location.hash`.
 - [X] T011 Add **Help** to the account menu in `web/src/app/Shell.tsx`, after Passkeys, with `QuestionIcon`, going to `/help`.
-- [ ] T012 Write `web/tests/e2e/s063/help.spec.ts`:
+- [X] T012 Write `web/tests/e2e/s063/help.spec.ts`:
   - `/help` lists the guides;
   - each of the six new guides renders;
   - `/help/reviews#trusted-signers` scrolls its heading into view;
