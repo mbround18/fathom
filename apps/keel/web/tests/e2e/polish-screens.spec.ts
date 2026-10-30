@@ -3,6 +3,9 @@
  * dark and the light theme, fits the viewport: the page never scrolls sideways. Each section is
  * seeded with realistic, deliberately long content (repository URLs, commits, host names) so a
  * row or a header that cannot wrap shows up here. Against the fake backend (tests/support).
+ *
+ * Spec 063 T051 adds the guided empty states, the grouped nav and an open glossary tip (SC-005,
+ * FR-032): they fit too, and a nav group heading never takes the accent.
  */
 import type { Page } from '@playwright/test'
 
@@ -116,6 +119,18 @@ async function widths(page: Page): Promise<{ doc: [number, number]; main: [numbe
     }
   })
 }
+
+/** Fails, naming the widest offenders, when the page or `<main>` scrolls sideways. */
+async function expectFits(page: Page, label: string): Promise<void> {
+  // Fonts and late layout settle before measuring.
+  await page.evaluate(() => document.fonts.ready)
+  const { doc, main, offenders } = await widths(page)
+  expect(doc[0], `${label}: the page is ${String(doc[0] - doc[1])} px wider than the viewport`).toBeLessThanOrEqual(doc[1])
+  expect(main[0], `${label}: the section scrolls ${String(main[0] - main[1])} px sideways: ${offenders.join('; ')}`).toBeLessThanOrEqual(main[1])
+}
+
+const setTheme = (page: Page, theme: 'dark' | 'light') =>
+  page.evaluate((dark) => document.documentElement.classList.toggle('dark', dark), theme === 'dark')
 
 interface Screen {
   name: string
@@ -273,6 +288,57 @@ const SYSTEM_STATES: SystemState[] = [
   },
 ]
 
+/** A workspace admin on `ops` with every list in it empty, so each page shows its guided state. */
+function seedEmpty(backend: FakeBackend): FakeHosts {
+  backend.me = fixtures.me({
+    instance_role: 'user',
+    grants: [{ workspace: WORKSPACE, workspace_slug: 'ops', role: 'ws_admin', profiles: [] }],
+    verification: fixtures.verification({ verified: true }),
+  })
+  governance(backend, (g) => {
+    g.workspaces.push({ id: WORKSPACE, slug: 'ops', name: 'Operations', created: NOW, archived: false, projects: [], system: false })
+  })
+  new FakeRuns(backend)
+  new FakeReviews(backend).reviews = []
+  return new FakeHosts(backend)
+}
+
+interface EmptyScreen {
+  /** The `data-empty-page` values the screen shows. */
+  pages: string[]
+  path: string
+  seed: (backend: FakeBackend) => void
+}
+
+/** Spec 063 FR-010's nine empty states (credentials shares Bindings, teams shares workspaces). */
+const EMPTY_SCREENS: EmptyScreen[] = [
+  { pages: ['runs'], path: '/runs', seed: seedEmpty },
+  { pages: ['reviews'], path: '/reviews', seed: seedEmpty },
+  { pages: ['bindings', 'credentials'], path: '/bindings', seed: seedEmpty },
+  { pages: ['receivers'], path: '/receivers', seed: seedEmpty },
+  { pages: ['inventory'], path: '/inventory', seed: seedEmpty },
+  { pages: ['hosts'], path: '/hosts', seed: seedEmpty },
+  {
+    pages: ['workspaces', 'teams'],
+    path: '/teams',
+    seed: (backend) => {
+      backend.me = fixtures.me({ instance_role: 'owner' })
+      governance(backend)
+    },
+  },
+  {
+    pages: ['workspace-picker'],
+    path: '/runs',
+    seed: (backend) => {
+      backend.me = fixtures.me({ instance_role: 'owner' })
+    },
+  },
+]
+
+const NAV_GROUPS = ['pipelines', 'infrastructure', 'administration'] as const
+// A glossary term the guided Hosts state shows (src/help/glossary.ts; the e2e build can't import it).
+const OPEN_TIP = 'base-profile'
+
 const WIDTHS = [360, 1280] as const
 const THEMES = ['dark', 'light'] as const
 
@@ -285,15 +351,12 @@ for (const theme of THEMES) {
         test(`${screen.name} fits the viewport`, async ({ page, backend }) => {
           seed(backend)
           await page.goto(screen.path)
-          await page.evaluate((dark) => document.documentElement.classList.toggle('dark', dark), theme === 'dark')
+          await setTheme(page, theme)
           await screen.ready(page)
-          // Fonts and late layout settle before measuring.
           await page.evaluate(() => document.fonts.ready)
           // KEEL_SHOTS=<dir> also saves each screen, for comparing a visual pass before and after.
           if (process.env.KEEL_SHOTS) await page.screenshot({ path: `${process.env.KEEL_SHOTS}/${screen.name}-${theme}-${String(width)}.png`, fullPage: true })
-          const { doc, main, offenders } = await widths(page)
-          expect(doc[0], `${screen.path}: the page is ${String(doc[0] - doc[1])} px wider than the viewport`).toBeLessThanOrEqual(doc[1])
-          expect(main[0], `${screen.path}: the section scrolls ${String(main[0] - main[1])} px sideways: ${offenders.join('; ')}`).toBeLessThanOrEqual(main[1])
+          await expectFits(page, screen.path)
         })
       }
 
@@ -302,15 +365,51 @@ for (const theme of THEMES) {
           seed(backend, state.role)
           backend.updates.status = { ...state.status(), image: LONG_IMAGE }
           await page.goto('/settings/system')
-          await page.evaluate((dark) => document.documentElement.classList.toggle('dark', dark), theme === 'dark')
+          await setTheme(page, theme)
           await expect(page.locator('[data-build-panel]')).toBeVisible()
           await state.ready(page)
-          await page.evaluate(() => document.fonts.ready)
-          const { doc, main, offenders } = await widths(page)
-          expect(doc[0], `${state.name}: the page is ${String(doc[0] - doc[1])} px wider than the viewport`).toBeLessThanOrEqual(doc[1])
-          expect(main[0], `${state.name}: the section scrolls ${String(main[0] - main[1])} px sideways: ${offenders.join('; ')}`).toBeLessThanOrEqual(main[1])
+          await expectFits(page, state.name)
         })
       }
+
+      for (const screen of EMPTY_SCREENS) {
+        test(`empty ${screen.pages.join(' and ')} fits the viewport`, async ({ page, backend }) => {
+          screen.seed(backend)
+          await page.goto(screen.path)
+          await setTheme(page, theme)
+          for (const name of screen.pages) await expect(page.locator(`[data-empty-page="${name}"]`)).toBeVisible()
+          if (process.env.KEEL_SHOTS) await page.screenshot({ path: `${process.env.KEEL_SHOTS}/empty-${screen.pages[0]}-${theme}-${String(width)}.png`, fullPage: true })
+          await expectFits(page, `empty ${screen.path}`)
+        })
+      }
+
+      test('an open glossary tip fits the viewport', async ({ page, backend }) => {
+        seedEmpty(backend)
+        await page.goto('/hosts')
+        await setTheme(page, theme)
+        await page.locator(`[data-infotip="${OPEN_TIP}"]`).first().click()
+        await expect(page.locator(`[data-infotip-content="${OPEN_TIP}"]`)).toBeVisible()
+        await expectFits(page, `the ${OPEN_TIP} tip`)
+        // The popover is portalled outside <main>, so check it against the viewport too.
+        const box = await page.locator(`[data-infotip-content="${OPEN_TIP}"]`).boundingBox()
+        expect(box?.x ?? -1).toBeGreaterThanOrEqual(0)
+        expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(width)
+      })
+
+      test('the grouped nav fits, and no group heading takes the accent', async ({ page, backend }) => {
+        seed(backend)
+        await page.goto('/runs')
+        await setTheme(page, theme)
+        const nav = page.getByRole('navigation', { name: 'Sections' })
+        const runs = nav.getByRole('link', { name: 'Runs' })
+        await expect(runs).toHaveAttribute('aria-current', 'page')
+        const current = await runs.evaluate((el) => getComputedStyle(el).color)
+        for (const id of NAV_GROUPS) {
+          const heading = page.locator(`[data-nav-group="${id}"] > span`)
+          expect(await heading.evaluate((el) => getComputedStyle(el).color), `${id} heading`).not.toBe(current)
+        }
+        await expectFits(page, 'the grouped nav')
+      })
     })
   }
 }
