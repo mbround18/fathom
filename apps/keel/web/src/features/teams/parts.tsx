@@ -73,7 +73,8 @@ export function ListState({
 }: {
   items: readonly unknown[] | null
   refusal: Refusal | undefined
-  empty: string
+  /** A line, or a guided `EmptyState`. */
+  empty: ReactNode
 }) {
   if (refusal)
     return (
@@ -88,10 +89,12 @@ export function ListState({
       </div>
     )
   if (items.length === 0)
-    return (
+    return typeof empty === 'string' ? (
       <p data-pane-state="empty" className="m-4 max-w-prose text-sm text-muted-foreground">
         {empty}
       </p>
+    ) : (
+      <div className="m-4">{empty}</div>
     )
   return null
 }

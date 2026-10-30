@@ -10,7 +10,10 @@ import { ArchiveIcon, CaretDownIcon, CaretRightIcon, FolderPlusIcon, PlusIcon, T
 import { Badge, Button, Input } from '@companion/ui'
 import { useEffect, useId, useState } from 'react'
 
+import { useSession } from '@/app/session-store'
+import { canSeeSettings } from '@/features/settings/tabs'
 import type { GrantInfo, TeamInfo, WorkspaceInfo } from '@/protocol/wire'
+import { EmptyState } from '@/ui/EmptyState'
 import { H3, Select } from '@/ui/form'
 import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
@@ -125,9 +128,15 @@ function WorkspaceRow({ ws }: { ws: WorkspaceInfo }) {
   )
 }
 
+/** Owners and admins create workspaces and teams; the guided states offer them the first step. */
+function useCanAdminister(): boolean {
+  return canSeeSettings(useSession((s) => s.me?.instance_role))
+}
+
 function Workspaces() {
   const workspaces = useGovernance((s) => s.workspaces)
   const refusal = useGovernance((s) => s.refused.workspaces)
+  const canAct = useCanAdminister()
   const [creating, setCreating] = useState(false)
   return (
     <Pane
@@ -142,7 +151,36 @@ function Workspaces() {
       }
     >
       {creating && <NewWorkspace onDone={() => setCreating(false)} />}
-      <ListState items={workspaces} refusal={refusal} empty="No workspaces yet. A workspace holds hosts, inventories and runs: create one to start." />
+      {!creating && (
+        <ListState
+          items={workspaces}
+          refusal={refusal}
+          empty={
+            <EmptyState
+              page="workspaces"
+              title="Create a workspace"
+              reason="Hosts, bindings and runs all live in a workspace."
+              steps={['Create a workspace.', 'Grant a team access to it.', 'Enroll a host into it.']}
+              action={
+                canAct ? (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setCreating(true)
+                    }}
+                  >
+                    <PlusIcon aria-hidden />
+                    Create a workspace
+                  </Button>
+                ) : undefined
+              }
+              whoCan="An owner or admin"
+              verb="create workspaces"
+              guide={{ guide: 'getting-started', anchor: 'create-a-workspace' }}
+            />
+          }
+        />
+      )}
       {workspaces && workspaces.length > 0 && (
         <ul aria-label="Workspaces" className="min-w-0">
           {workspaces.map((ws) => (
@@ -298,6 +336,7 @@ function TeamRow({ team, knownProfiles }: { team: TeamInfo; knownProfiles: reado
 function Teams() {
   const teams = useGovernance((s) => s.teams)
   const refusal = useGovernance((s) => s.refused.teams)
+  const canAct = useCanAdminister()
   const [creating, setCreating] = useState(false)
   const knownProfiles = [...new Set((teams ?? []).flatMap((t) => t.grants.flatMap((g) => g.profiles)))].sort()
   return (
@@ -313,7 +352,36 @@ function Teams() {
       }
     >
       {creating && <NewTeam onDone={() => setCreating(false)} />}
-      <ListState items={teams} refusal={refusal} empty="No teams yet. A team is how people get a role in a workspace: create one, then add members and a grant." />
+      {!creating && (
+        <ListState
+          items={teams}
+          refusal={refusal}
+          empty={
+            <EmptyState
+              page="teams"
+              title="Create a team"
+              reason="Teams carry workspace grants to their members."
+              steps={['Create a team.', 'Add members.', 'Grant it a workspace.']}
+              action={
+                canAct ? (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setCreating(true)
+                    }}
+                  >
+                    <PlusIcon aria-hidden />
+                    Create a team
+                  </Button>
+                ) : undefined
+              }
+              whoCan="An owner or admin"
+              verb="create teams"
+              guide={{ guide: 'getting-started', anchor: 'give-people-access' }}
+            />
+          }
+        />
+      )}
       {teams && teams.length > 0 && (
         <ul aria-label="Teams" className="min-w-0">
           {teams.map((t) => (
