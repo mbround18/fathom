@@ -55,7 +55,8 @@ async function expectRestricted(page: Page, name: string): Promise<void> {
   const empty = page.locator(`[data-empty-page="${name}"]`)
   await expect(empty).toHaveAttribute('data-empty', 'restricted')
   await expect(empty.locator('[data-who-can]')).toBeVisible()
-  await expect(empty.getByRole('button')).toHaveCount(0)
+  // No action to take; a glossary info icon in a step is not one.
+  await expect(empty.locator('button:not([data-infotip])')).toHaveCount(0)
   await expect(empty.locator('[data-empty-action]')).toHaveCount(0)
 }
 
