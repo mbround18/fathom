@@ -13,10 +13,9 @@ import { ArrowCounterClockwiseIcon, PlusIcon, XIcon } from '@phosphor-icons/reac
 import { Button, Input } from '@companion/ui'
 import { lazy, Suspense, useId, useState, type ReactNode, type SyntheticEvent } from 'react'
 
-import { Link } from '@/app/Link'
 import { useSession } from '@/app/session-store'
 import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
-import { canOperate } from '@/features/hosts/workspaces'
+import { canAdminister } from '@/features/hosts/workspaces'
 import { TermTip } from '@/help/TermTip'
 import type { InventoryProblem } from '@/protocol/wire'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
@@ -188,11 +187,11 @@ function EditSchema({ opened }: { opened: Opened }) {
   )
 }
 
-function History({ opened }: { opened: Opened }) {
+function History({ opened, canAct }: { opened: Opened; canAct: boolean }) {
   const { inventory, revision, history } = opened
   const open = useInventory((s) => s.open)
   const propose = useInventory((s) => s.propose)
-  const managed = inventory.source === 'managed' && inventory.status === 'active'
+  const managed = canAct && inventory.source === 'managed' && inventory.status === 'active'
   return (
     <section aria-labelledby={`${inventory.id}-revisions`} className="flex min-w-0 flex-col gap-2">
       <h3 id={`${inventory.id}-revisions`} className={LABEL}>
@@ -310,13 +309,14 @@ function Compare({ opened }: { opened: Opened }) {
   )
 }
 
-function Detail({ opened }: { opened: Opened }) {
+/** One inventory. Editing, restoring and deprecating need Administer; anyone else reads it. */
+function Detail({ opened, canAct }: { opened: Opened; canAct: boolean }) {
   const { inventory, revision } = opened
   const propose = useInventory((s) => s.propose)
   const open = useInventory((s) => s.open)
   const seq = revision.summary.seq
   const head = seq === inventory.head_seq
-  const editable = inventory.source === 'managed' && inventory.status === 'active' && head
+  const editable = canAct && inventory.source === 'managed' && inventory.status === 'active' && head
   const reveal = useReveal<HTMLElement>(inventory.id)
 
   return (
@@ -329,7 +329,7 @@ function Detail({ opened }: { opened: Opened }) {
         </span>
         <TermTip term={inventory.source === 'repo' ? 'inventory-repository' : 'inventory-managed'} />
         <div className="ml-auto flex flex-wrap gap-1">
-          {inventory.status === 'active' && (
+          {canAct && inventory.status === 'active' && (
             <Button
               size="xs"
               variant="outline"
@@ -398,7 +398,7 @@ function Detail({ opened }: { opened: Opened }) {
         </section>
 
 
-        <History opened={opened} />
+        <History opened={opened} canAct={canAct} />
         {opened.history.length > 1 && <Compare key={inventory.id} opened={opened} />}
       </div>
     </section>
@@ -437,12 +437,16 @@ function NewInventory() {
   )
 }
 
-/** No inventory in the workspace yet (spec 063 FR-011, FR-012). */
-function NoInventory({ canAct }: { canAct: boolean }) {
+/**
+ * No inventory in the workspace yet (spec 063 FR-011, FR-012). Creating one needs Administer
+ * (keel-server inventory.rs), so the action opens the form and the restricted line names a
+ * workspace admin.
+ */
+function NoInventory({ canAct, onCreate }: { canAct: boolean; onCreate: () => void }) {
   return (
     <EmptyState
       page="inventory"
-      title="No inventory yet"
+      title={canAct ? 'Create an inventory' : 'No inventory yet'}
       reason="An inventory lists the hosts a run targets, and their vars."
       steps={[
         'Enroll the hosts it will list.',
@@ -450,13 +454,14 @@ function NoInventory({ canAct }: { canAct: boolean }) {
       ]}
       action={
         canAct ? (
-          <Button asChild size="sm">
-            <Link to="/hosts">Go to hosts</Link>
+          <Button size="sm" onClick={onCreate}>
+            <PlusIcon aria-hidden />
+            Create an inventory
           </Button>
         ) : undefined
       }
-      whoCan="An operator or workspace admin"
-      verb="enroll hosts"
+      whoCan="A workspace admin"
+      verb="create inventories"
       guide={{ guide: 'inventory' }}
     />
   )
@@ -470,7 +475,8 @@ export default function InventoryPage() {
   const open = useInventory((s) => s.open)
   const me = useSession((s) => s.me)
   const [creating, setCreating] = useState(false)
-  const variant = emptyVariant({ filtered: false, canAct: workspace !== null && canOperate(me, workspace) })
+  const variant = emptyVariant({ filtered: false, canAct: workspace !== null && canAdminister(me, workspace) })
+  const canAct = variant === 'guided'
   const empty = loaded && items.length === 0
 
   return (
@@ -481,13 +487,15 @@ export default function InventoryPage() {
         description="The hosts and groups each job runs against, by revision."
         guide={{ guide: 'inventory' }}
         actions={
-          <Button
-            size="sm"
-            variant={creating ? 'ghost' : empty && variant === 'guided' ? 'outline' : 'default'}
-            aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
-            {creating ? <XIcon aria-hidden /> : <PlusIcon aria-hidden />}
-            {creating ? 'Close the form' : 'New inventory'}
-          </Button>
+          canAct && (
+            <Button
+              size="sm"
+              variant={creating ? 'ghost' : empty ? 'outline' : 'default'}
+              aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
+              {creating ? <XIcon aria-hidden /> : <PlusIcon aria-hidden />}
+              {creating ? 'Close the form' : 'New inventory'}
+            </Button>
+          )
         }
       >
         <WorkspacePicker />
@@ -495,7 +503,14 @@ export default function InventoryPage() {
       <ErrorLine />
       {creating && <NewInventory />}
 
-      {empty && <NoInventory canAct={variant === 'guided'} />}
+      {empty && !creating && (
+        <NoInventory
+          canAct={canAct}
+          onCreate={() => {
+            setCreating(true)
+          }}
+        />
+      )}
       {workspace && !empty && (
         <DataTable<Item>
           label="Inventories"
@@ -530,7 +545,7 @@ export default function InventoryPage() {
         />
       )}
 
-      {opened && <Detail opened={opened} />}
+      {opened && <Detail opened={opened} canAct={canAct} />}
       <PreviewDialog />
     </Page>
   )

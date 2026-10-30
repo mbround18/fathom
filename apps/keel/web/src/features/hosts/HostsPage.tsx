@@ -28,7 +28,7 @@ import { PageHeader } from '@/ui/PageHeader'
 import { EnrollDialog } from './EnrollDialog'
 import { useEnroll } from './enroll-store'
 import { useHosts } from './store'
-import { canOperate, useWorkspaces } from './workspaces'
+import { canAdminister, canOperate, useWorkspaces } from './workspaces'
 
 function tone(state: HostStatus): string {
   switch (state) {
@@ -327,6 +327,8 @@ export default function HostsPage() {
   const variant = emptyVariant({ filtered: changedOnly, canAct: workspace !== null && canOperate(me, workspace) })
   // The guided state replaces the table only once the list has answered empty and unfiltered.
   const guided = loaded && hosts.length === 0 && variant !== 'no-match'
+  // Revoking a host needs Administer (keel-server hosts.rs), more than enrolling one.
+  const canRevoke = workspace !== null && canAdminister(me, workspace)
 
   return (
     <Page name="hosts" labelledBy="hosts-title">
@@ -352,6 +354,7 @@ export default function HostsPage() {
             selected={(h) => h.id === opened}
             rowData={(h) => ({ 'data-host-state': h.state, 'data-host-changed-outside': String(h.changed_outside) })}
             actions={(h) =>
+              canRevoke &&
               h.state !== 'revoked' && (
                 <Button
                   variant="ghost"

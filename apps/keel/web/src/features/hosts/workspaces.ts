@@ -4,9 +4,11 @@
  * granted ones to anyone else, so an owner with no grants still sees them all; `me.grants` alone
  * would show that owner nothing.
  *
- * Operating (enrolling a host) needs an instance owner or admin, or a grant of `operator` or
- * `ws_admin` (keel-server authz). The server decides again on every command; this only decides
- * whether to offer the button.
+ * Operating (enrolling a host, starting a run) needs an instance owner or admin, or a grant of
+ * `operator` or `ws_admin`. Administering (receivers, credentials, bindings, inventories, trusted
+ * signers, removing a host) needs an owner or admin, or `ws_admin` (keel-core authz
+ * `Capability::of`). The server decides again on every command; these only decide whether to
+ * offer the button.
  */
 import { useEffect } from 'react'
 
@@ -18,6 +20,12 @@ export function canOperate(me: Me | null, workspace: string): boolean {
   if (!me) return false
   if (me.instance_role === 'owner' || me.instance_role === 'admin') return true
   return me.grants.some((g) => g.workspace === workspace && (g.role === 'operator' || g.role === 'ws_admin'))
+}
+
+export function canAdminister(me: Me | null, workspace: string): boolean {
+  if (!me) return false
+  if (me.instance_role === 'owner' || me.instance_role === 'admin') return true
+  return me.grants.some((g) => g.workspace === workspace && g.role === 'ws_admin')
 }
 
 export interface Workspaces {

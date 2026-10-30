@@ -11,7 +11,7 @@ import { useSession } from '@/app/session-store'
 
 import { ErrorLine, Field, PreviewDialog, WorkspacePicker } from '@/features/bindings/parts'
 import { short, useRepos } from '@/features/bindings/store'
-import { canOperate } from '@/features/hosts/workspaces'
+import { canAdminister } from '@/features/hosts/workspaces'
 import { TermTip } from '@/help/TermTip'
 import type { DeliveryInfo, ReceiverInfo, ReceiverProvider } from '@/protocol/wire'
 import { CopyBlock } from '@/ui/CopyBlock'
@@ -104,7 +104,8 @@ function NewReceiver({
   )
 }
 
-function ReceiverRow({ receiver }: { receiver: ReceiverInfo }) {
+/** A receiver, with its changes offered only to someone who may administer (every one needs it). */
+function ReceiverRow({ receiver, canAct }: { receiver: ReceiverInfo; canAct: boolean }) {
   const bindings = useRepos((s) => s.bindings)
   const propose = useRepos((s) => s.propose)
   const [binding, setBinding] = useState('')
@@ -124,23 +125,25 @@ function ReceiverRow({ receiver }: { receiver: ReceiverInfo }) {
         >
           {receiver.status}
         </span>
-        <div className="ml-auto flex flex-wrap gap-1">
-          <Button
-            size="xs"
-            variant="outline"
-            onClick={() => propose({ type: 'PreviewReceiverRotate', data: { receiver: r, previous_valid_for: null } })}
-          >
-            Rotate secret
-          </Button>
-          {receiver.status === 'active' && (
-            <Button size="xs" variant="outline" onClick={() => propose({ type: 'PreviewReceiverDisable', data: { receiver: r } })}>
-              Disable
+        {canAct && (
+          <div className="ml-auto flex flex-wrap gap-1">
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => propose({ type: 'PreviewReceiverRotate', data: { receiver: r, previous_valid_for: null } })}
+            >
+              Rotate secret
             </Button>
-          )}
-          <Button size="xs" variant="destructive" onClick={() => propose({ type: 'PreviewReceiverRemove', data: { receiver: r } })}>
-            Remove
-          </Button>
-        </div>
+            {receiver.status === 'active' && (
+              <Button size="xs" variant="outline" onClick={() => propose({ type: 'PreviewReceiverDisable', data: { receiver: r } })}>
+                Disable
+              </Button>
+            )}
+            <Button size="xs" variant="destructive" onClick={() => propose({ type: 'PreviewReceiverRemove', data: { receiver: r } })}>
+              Remove
+            </Button>
+          </div>
+        )}
       </div>
       <div className="flex min-w-0 flex-col gap-3 p-3">
         <p className="font-mono break-all text-muted-foreground">{receiver.url}</p>
@@ -156,19 +159,21 @@ function ReceiverRow({ receiver }: { receiver: ReceiverInfo }) {
             {receiver.bindings.map((b) => (
               <li key={b} className="flex min-w-0 items-center gap-2 border-t border-border py-1 first:border-t-0">
                 <span className="min-w-0 flex-1 font-mono break-all">{urlOf(b)}</span>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => propose({ type: 'PreviewReceiverUnbind', data: { receiver: r, binding: b } })}
-                >
-                  <LinkBreakIcon aria-hidden />
-                  Unbind
-                </Button>
+                {canAct && (
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => propose({ type: 'PreviewReceiverUnbind', data: { receiver: r, binding: b } })}
+                  >
+                    <LinkBreakIcon aria-hidden />
+                    Unbind
+                  </Button>
+                )}
               </li>
             ))}
           </ul>
         </div>
-        {unbound.length > 0 && (
+        {canAct && unbound.length > 0 && (
           <div className="flex min-w-0 flex-wrap items-end gap-2">
             <Field label="Bind to" id={`${id}-bind`}>
               <select id={`${id}-bind`} className={FIELD} value={binding} onChange={(e) => setBinding(e.target.value)}>
@@ -247,7 +252,7 @@ function NoReceivers({ canAct, onCreate }: { canAct: boolean; onCreate: () => vo
           </Button>
         ) : undefined
       }
-      whoCan="An operator or workspace admin"
+      whoCan="A workspace admin"
       verb="create receivers"
       guide={{ guide: 'receivers', anchor: 'create-a-receiver' }}
     />
@@ -260,7 +265,7 @@ export default function ReceiversPage() {
   const loaded = useRepos((s) => s.loaded.receivers)
   const me = useSession((s) => s.me)
   const nameRef = useRef<HTMLInputElement>(null)
-  const variant = emptyVariant({ filtered: false, canAct: workspace !== null && canOperate(me, workspace) })
+  const variant = emptyVariant({ filtered: false, canAct: workspace !== null && canAdminister(me, workspace) })
   const empty = loaded && receivers.length === 0
   return (
     <Page name="receivers" labelledBy="receivers-title">
@@ -290,7 +295,7 @@ export default function ReceiversPage() {
           ) : (
             <ul aria-label="Receivers" className="flex min-w-0 flex-col gap-2">
               {receivers.map((r) => (
-                <ReceiverRow key={r.id} receiver={r} />
+                <ReceiverRow key={r.id} receiver={r} canAct={variant === 'guided'} />
               ))}
             </ul>
           )}

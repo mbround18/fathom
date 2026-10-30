@@ -9,7 +9,7 @@ import { Button, Input } from '@companion/ui'
 import { useId, useRef, useState, type SyntheticEvent } from 'react'
 
 import { useSession } from '@/app/session-store'
-import { canOperate } from '@/features/hosts/workspaces'
+import { canAdminister, canOperate } from '@/features/hosts/workspaces'
 import { TermTip } from '@/help/TermTip'
 import type { BindingInfo, CredentialInfo, CredentialKind, JobSummary, Transport } from '@/protocol/wire'
 import { DataTable } from '@/ui/DataTable'
@@ -134,7 +134,8 @@ export function NewBinding() {
   )
 }
 
-function Detail({ binding }: { binding: BindingInfo }) {
+/** One binding. Syncing needs Operate; every other change, and granting credentials, Administer. */
+function Detail({ binding, canSync, canAct }: { binding: BindingInfo; canSync: boolean; canAct: boolean }) {
   const detail = useRepos((s) => s.detail)
   const credentials = useRepos((s) => s.credentials)
   const propose = useRepos((s) => s.propose)
@@ -155,28 +156,34 @@ function Detail({ binding }: { binding: BindingInfo }) {
         </h2>
         <Status data-binding-status status={binding.status} />
         <div className="ml-auto flex flex-wrap gap-1">
-          <Button size="xs" variant="outline" onClick={() => sync(binding.id)}>
-            Sync now
-          </Button>
-          <Button
-            size="xs"
-            variant="outline"
-            onClick={() =>
-              propose({
-                type: binding.status === 'active' ? 'PreviewBindingDisable' : 'PreviewBindingEnable',
-                data: { binding: binding.id },
-              })
-            }
-          >
-            {binding.status === 'active' ? 'Disable' : 'Enable'}
-          </Button>
-          <Button
-            size="xs"
-            variant="destructive"
-            onClick={() => propose({ type: 'PreviewBindingRemove', data: { binding: binding.id } })}
-          >
-            Remove
-          </Button>
+          {canSync && (
+            <Button size="xs" variant="outline" onClick={() => sync(binding.id)}>
+              Sync now
+            </Button>
+          )}
+          {canAct && (
+            <>
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() =>
+                  propose({
+                    type: binding.status === 'active' ? 'PreviewBindingDisable' : 'PreviewBindingEnable',
+                    data: { binding: binding.id },
+                  })
+                }
+              >
+                {binding.status === 'active' ? 'Disable' : 'Enable'}
+              </Button>
+              <Button
+                size="xs"
+                variant="destructive"
+                onClick={() => propose({ type: 'PreviewBindingRemove', data: { binding: binding.id } })}
+              >
+                Remove
+              </Button>
+            </>
+          )}
           <Button size="xs" variant="ghost" onClick={() => open(null)}>
             <XIcon aria-hidden />
             Close
@@ -230,38 +237,40 @@ function Detail({ binding }: { binding: BindingInfo }) {
             empty="No jobs at this commit. Jobs come from the repository's .keel/jobs.yaml."
           />
         </div>
-        <div className="flex min-w-0 flex-wrap items-end gap-2">
-          <Field label="Grant a credential" id={`${id}-grant`}>
-            <select id={`${id}-grant`} className={FIELD} value={grant} onChange={(e) => setGrant(e.target.value)}>
-              <option value="">Choose…</option>
-              {credentials.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!grant}
-            onClick={() =>
-              propose({ type: 'PreviewCredentialGrant', data: { credential: grant, binding: binding.id, profiles: [] } })
-            }
-          >
-            Grant
-          </Button>
-          {granted.map((c) => (
+        {canAct && (
+          <div className="flex min-w-0 flex-wrap items-end gap-2">
+            <Field label="Grant a credential" id={`${id}-grant`}>
+              <select id={`${id}-grant`} className={FIELD} value={grant} onChange={(e) => setGrant(e.target.value)}>
+                <option value="">Choose…</option>
+                {credentials.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Button
-              key={c.id}
-              size="xs"
-              variant="ghost"
-              onClick={() => propose({ type: 'PreviewCredentialRevoke', data: { credential: c.id, binding: binding.id } })}
+              size="sm"
+              variant="outline"
+              disabled={!grant}
+              onClick={() =>
+                propose({ type: 'PreviewCredentialGrant', data: { credential: grant, binding: binding.id, profiles: [] } })
+              }
             >
-              Revoke {c.name}
+              Grant
             </Button>
-          ))}
-        </div>
+            {granted.map((c) => (
+              <Button
+                key={c.id}
+                size="xs"
+                variant="ghost"
+                onClick={() => propose({ type: 'PreviewCredentialRevoke', data: { credential: c.id, binding: binding.id } })}
+              >
+                Revoke {c.name}
+              </Button>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   )
@@ -284,7 +293,7 @@ function NoCredentials({ canAct, onAdd }: { canAct: boolean; onAdd: () => void }
           </Button>
         ) : undefined
       }
-      whoCan="An operator or workspace admin"
+      whoCan="A workspace admin"
       verb="add credentials"
       guide={{ guide: 'bindings', anchor: 'credentials' }}
     />
@@ -385,8 +394,9 @@ export default function BindingsPage() {
   const loaded = useRepos((s) => s.loaded.bindings)
   const me = useSession((s) => s.me)
   const [adding, setAdding] = useState(false)
-  const variant = emptyVariant({ filtered: false, canAct: workspace !== null && canOperate(me, workspace) })
+  const variant = emptyVariant({ filtered: false, canAct: workspace !== null && canAdminister(me, workspace) })
   const canAct = variant === 'guided'
+  const canSync = workspace !== null && canOperate(me, workspace)
   // The guided state stands in for the table once the list has answered empty, until the form opens.
   const empty = loaded && bindings.length === 0 && !adding
   const current = detail ? (bindings.find((b) => b.id === detail.binding.id) ?? detail.binding) : null
@@ -436,7 +446,7 @@ export default function BindingsPage() {
               </Button>
             ) : undefined
           }
-          whoCan="An operator or workspace admin"
+          whoCan="A workspace admin"
           verb="bind repositories"
           guide={{ guide: 'bindings', anchor: 'bind-a-repository' }}
         />
@@ -466,7 +476,7 @@ export default function BindingsPage() {
           empty={loaded ? 'No repository is bound yet.' : <LoadState loading label="Loading bindings…" />}
         />
       )}
-      {current && <Detail binding={current} />}
+      {current && <Detail binding={current} canSync={canSync} canAct={canAct} />}
       {workspace && <Credentials canAct={canAct} />}
       <PreviewDialog />
     </Page>

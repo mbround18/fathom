@@ -29,15 +29,18 @@ function granted(backend: FakeBackend, role: TeamRole): FakeHosts {
   return new FakeHosts(backend)
 }
 
-/** Each workspace page's main list: where it lives and the guide its empty state links to. */
+/**
+ * Each workspace page's main list: where it lives, the guide its empty state links to, and the
+ * capability its first step needs on the server (keel-core authz `Capability::of`).
+ */
 const PAGES = [
-  { path: '/hosts', page: 'hosts', guide: '/help/hosts#enroll-a-host' },
-  { path: '/receivers', page: 'receivers', guide: '/help/receivers#create-a-receiver' },
-  { path: '/bindings', page: 'bindings', guide: '/help/bindings#bind-a-repository' },
-  { path: '/bindings', page: 'credentials', guide: '/help/bindings#credentials' },
-  { path: '/runs', page: 'runs', guide: '/help/getting-started#your-first-run' },
-  { path: '/reviews', page: 'reviews', guide: '/help/reviews#trusted-signers' },
-  { path: '/inventory', page: 'inventory', guide: '/help/inventory' },
+  { path: '/hosts', page: 'hosts', guide: '/help/hosts#enroll-a-host', needs: 'operate' },
+  { path: '/receivers', page: 'receivers', guide: '/help/receivers#create-a-receiver', needs: 'administer' },
+  { path: '/bindings', page: 'bindings', guide: '/help/bindings#bind-a-repository', needs: 'administer' },
+  { path: '/bindings', page: 'credentials', guide: '/help/bindings#credentials', needs: 'administer' },
+  { path: '/runs', page: 'runs', guide: '/help/getting-started#your-first-run', needs: 'operate' },
+  { path: '/reviews', page: 'reviews', guide: '/help/reviews#trusted-signers', needs: 'administer' },
+  { path: '/inventory', page: 'inventory', guide: '/help/inventory', needs: 'administer' },
 ] as const
 
 async function expectGuided(page: Page, name: string, guide: string): Promise<void> {
@@ -65,11 +68,19 @@ test.describe('an operator', () => {
     granted(backend, 'operator')
   })
 
-  for (const { path, page: name, guide } of PAGES) {
-    test(`${name}: guided, with one action, steps and a guide`, async ({ page }) => {
-      await page.goto(path)
-      await expectGuided(page, name, guide)
-    })
+  for (const { path, page: name, guide, needs } of PAGES) {
+    if (needs === 'operate') {
+      test(`${name}: guided, with one action, steps and a guide`, async ({ page }) => {
+        await page.goto(path)
+        await expectGuided(page, name, guide)
+      })
+    } else {
+      test(`${name}: restricted, a workspace admin can`, async ({ page }) => {
+        await page.goto(path)
+        await expectRestricted(page, name)
+        await expect(page.locator(`[data-empty-page="${name}"] [data-who-can]`)).toContainText('A workspace admin can')
+      })
+    }
   }
 
   test('the Hosts action opens the Enroll dialog', async ({ page }) => {
@@ -78,6 +89,32 @@ test.describe('an operator', () => {
     await expect(page.getByRole('dialog').getByRole('form', { name: 'Enroll a host' })).toBeVisible()
   })
 
+  test('the Runs action goes to Bindings', async ({ page }) => {
+    await page.goto('/runs')
+    await page.locator('[data-empty-action]').getByRole('link', { name: 'Go to bindings' }).click()
+    await expect(page).toHaveURL(/\/bindings$/)
+  })
+
+  test('is offered no change to trusted signers', async ({ page }) => {
+    await page.goto('/reviews')
+    await expect(page.getByRole('heading', { name: 'Trusted signers' })).toBeVisible()
+    await expect(page.getByRole('form', { name: 'Add a signer' })).toHaveCount(0)
+    await expect(page.getByText('A workspace admin can change trusted signers.')).toBeVisible()
+  })
+})
+
+test.describe('a workspace admin', () => {
+  test.beforeEach(({ backend }) => {
+    granted(backend, 'ws_admin')
+  })
+
+  for (const { path, page: name, guide } of PAGES) {
+    test(`${name}: guided, with one action, steps and a guide`, async ({ page }) => {
+      await page.goto(path)
+      await expectGuided(page, name, guide)
+    })
+  }
+
   test('the Bindings action opens the New binding form', async ({ page }) => {
     await page.goto('/bindings')
     await page.locator('[data-empty-page="bindings"] [data-empty-action]').getByRole('button').click()
@@ -85,10 +122,11 @@ test.describe('an operator', () => {
     await expect(page.locator('[data-empty-page="bindings"]')).toHaveCount(0)
   })
 
-  test('the Runs action goes to Bindings', async ({ page }) => {
-    await page.goto('/runs')
-    await page.locator('[data-empty-action]').getByRole('link', { name: 'Go to bindings' }).click()
-    await expect(page).toHaveURL(/\/bindings$/)
+  test('the Inventory action opens the New inventory form', async ({ page }) => {
+    await page.goto('/inventory')
+    await page.locator('[data-empty-action]').getByRole('button', { name: 'Create an inventory' }).click()
+    await expect(page.getByRole('form', { name: 'New inventory' })).toBeVisible()
+    await expect(page.locator('[data-empty-page="inventory"]')).toHaveCount(0)
   })
 
   test('the Receivers action puts the cursor in the new receiver name', async ({ page }) => {
@@ -175,7 +213,7 @@ test('a filter that empties Hosts offers to clear it', async ({ page, backend })
 })
 
 test('a review filter that empties the queue offers to clear it', async ({ page, backend }) => {
-  granted(backend, 'operator')
+  granted(backend, 'ws_admin')
   await page.goto('/reviews')
   await expect(page.locator('[data-empty-page="reviews"]')).toHaveAttribute('data-empty', 'guided')
   await page.getByLabel('Show').selectOption('denied')

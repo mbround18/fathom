@@ -12,7 +12,7 @@ import { useId, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
-import { canOperate } from '@/features/hosts/workspaces'
+import { canAdminister } from '@/features/hosts/workspaces'
 import { TermTip } from '@/help/TermTip'
 import type { ReviewState, ReviewInfo, SignatureStatus, SignerInfo, SignerKind } from '@/protocol/wire'
 import { ConfirmDialog as Confirm } from '@/ui/ConfirmDialog'
@@ -113,7 +113,7 @@ function NoReviews({ canAct }: { canAct: boolean }) {
           </Button>
         ) : undefined
       }
-      whoCan="An operator or workspace admin"
+      whoCan="A workspace admin"
       verb="add trusted signers"
       guide={{ guide: 'reviews', anchor: 'trusted-signers' }}
     />
@@ -132,7 +132,8 @@ function ReviewList() {
   // Open is the default view and All hides nothing, so only the other states filter.
   const variant = emptyVariant({
     filtered: filter !== 'open' && filter !== null,
-    canAct: workspace !== null && canOperate(me, workspace),
+    // The action leads to the trusted signers, which need Administer (keel-server review.rs).
+    canAct: workspace !== null && canAdminister(me, workspace),
   })
   if (loaded && items.length === 0 && variant !== 'no-match') return <NoReviews canAct={variant === 'guided'} />
   return (
@@ -484,8 +485,11 @@ function ConfirmDialog() {
   )
 }
 
-/** The workspace's trusted signers: the early check's list. */
+/** The workspace's trusted signers: the early check's list. Changing it needs Administer. */
 function Signers() {
+  const workspace = useReviews((s) => s.workspace)
+  const me = useSession((s) => s.me)
+  const canAct = workspace !== null && canAdminister(me, workspace)
   const signers = useReviews((s) => s.signers)
   const addSigner = useReviews((s) => s.addSigner)
   const removeSigner = useReviews((s) => s.removeSigner)
@@ -519,77 +523,86 @@ function Signers() {
           { key: 'fp', header: 'Fingerprint', tip: <TermTip term="fingerprint" />, className: 'w-[40%]', cell: (s) => <span className="font-mono break-all">{s.fingerprint}</span> },
           { key: 'added', header: 'Added', cell: (s) => <span className="tabular-nums">{s.added_at}</span> },
         ]}
-        actions={(s) => (
-          <Button
-            variant="ghost"
-            size="xs"
-            className="text-status-err"
-            aria-label={`Remove signer ${s.label}`}
-            onClick={() => {
-              removeSigner(s.id)
-            }}
-          >
-            Remove
-          </Button>
-        )}
+        actions={(s) =>
+          canAct && (
+            <Button
+              variant="ghost"
+              size="xs"
+              className="text-status-err"
+              aria-label={`Remove signer ${s.label}`}
+              onClick={() => {
+                removeSigner(s.id)
+              }}
+            >
+              Remove
+            </Button>
+          )
+        }
         empty="No trusted signers: every commit needs a review."
       />
-      <form
-        aria-label="Add a signer"
-        className="flex min-w-0 flex-wrap items-end gap-2 border border-border bg-muted/20 p-3"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (ok) addSigner(kind, key.trim(), label.trim())
-        }}
-      >
-        <div className="flex min-w-0 flex-col gap-1">
-          <label htmlFor={kindId} className={LABEL}>
-            Kind
-          </label>
-          <Select
-            id={kindId}
-            value={kind}
-            onChange={(e) => {
-              setKind(e.target.value as SignerKind)
-            }}
-          >
-            <option value="ssh">SSH</option>
-            <option value="openpgp">OpenPGP</option>
-          </Select>
-        </div>
-        <div className="flex min-w-0 flex-1 basis-60 flex-col gap-1">
-          <label htmlFor={keyId} className={LABEL}>
-            Public key
-          </label>
-          <textarea
-            id={keyId}
-            className={`${FIELD} h-auto min-h-8 py-1.5 font-mono`}
-            value={key}
-            placeholder={kind === 'ssh' ? 'ssh-ed25519 AAAA… ci@example.org' : '-----BEGIN PGP PUBLIC KEY BLOCK-----'}
-            onChange={(e) => {
-              setKey(e.target.value)
-            }}
-          />
-        </div>
-        <div className="flex min-w-0 flex-col gap-1">
-          <label htmlFor={labelId} className={LABEL}>
-            Label
-          </label>
-          <input
-            id={labelId}
-            className={FIELD}
-            value={label}
-            autoComplete="off"
-            onChange={(e) => {
-              setLabel(e.target.value)
-            }}
-          />
-        </div>
-        <Button type="submit" size="sm" disabled={!ok}>
-          <PlusIcon aria-hidden />
-          Add signer
-        </Button>
-      </form>
+      {!canAct && (
+        <p className="text-xs text-muted-foreground">
+          A workspace admin can change trusted signers.
+        </p>
+      )}
+      {canAct && (
+        <form
+          aria-label="Add a signer"
+          className="flex min-w-0 flex-wrap items-end gap-2 border border-border bg-muted/20 p-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (ok) addSigner(kind, key.trim(), label.trim())
+          }}
+        >
+          <div className="flex min-w-0 flex-col gap-1">
+            <label htmlFor={kindId} className={LABEL}>
+              Kind
+            </label>
+            <Select
+              id={kindId}
+              value={kind}
+              onChange={(e) => {
+                setKind(e.target.value as SignerKind)
+              }}
+            >
+              <option value="ssh">SSH</option>
+              <option value="openpgp">OpenPGP</option>
+            </Select>
+          </div>
+          <div className="flex min-w-0 flex-1 basis-60 flex-col gap-1">
+            <label htmlFor={keyId} className={LABEL}>
+              Public key
+            </label>
+            <textarea
+              id={keyId}
+              className={`${FIELD} h-auto min-h-8 py-1.5 font-mono`}
+              value={key}
+              placeholder={kind === 'ssh' ? 'ssh-ed25519 AAAA… ci@example.org' : '-----BEGIN PGP PUBLIC KEY BLOCK-----'}
+              onChange={(e) => {
+                setKey(e.target.value)
+              }}
+            />
+          </div>
+          <div className="flex min-w-0 flex-col gap-1">
+            <label htmlFor={labelId} className={LABEL}>
+              Label
+            </label>
+            <input
+              id={labelId}
+              className={FIELD}
+              value={label}
+              autoComplete="off"
+              onChange={(e) => {
+                setLabel(e.target.value)
+              }}
+            />
+          </div>
+          <Button type="submit" size="sm" disabled={!ok}>
+            <PlusIcon aria-hidden />
+            Add signer
+          </Button>
+        </form>
+      )}
     </section>
   )
 }
