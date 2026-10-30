@@ -46,6 +46,28 @@ export function usePath(): string {
   return useSyncExternalStore(subscribe, currentPath, () => '/')
 }
 
+function subscribeHash(onChange: () => void): () => void {
+  const off = subscribe(onChange)
+  globalThis.addEventListener('hashchange', onChange)
+  return () => {
+    off()
+    globalThis.removeEventListener('hashchange', onChange)
+  }
+}
+
+/** The current `#fragment`, without the `#`; `''` when there is none. Re-renders when it moves. */
+export function useHash(): string {
+  return useSyncExternalStore(subscribeHash, () => decodeHash(globalThis.location.hash), () => '')
+}
+
+function decodeHash(hash: string): string {
+  try {
+    return decodeURIComponent(hash.replace(/^#/, ''))
+  } catch {
+    return ''
+  }
+}
+
 /** Go to a same-origin path. Anything that is not a plain absolute path is ignored. */
 export function navigate(to: string, opts: { replace?: boolean } = {}): void {
   if (!to.startsWith('/') || to.startsWith('//')) return

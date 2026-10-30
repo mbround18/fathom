@@ -28,6 +28,8 @@ const ROUTES: readonly Route[] = [
   { pattern: '/settings/:tab', page: lazy(() => import('@/features/settings/SettingsPage')) },
   { pattern: '/migration', page: lazy(() => import('@/features/migration/MigrationPage')) },
   { pattern: ACCOUNT_PASSKEYS, page: lazy(() => import('@/features/passkeys/PasskeysPage')) },
+  { pattern: '/help', page: lazy(() => import('@/help/HelpPage')) },
+  { pattern: '/help/:guide', page: lazy(() => import('@/help/HelpPage')) },
 ]
 
 const NotFound = lazy(() => import('@/pages/NotFound'))
