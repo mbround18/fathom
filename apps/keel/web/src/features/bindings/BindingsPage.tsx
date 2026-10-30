@@ -313,9 +313,12 @@ function Credentials({ canAct }: { canAct: boolean }) {
   return (
     <section aria-labelledby={`${id}-title`} className="flex min-w-0 flex-col gap-3">
       <div className="flex min-w-0 flex-col gap-0.5">
-        <h2 id={`${id}-title`} className={H2}>
-          Credentials
-        </h2>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <h2 id={`${id}-title`} className={H2}>
+            Credentials
+          </h2>
+          <TermTip term="credential" />
+        </div>
         <SectionIntro guide={{ guide: 'bindings', anchor: 'credentials' }}>
           Secrets a binding uses to fetch or run.
         </SectionIntro>
@@ -365,12 +368,9 @@ function Credentials({ canAct }: { canAct: boolean }) {
               required
             />
           </Field>
-          <span className="inline-flex items-center gap-1.5">
-            <Button type="submit" size="sm">
-              Preview credential
-            </Button>
-            <TermTip term="preview-credential" />
-          </span>
+          <Button type="submit" size="sm">
+            Preview credential
+          </Button>
         </form>
       )}
     </section>

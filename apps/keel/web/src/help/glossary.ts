@@ -18,7 +18,7 @@ export type TermId =
   | 'base-profile'
   | 'enrolment-token'
   | 'fingerprint'
-  | 'preview-credential'
+  | 'credential'
   | 'inventory-managed'
   | 'inventory-repository'
   | 'workspace'
@@ -75,9 +75,9 @@ export const GLOSSARY: Readonly<Record<TermId, GlossaryEntry>> = {
     text: 'A short code that identifies a key or secret without showing it. Compare it with your own copy to check they match.',
     guide: { guide: 'hosts', anchor: 'check-the-fingerprint' },
   },
-  'preview-credential': {
-    term: 'Preview credential',
-    text: 'Shows what adding the credential will change before anything is saved. Keel stores the value only once you confirm, and then shows just its fingerprint.',
+  credential: {
+    term: 'Credential',
+    text: 'A secret a binding uses to fetch the repository or to run its jobs. Keel stores it sealed once you confirm the preview, and from then on shows only its fingerprint.',
     guide: { guide: 'bindings', anchor: 'credentials' },
   },
   'inventory-managed': {

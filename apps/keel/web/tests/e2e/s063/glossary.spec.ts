@@ -12,7 +12,7 @@ import { WORKSPACE } from '../../support/fake-repos'
 import { FakeReviews } from '../../support/fake-reviews'
 
 /** A glossary id (`src/help/glossary.ts`). Not imported: that module's guide types need Vite. */
-type TermId = 'trusted-signers' | 'fingerprint' | 'preview-credential' | 'receiver' | 'inventory-managed' | 'grant' | 'workspace'
+type TermId = 'trusted-signers' | 'fingerprint' | 'credential' | 'receiver' | 'inventory-managed' | 'grant' | 'workspace'
 
 const verified = fixtures.verification({ verified: true, enrolled: true, at: '2026-10-27T11:59:00Z' })
 
@@ -71,9 +71,9 @@ const PAGES: readonly PageCase[] = [
   },
   {
     name: 'Bindings',
-    term: 'preview-credential',
-    about: 'About preview credential',
-    text: 'Shows what adding the credential will change',
+    term: 'credential',
+    about: 'About credential',
+    text: 'A secret a binding uses to fetch the repository',
     open: async (page, backend) => {
       admin(backend)
       await page.goto('/bindings')

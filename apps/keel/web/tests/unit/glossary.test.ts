@@ -18,7 +18,7 @@ const REQUIRED: readonly TermId[] = [
   'base-profile',
   'enrolment-token',
   'fingerprint',
-  'preview-credential',
+  'credential',
   'inventory-managed',
   'inventory-repository',
   'workspace',
