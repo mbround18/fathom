@@ -51,7 +51,7 @@ describe('nav groups', () => {
     it('drops a hidden section and a group left empty', () => {
       const seen = visibleGroups({ ...ME, instance_role: 'user' }, groups)
       expect(seen.map((g) => g.id)).toEqual(['pipelines', 'administration'])
-      expect(labels(seen[0]!)).toEqual(['Runs', 'Bindings', 'Receivers'])
+      expect(seen[0]?.sections.map((s) => s.label)).toEqual(['Runs', 'Bindings', 'Receivers'])
     })
 
     it('keeps them when visible says yes', () => {

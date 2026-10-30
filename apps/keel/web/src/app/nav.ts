@@ -92,5 +92,8 @@ export const SETTINGS: Section = { path: '/settings', label: 'System Settings', 
 /** Account → Passkeys: the person's own passkeys. Reached from the account menu, not the sections. */
 export const ACCOUNT_PASSKEYS = '/account/passkeys'
 
+/** Account → Help: the Keel guides (spec 063, help/HelpPage.tsx). Reached from the account menu. */
+export const HELP = '/help'
+
 /** Where `/` goes. */
 export const HOME = '/runs'

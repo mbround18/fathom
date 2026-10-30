@@ -4,6 +4,7 @@ import {
   FingerprintIcon,
   KeyIcon,
   ListIcon,
+  QuestionIcon,
   SignOutIcon,
   UserCircleIcon,
 } from '@phosphor-icons/react'
@@ -23,9 +24,10 @@ import { BRAND_GLYPH, BRAND_NAME } from '@/brand'
 import { usePasskeys } from '@/features/passkeys/store'
 import { canSeeSettings } from '@/features/settings/tabs'
 import { showDot, useUpdates } from '@/features/settings/updates'
+import { LABEL } from '@/ui/form'
 
 import { Link } from './Link'
-import { ACCOUNT_PASSKEYS, HOME, SECTIONS, SETTINGS, type Section } from './nav'
+import { ACCOUNT_PASSKEYS, HELP, HOME, SETTINGS, visibleGroups, type NavGroup, type Section } from './nav'
 import { navigate, usePath } from './router'
 import { useSession } from './session-store'
 
@@ -76,6 +78,32 @@ function NavLink({
   )
 }
 
+/**
+ * One group of sections (spec 063 FR-001 to FR-004). On desktop its heading is a muted label, never
+ * the accent, with room above every group after the first. On a phone the heading is only read out
+ * and the group runs on in the strip, set off from the one before by a 1px rule.
+ */
+function NavGroupLinks({ group, first, path }: { group: NavGroup; first: boolean; path: string }) {
+  const headingId = `nav-group-${group.id}`
+  return (
+    <div
+      role="group"
+      aria-labelledby={headingId}
+      data-nav-group={group.id}
+      className={`relative flex shrink-0 gap-0.5 md:flex-col ${first ? '' : 'max-md:border-l max-md:border-border max-md:pl-0.5 md:mt-3'}`}
+    >
+      {/* The transparent border lines the heading up with the links' text. The group is `relative` so
+          the sr-only heading stays inside the phone's scrolling strip, like the dot's text. */}
+      <span id={headingId} className={`${LABEL} sr-only md:not-sr-only md:border-l md:border-transparent md:px-3 md:pb-1`}>
+        {group.label}
+      </span>
+      {group.sections.map((section) => (
+        <NavLink key={section.path} section={section} path={path} />
+      ))}
+    </div>
+  )
+}
+
 function Nav() {
   const path = usePath()
   const role = useSession((s) => s.me?.instance_role)
@@ -86,8 +114,8 @@ function Nav() {
       aria-label="Sections"
       className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border px-1 py-1 md:w-48 md:flex-col md:overflow-x-visible md:border-r md:border-b-0 md:py-2"
     >
-      {SECTIONS.map((section) => (
-        <NavLink key={section.path} section={section} path={path} />
+      {visibleGroups(me).map((group, i) => (
+        <NavGroupLinks key={group.id} group={group} first={i === 0} path={path} />
       ))}
       {/* Pinned to the bottom of the column on desktop; last in the strip on a phone. */}
       {canSeeSettings(role) && (
@@ -120,6 +148,11 @@ function AccountMenu() {
         <DropdownMenuItem onSelect={() => navigate(ACCOUNT_PASSKEYS)}>
           <ListIcon aria-hidden className="size-3.5" />
           Passkeys
+        </DropdownMenuItem>
+        {/* The Keel guides, served in the app (spec 063). */}
+        <DropdownMenuItem onSelect={() => navigate(HELP)}>
+          <QuestionIcon aria-hidden className="size-3.5" />
+          Help
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => openEnrol(false)}>
           <KeyIcon aria-hidden className="size-3.5" />
@@ -167,8 +200,8 @@ function EnrolBanner() {
 }
 
 /**
- * The signed-in frame: a dense top bar, the section navigation (a sidebar on wide screens, a
- * scrolling strip on narrow ones) and the routed page. Mobile first.
+ * The signed-in frame: a dense top bar, the grouped section navigation (a sidebar on wide screens,
+ * a scrolling strip on narrow ones) and the routed page. Mobile first.
  */
 export function Shell({ children }: { children: ReactNode }) {
   const connection = useSession((s) => s.connection)

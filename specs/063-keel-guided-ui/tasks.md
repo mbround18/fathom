@@ -80,7 +80,7 @@ exist with their anchored headings.
   - Set `data-help-guide`.
   - An unknown slug renders NotFound.
   - After render, scroll to `location.hash`.
-- [ ] T011 Add **Help** to the account menu in `web/src/app/Shell.tsx`, after Passkeys, with `QuestionIcon`, going to `/help`.
+- [X] T011 Add **Help** to the account menu in `web/src/app/Shell.tsx`, after Passkeys, with `QuestionIcon`, going to `/help`.
 - [ ] T012 Write `web/tests/e2e/s063/help.spec.ts`:
   - `/help` lists the guides;
   - each of the six new guides renders;
@@ -153,21 +153,21 @@ can act. Values to paste elsewhere are one click to copy.
 
 **Independent test**: quickstart.md, "nav".
 
-- [ ] T030 [P] [US2] Write `web/tests/unit/nav-groups.test.ts`:
+- [X] T030 [P] [US2] Write `web/tests/unit/nav-groups.test.ts`:
   - `NAV_GROUPS` has ids and labels in order (Pipelines, Infrastructure, Administration), each with the sections listed in data-model.md;
   - `SECTIONS` equals the flattened order;
   - `visibleGroups()` drops a section whose `visible` returns false, and drops a group left empty (FR-001, FR-004).
-- [ ] T031 [P] [US2] Write `web/tests/e2e/s063/nav.spec.ts`:
+- [X] T031 [P] [US2] Write `web/tests/e2e/s063/nav.spec.ts`:
   - **At 1280 px**: the headings appear in order, each followed by its links, with Settings last for an owner and absent for a user. The heading colour is not the accent (compare the computed colour with a current link's).
   - **At 360 px**: there are no visible headings, a divider sits before the first link of groups 2 and 3, and no horizontal page scroll.
   - **Accessibility**: `getByRole('group', { name: 'Pipelines' })` and the others exist, and `aria-current="page"` is on the current link (FR-002, FR-003, FR-005, FR-006).
-- [ ] T032 [US2] In `web/src/app/nav.ts`, add `NavGroup`, `NAV_GROUPS`, the optional `Section.visible` and `visibleGroups(me)`, and derive `SECTIONS` (R1). Update the file's doc comment.
-- [ ] T033 [US2] In `web/src/app/Shell.tsx`, render `Nav` from `visibleGroups(me)`:
+- [X] T032 [US2] In `web/src/app/nav.ts`, add `NavGroup`, `NAV_GROUPS`, the optional `Section.visible` and `visibleGroups(me)`, and derive `SECTIONS` (R1). Update the file's doc comment.
+- [X] T033 [US2] In `web/src/app/Shell.tsx`, render `Nav` from `visibleGroups(me)`:
   - one `<div role="group" aria-labelledby data-nav-group>` per group;
   - the heading uses the `LABEL` token in `text-muted-foreground`, is `sr-only` below `md`, and has spacing above each group after the first on desktop;
   - below `md`, groups 2 and 3 get a left border as a divider, with the strip's current gaps and scrolling unchanged;
   - Settings stays pinned with its dot (FR-005).
-- [ ] T034 [US2] Run `/impeccable polish` on the nav at 360 and 1280 px, light and dark. Make T030 and T031 pass, then run `tests/e2e/shell` (its own project) to confirm the existing shell tests still pass.
+- [X] T034 [US2] Run `/impeccable polish` on the nav at 360 and 1280 px, light and dark. Make T030 and T031 pass, then run `tests/e2e/shell` (its own project) to confirm the existing shell tests still pass.
 
 **Checkpoint**: US2 works on its own, on top of either earlier phase.
 
