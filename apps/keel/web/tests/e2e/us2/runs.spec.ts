@@ -164,5 +164,5 @@ test('a dropped socket resubscribes from the last seq it saw, without gaps', asy
 test('without a workspace the run list says so', async ({ page }) => {
   await page.goto('/runs')
   await expect(page.getByRole('heading', { name: 'Runs', level: 1 })).toBeVisible()
-  await expect(page.getByText('You have no workspace yet.')).toBeVisible()
+  await expect(page.locator('[data-empty-page="workspace-picker"]')).toContainText('Create a workspace')
 })

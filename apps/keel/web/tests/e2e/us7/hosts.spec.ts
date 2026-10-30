@@ -34,7 +34,7 @@ test('a host is enrolled with a one-time token, comes online and is revoked', as
   await page.goto('/hosts')
   await expect(page.getByRole('heading', { name: 'Hosts', level: 1 })).toBeVisible()
   const table = page.getByRole('table', { name: 'Hosts' })
-  await expect(table).toContainText('No hosts yet')
+  await expect(page.locator('[data-empty-page="hosts"]')).toContainText('Enroll a host')
 
   // Enroll: the form, previewed in the same dialog, confirmed, then the token once.
   await page.getByRole('button', { name: 'Enroll host' }).click()

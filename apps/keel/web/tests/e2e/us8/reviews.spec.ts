@@ -129,7 +129,7 @@ test('approving without a passkey asks for one; denying needs only a comment', a
   await expect(review.locator('[data-state]')).toHaveText('denied')
   expect(reviews.decisions).toEqual([{ group: 'group-0001', approve: false, comment: 'Not reviewed yet.', credential: null }])
   // A decided group leaves the open list.
-  await expect(page.getByRole('table', { name: 'Reviews' })).toContainText('Nothing to review')
+  await expect(page.locator('[data-empty-page="reviews"]')).toContainText('Nothing to review')
 })
 
 test('trusted signers are added and removed with step-up', async ({ page, backend }) => {

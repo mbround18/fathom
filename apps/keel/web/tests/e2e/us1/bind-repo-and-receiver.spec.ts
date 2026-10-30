@@ -19,7 +19,7 @@ test('bind a repository, create and bind a receiver, see its deliveries', async 
   admin(backend)
   await page.goto('/bindings')
   await expect(page.getByRole('heading', { name: 'Bindings', level: 1 })).toBeVisible()
-  await expect(page.getByText('No repository is bound yet.')).toBeVisible()
+  await expect(page.locator('[data-empty-page="bindings"]')).toContainText('Bind a repository')
 
   // Create a binding: the preview reports the test fetch before anything is stored.
   await page.getByRole('button', { name: 'New binding' }).click()
@@ -51,6 +51,8 @@ test('bind a repository, create and bind a receiver, see its deliveries', async 
   const shown = page.getByRole('region', { name: 'Receiver secret' })
   const secret = backend.repos.secrets[0] ?? ''
   expect(secret).not.toBe('')
+  // The secret is masked until revealed (spec 063 T027).
+  await shown.getByRole('button', { name: 'Reveal secret' }).click()
   await expect(shown).toContainText(secret)
   await expect(shown).toContainText('/hooks/')
   await shown.getByRole('button', { name: 'I have copied it' }).click()
@@ -99,5 +101,5 @@ test('a repository bound twice is refused with the reason', async ({ page, backe
 
 test('without a workspace the page says so', async ({ page }) => {
   await page.goto('/bindings')
-  await expect(page.getByText('You have no workspace yet.')).toBeVisible()
+  await expect(page.locator('[data-empty-page="workspace-picker"]')).toContainText('Create a workspace')
 })

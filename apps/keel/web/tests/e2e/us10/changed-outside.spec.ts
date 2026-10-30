@@ -80,7 +80,7 @@ test('a run outside Keel flags the host live, filters, and a baseline clears it'
   // A baseline approval clears it: under the filter the host leaves the list, and the view says so.
   hosts.approveBaseline('web-1')
   await expect(web).toHaveCount(0)
-  await expect(table).toContainText('No host reports a run outside Keel.')
+  await expect(table).toContainText('No hosts match.')
   await expect(view.getByText('Changed outside Keel')).toHaveCount(0)
   await expect(runs).toHaveCount(2)
 
