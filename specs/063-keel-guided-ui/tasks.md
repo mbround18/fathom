@@ -46,12 +46,12 @@ the implementation lands. Playwright runs against the fake backend. Nothing reac
 Guide links, used by US1 and US3, need the guide registry, the slug function and guides that
 exist with their anchored headings.
 
-- [ ] T003 [P] Write `web/tests/unit/slug.test.ts` for `slug()` (R7). Cases:
+- [X] T003 [P] Write `web/tests/unit/slug.test.ts` for `slug()` (R7). Cases:
   - "Enroll a host" → `enroll-a-host`;
   - punctuation is stripped ("What's a binding?" → `whats-a-binding`);
   - repeated spaces and hyphens collapse;
   - `slugger()` returns `x`, `x-2`, `x-3` for repeated headings in one page.
-- [ ] T004 [P] Implement `web/src/help/slug.ts`: `slug(text)` and a per-page `slugger()` (R7).
+- [X] T004 [P] Implement `web/src/help/slug.ts`: `slug(text)` and a per-page `slugger()` (R7).
 - [ ] T005 Write skeletons for the six new guides, each with a title, a one-paragraph intro, and every `##`/`###` heading that a link in data-model.md or contracts/glossary.md targets. Full content comes in Phase 6.
   - `guides/getting-started.md`: Create a workspace, Give people access, Enroll your first host, Create a receiver, Bind a repository, Your first run.
   - `guides/hosts.md`: Enroll a host, Check the fingerprint, Run the base profile.
