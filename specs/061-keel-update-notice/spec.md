@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-28
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Keel: update notice and self-update for a Docker-deployed Keel server. Keel knows what it runs (version, revision, image digest); checks the registry for a newer image of its tag behind a runtime flag that is off by default; tells instance owners in System Settings; and lets an owner update through the System workspace with preview, passkey and audit. No silent updates. Without a System workspace, the notice shows manual instructions."
 

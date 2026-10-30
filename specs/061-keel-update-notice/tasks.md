@@ -227,7 +227,7 @@ them, in the rollout order in quickstart.md.
 
 - [X] T075 [US4] In `/home/mbruno/development/ansible/scripts/tests/test_keel_manifest_check.py`, add cases: the `keel-server` job's `params:` block is accepted; more than 8 params, a bad name, an `ansible_*` or `keel_internal_*` name, a kind other than `oci_digest`, and a name also in `vars` are each refused.
 - [X] T076 [US4] In `/home/mbruno/development/ansible/scripts/keel-manifest-check.py`, add `params` to `JOB_KEYS` and check its shape as above. Makes T075 pass.
-- [ ] T077 [US4] Only after quickstart.md rollout steps 1 to 4 (Keel and the runner with params support deployed on Keel's host): add `params: { keel_server_image_digest: { kind: oci_digest } }` to the `keel-server` job in `/home/mbruno/development/ansible/.keel/jobs.yaml`. Run `make lint` there.
+- [X] T077 [US4] *(2026-10-29: ansible `keel-061` 9136276, lint passes; lands with that branch)* Only after quickstart.md rollout steps 1 to 4 (Keel and the runner with params support deployed on Keel's host): add `params: { keel_server_image_digest: { kind: oci_digest } }` to the `keel-server` job in `/home/mbruno/development/ansible/.keel/jobs.yaml`. Run `make lint` there.
 
 **Checkpoint**: an owner updates Keel from the card on a test instance (quickstart 11 to 13), and rollback by `KEEL_DIGEST` works (15).
 
@@ -264,7 +264,7 @@ them, in the rollout order in quickstart.md.
 - [X] T088 Run `make keel bindings` once more on the combined branch and confirm no diff.
 - [X] T089 *(2026-10-29: shared 238s, depths 509s, keel 536s at edc00edc; fathom 1603s at f63f6465 after a harness-race fix; all pass)* Run the full gate once, with `scripts/ci.sh`, in the main session only. Report the wall time, the slowest steps, the delta and one speed-up idea.
 - [X] T090 *(2026-10-29: hygiene clean, build cache pruned)* Run `scripts/hygiene.sh`, then `docker builder prune --filter until=24h` if any images were built.
-- [ ] T091 Update `specs/061-keel-update-notice/spec.md` status to Implemented, and tick this file.
+- [X] T091 Update `specs/061-keel-update-notice/spec.md` status to Implemented, and tick this file.
 
 ---
 
