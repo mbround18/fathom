@@ -52,7 +52,7 @@ exist with their anchored headings.
   - repeated spaces and hyphens collapse;
   - `slugger()` returns `x`, `x-2`, `x-3` for repeated headings in one page.
 - [X] T004 [P] Implement `web/src/help/slug.ts`: `slug(text)` and a per-page `slugger()` (R7).
-- [ ] T005 Write skeletons for the six new guides, each with a title, a one-paragraph intro, and every `##`/`###` heading that a link in data-model.md or contracts/glossary.md targets. Full content comes in Phase 6.
+- [X] T005 Write skeletons for the six new guides, each with a title, a one-paragraph intro, and every `##`/`###` heading that a link in data-model.md or contracts/glossary.md targets. Full content comes in Phase 6.
   - `guides/getting-started.md`: Create a workspace, Give people access, Enroll your first host, Create a receiver, Bind a repository, Your first run.
   - `guides/hosts.md`: Enroll a host, Check the fingerprint, Run the base profile.
   - `guides/receivers.md`: Create a receiver, Add the webhook at your Git host, Deliveries.
