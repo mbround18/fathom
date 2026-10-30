@@ -244,6 +244,39 @@ a label. Its text comes from one glossary. Long paragraphs become one line plus 
 - [ ] T053 Run the SC-001 manual walk-through from quickstart.md on a fresh Keel, and record the time in this file.
 - [ ] T054 Last: take the brochure screenshots of the guided Hosts and Receivers empty states, the grouped nav and `/help/getting-started`, and add any guide images to `guides/img/`.
 
+## Phase 8: Owner follow-ups (2026-10-29)
+
+These come from reviewing US1. Run them after US3 merges, because they touch the same pages.
+Run them before Phase 7.
+
+- [ ] T055 Gate each guided action on the capability the server checks, so no one is offered a
+  button the server refuses (FR-012):
+  - Add `canAdminister(me, ws)` beside `canOperate` in `web/src/features/hosts/workspaces.ts`.
+    It is true for an instance owner or admin, or a `ws_admin` grant
+    (`crates/keel-core/src/authz.rs` `Capability::of`).
+  - Use it for the actions the server gates with `Capability::Administer`:
+    - receivers: `server/src/receivers.rs`;
+    - credentials: `credentials.rs`;
+    - bindings: `bindings.rs`, except `sync_binding`, which needs Operate;
+    - inventory create and edit: `inventory.rs`;
+    - trusted signers: `review.rs`;
+    - host removal: `hosts.rs:984`.
+  - Keep `canOperate` for host enrolment and starting runs.
+  - Restricted states name "A workspace admin" where Administer is needed.
+  - Add a `canAdminister` unit test. Update the s063 empty-states spec so that an operator sees
+    the restricted Receivers, Bindings and Inventory states.
+- [ ] T056 Make the New binding form's project choosable without knowing an id:
+  - `ListWorkspaces` already returns `WorkspaceInfo.projects`, so this needs no server change.
+  - Replace the raw "Project id" input in `web/src/features/bindings/BindingsPage.tsx` with a
+    picker of the current workspace's projects.
+  - When there are no projects, show a restricted or guided hint that links to Teams, where
+    projects are created.
+  - Show each project's id with a `CopyBlock` (or a copy button) on the Teams workspace view.
+  - Add a case to `tests/e2e/s063/empty-states.spec.ts` or a new `bindings-project.spec.ts`.
+- [ ] T057 Approving a run in `pending_approval` has no command. It needs a server change, so it is
+  out of scope here (FR-033) and moves to its own spec. Until then, `getting-started.md` should
+  not promise approval from the UI.
+
 ---
 
 ## Dependencies and execution order
