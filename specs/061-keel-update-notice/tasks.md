@@ -262,7 +262,7 @@ them, in the rollout order in quickstart.md.
 - [X] T086 Walk through quickstart.md scenarios 1 to 10 and 14 against the dev stack and the fake registry; scenarios 11 to 13 and 15 on the test instance after the rollout steps. (Scenarios 1 to 10 and 14 done; 11 to 13 and 15 wait on the rollout, with T077.)
 - [X] T087 Merge the agent branches into `main`, then remove their worktrees and branches.
 - [X] T088 Run `make keel bindings` once more on the combined branch and confirm no diff.
-- [ ] T089 Run the full gate once, with `scripts/ci.sh`, in the main session only. Report the wall time, the slowest steps, the delta and one speed-up idea.
+- [X] T089 *(2026-10-29: shared 238s, depths 509s, keel 536s at edc00edc; fathom 1603s at f63f6465 after a harness-race fix; all pass)* Run the full gate once, with `scripts/ci.sh`, in the main session only. Report the wall time, the slowest steps, the delta and one speed-up idea.
 - [ ] T090 Run `scripts/hygiene.sh`, then `docker builder prune --filter until=24h` if any images were built.
 - [ ] T091 Update `specs/061-keel-update-notice/spec.md` status to Implemented, and tick this file.
 

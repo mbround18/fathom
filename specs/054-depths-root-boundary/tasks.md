@@ -701,7 +701,7 @@ confirm step, with one check covering the window.
   (quickstart.md §3). Prune build cache afterwards (`docker builder prune --filter until=24h`).
 - [ ] T081 Run every quickstart.md §1 command one at a time, and fix what fails.
 - [ ] T082 Run `scripts/hygiene.sh` and remove anything this work left dangling.
-- [ ] T083 Main session only: one full `scripts/ci.sh` on the combined branch.
+- [X] T083 *(2026-10-29: shared 238s, depths 509s, keel 536s at edc00edc; fathom 1603s at f63f6465 after a harness-race fix; all pass)* Main session only: one full `scripts/ci.sh` on the combined branch.
 - [ ] T084 Brochure and marketing screenshots of the passkey prompt, account passkeys panel and
   stack exceptions list, last.
 
