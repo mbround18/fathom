@@ -5,6 +5,10 @@
  */
 import type { ComponentProps, ReactNode } from 'react'
 
+import type { GuideRef } from '@/help/guides'
+
+import { GuideLink } from './GuideLink'
+
 /** The field look without a size: border, focus ring, disabled and invalid states. */
 const FIELD_LOOK =
   'min-w-0 border border-input bg-background text-sm outline-none transition-colors ' +
@@ -39,6 +43,19 @@ export const H2 = 'font-display text-base font-semibold'
 
 /** A group's heading inside a section (h3): members, grants, the parts of a card. */
 export const H3 = 'text-sm font-semibold'
+
+/**
+ * A section's one-line intro under its heading, then "Learn more" (spec 063 R8, FR-023). Anything
+ * longer than a line belongs in the guide it links to, not on the page.
+ */
+export function SectionIntro({ guide, children }: { guide: GuideRef; children: ReactNode }) {
+  return (
+    <div data-section-intro className="flex max-w-prose min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <p className="min-w-0 text-xs text-muted-foreground">{children}</p>
+      <GuideLink to={guide} />
+    </div>
+  )
+}
 
 export function Select({ className = '', dense = false, ...props }: ComponentProps<'select'> & { dense?: boolean }) {
   return <select {...props} className={`${dense ? FIELD_DENSE : FIELD} ${className}`} />

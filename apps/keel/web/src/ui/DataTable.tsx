@@ -12,6 +12,8 @@ import { useSyncExternalStore, type ReactNode } from 'react'
 export interface Column<T> {
   key: string
   header: string
+  /** An info icon after the header (a glossary term's `TermTip`), in the table layout only. */
+  tip?: ReactNode
   cell: (row: T) => ReactNode
   /** Cell classes in the table layout. */
   className?: string
@@ -75,7 +77,14 @@ export function DataTable<T>({
             <tr className="border-b border-border">
               {columns.map((c) => (
                 <th key={c.key} scope="col" className={`px-2 py-2 font-medium ${c.className ?? ''}`}>
-                  {c.header}
+                  {c.tip === undefined ? (
+                    c.header
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5">
+                      {c.header}
+                      {c.tip}
+                    </span>
+                  )}
                 </th>
               ))}
               {actions && (

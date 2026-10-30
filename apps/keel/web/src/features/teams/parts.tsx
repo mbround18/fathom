@@ -38,12 +38,15 @@ export function RefusalText({ refusal }: { refusal: Refusal }) {
 export function Pane({
   id,
   title,
+  tip,
   count,
   actions,
   children,
 }: {
   id: string
   title: string
+  /** An info icon for the title's term, outside the heading. */
+  tip?: ReactNode
   count?: number | null | undefined
   actions?: ReactNode | undefined
   children: ReactNode
@@ -54,6 +57,7 @@ export function Pane({
         <h2 id={`${id}-title`} className={H2}>
           {title}
         </h2>
+        {tip}
         {count !== undefined && count !== null && (
           <span data-pane-count className="text-sm text-muted-foreground tabular-nums">{count}</span>
         )}

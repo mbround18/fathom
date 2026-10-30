@@ -5,7 +5,7 @@
  */
 import { CheckIcon, CopyIcon, EyeIcon, EyeSlashIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 
 import { copyText } from './clipboard'
 
@@ -13,12 +13,15 @@ const COPIED_MS = 2000
 
 export function CopyBlock({
   label,
+  tip,
   value,
   masked = false,
   data,
   valueData,
 }: {
   label: string
+  /** An info icon after the label (a glossary term's `TermTip`). */
+  tip?: ReactNode
   value: string
   masked?: boolean
   /** `data-copy` on the value, for tests. */
@@ -44,9 +47,10 @@ export function CopyBlock({
   return (
     <div className="flex min-w-0 flex-col gap-1" data-copy-block={data}>
       <div className="flex min-w-0 items-center gap-1">
-        <span id={id} className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+        <span id={id} className={`min-w-0 truncate text-xs text-muted-foreground ${tip === undefined ? 'flex-1' : ''}`}>
           {label}
         </span>
+        {tip !== undefined && <span className="flex flex-1 items-center pl-1.5">{tip}</span>}
         {masked && (
           <Button
             type="button"
