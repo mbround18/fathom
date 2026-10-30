@@ -49,6 +49,7 @@ export default defineConfig({
       testDir: './tests/e2e/s061',
       use: { ...devices['Desktop Chrome'] },
     },
+    { name: 's063', testDir: './tests/e2e/s063', use: { ...devices['Desktop Chrome'] } },
   ],
   webServer: {
     // The production bundle, as the server ships it. Built rather than served by the dev server.
