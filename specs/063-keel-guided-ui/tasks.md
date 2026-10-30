@@ -180,19 +180,19 @@ a label. Its text comes from one glossary. Long paragraphs become one line plus 
 
 **Independent test**: quickstart.md, "glossary".
 
-- [ ] T035 [P] [US3] Write `web/tests/unit/glossary.test.ts`. It should check:
+- [x] T035 [P] [US3] Write `web/tests/unit/glossary.test.ts`. It should check:
   - every FR-020 `TermId` is present;
   - each `text` has at most two sentences (split on `. `) and at most 240 characters, in sentence case;
   - each `guide` ref resolves (reusing T006's resolver).
-- [ ] T036 [P] [US3] Write `web/tests/e2e/s063/glossary.spec.ts`. For one term per page (Reviews `trusted-signers`, Hosts `fingerprint`, Bindings `credential`, Receivers `receiver`, Inventory `inventory-managed`, Teams `grant`):
+- [x] T036 [P] [US3] Write `web/tests/e2e/s063/glossary.spec.ts`. For one term per page (Reviews `trusted-signers`, Hosts `fingerprint`, Bindings `credential`, Receivers `receiver`, Inventory `inventory-managed`, Teams `grant`):
   - mouse hover opens `[data-infotip-content]`;
   - Tab focus opens it, and the trigger's `aria-describedby` points at it;
   - Escape closes it;
   - a tap opens it, and a tap elsewhere closes it;
   - at 360 px the content fits the viewport;
   - the same term on two pages shows the same text (FR-021, FR-022, FR-024).
-- [ ] T037 [US3] Implement `web/src/help/glossary.ts`: the `TermId` union, `GlossaryEntry` and `GLOSSARY`, using contracts/glossary.md as the draft. **Check each entry against the server's behaviour** (grep `apps/keel/server/src` and the 055–060 specs) before committing it, and fix the draft's wording where the facts differ.
-- [ ] T038 [US3] Implement the shared `packages/ui/src/info-tip.tsx` and export it from `packages/ui/src/index.ts` (R4, contracts/ui.md). It is generic, with no Keel imports.
+- [x] T037 [US3] Implement `web/src/help/glossary.ts`: the `TermId` union, `GlossaryEntry` and `GLOSSARY`, using contracts/glossary.md as the draft. **Check each entry against the server's behaviour** (grep `apps/keel/server/src` and the 055–060 specs) before committing it, and fix the draft's wording where the facts differ.
+- [x] T038 [US3] Implement the shared `packages/ui/src/info-tip.tsx` and export it from `packages/ui/src/index.ts` (R4, contracts/ui.md). It is generic, with no Keel imports.
   - First write `web/tests/unit/info-tip.test.tsx`: hover, focus and click open it; Escape and blur close it; `aria-describedby` is set while open.
   - Then implement `web/src/help/TermTip.tsx`, which maps `GLOSSARY[term]` to `InfoTip`, with a `GuideLink` footer and the `data-infotip` / `data-infotip-content` attributes.
   - Run `pnpm --filter @companion/ui typecheck`.
@@ -203,16 +203,16 @@ a label. Its text comes from one glossary. Long paragraphs become one line plus 
   - `onOpenAutoFocus` is prevented;
   - the content has `role="note"`, `max-w-[min(20rem,calc(100vw-2rem))]`, `collisionPadding={16}` and `motion-reduce:animate-none`;
   - it takes an optional `footer` and passes `data-*` attributes to the trigger.
-- [ ] T039 [P] [US3] Add TermTips in Reviews and Bindings (`web/src/features/reviews/ReviewsPage.tsx`, `web/src/features/bindings/`): at most once per section, after `trusted-signers`, `early-check`, `review`, `binding` and `credential` wherever they appear in a heading, column heading or label (FR-021).
-- [ ] T040 [P] [US3] Add TermTips in Hosts and Receivers (`web/src/features/hosts/`, `web/src/features/receivers/`) for `enrolment-token`, `fingerprint`, `base-profile`, `profile` and `receiver`.
-- [ ] T041 [P] [US3] Add TermTips in Inventory, Teams and the picker (`web/src/features/inventory/`, `web/src/features/teams/`, `web/src/app/WorkspacePicker.tsx`) for `inventory-managed`, `inventory-repository`, `workspace`, `team` and `grant`.
-- [ ] T042 [US3] Add the `guide?: GuideRef` prop to `web/src/ui/PageHeader.tsx`. With it set, the description is one line (`md:line-clamp-1`) and followed by `GuideLink`. Add a `SectionIntro` (one line plus `GuideLink`) beside the `ui/form.tsx` tokens for section-level text.
-- [ ] T043 [US3] Shorten the long paragraphs (FR-023): inventory every page and section description over one line at 1280 px. Known ones:
+- [x] T039 [P] [US3] Add TermTips in Reviews and Bindings (`web/src/features/reviews/ReviewsPage.tsx`, `web/src/features/bindings/`): at most once per section, after `trusted-signers`, `early-check`, `review`, `binding` and `credential` wherever they appear in a heading, column heading or label (FR-021).
+- [x] T040 [P] [US3] Add TermTips in Hosts and Receivers (`web/src/features/hosts/`, `web/src/features/receivers/`) for `enrolment-token`, `fingerprint`, `base-profile`, `profile` and `receiver`.
+- [x] T041 [P] [US3] Add TermTips in Inventory, Teams and the picker (`web/src/features/inventory/`, `web/src/features/teams/`, `web/src/app/WorkspacePicker.tsx`) for `inventory-managed`, `inventory-repository`, `workspace`, `team` and `grant`.
+- [x] T042 [US3] Add the `guide?: GuideRef` prop to `web/src/ui/PageHeader.tsx`. With it set, the description is one line (`md:line-clamp-1`) and followed by `GuideLink`. Add a `SectionIntro` (one line plus `GuideLink`) beside the `ui/form.tsx` tokens for section-level text.
+- [x] T043 [US3] Shorten the long paragraphs (FR-023): inventory every page and section description over one line at 1280 px. Known ones:
   - Reviews' trusted signers (`ReviewsPage.tsx:449`);
   - Bindings' credentials;
   - Receivers, Hosts, Inventory and Teams intros.
   - Turn each into a one-line subtitle plus "Learn more" to its guide, and move the removed sentences into that guide's section so nothing is lost.
-- [ ] T044 [US3] Run `/impeccable clarify` on the glossary and subtitles. Make T035 and T036 pass.
+- [x] T044 [US3] Run `/impeccable clarify` on the glossary and subtitles. Make T035 and T036 pass.
 
 **Checkpoint**: all three stories work independently.
 
