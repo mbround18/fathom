@@ -192,16 +192,20 @@ a label. Its text comes from one glossary. Long paragraphs become one line plus 
   - at 360 px the content fits the viewport;
   - the same term on two pages shows the same text (FR-021, FR-022, FR-024).
 - [ ] T037 [US3] Implement `web/src/help/glossary.ts`: the `TermId` union, `GlossaryEntry` and `GLOSSARY`, using contracts/glossary.md as the draft. **Check each entry against the server's behaviour** (grep `apps/keel/server/src` and the 055–060 specs) before committing it, and fix the draft's wording where the facts differ.
-- [ ] T038 [US3] Implement `web/src/ui/InfoTip.tsx` (R4):
+- [ ] T038 [US3] Implement the shared `packages/ui/src/info-tip.tsx` and export it from `packages/ui/src/index.ts` (R4, contracts/ui.md). It is generic, with no Keel imports.
+  - First write `web/tests/unit/info-tip.test.tsx`: hover, focus and click open it; Escape and blur close it; `aria-describedby` is set while open.
+  - Then implement `web/src/help/TermTip.tsx`, which maps `GLOSSARY[term]` to `InfoTip`, with a `GuideLink` footer and the `data-infotip` / `data-infotip-content` attributes.
+  - Run `pnpm --filter @companion/ui typecheck`.
+  - The shared component:
   - Radix `Popover` from `radix-ui`;
   - a ghost trigger with `InfoIcon` at `size-3.5`, muted, a hit area of at least 24 × 24 px, and `aria-label="About {term}"`;
   - it opens on mouse `pointerenter`, `focus` and click or tap, and closes on mouse leave (unless click-opened), blur, Escape and an outside pointer-down;
   - `onOpenAutoFocus` is prevented;
   - the content has `role="note"`, `max-w-[min(20rem,calc(100vw-2rem))]`, `collisionPadding={16}` and `motion-reduce:animate-none`;
-  - it has an optional `GuideLink` and the `data-infotip` / `data-infotip-content` attributes.
-- [ ] T039 [P] [US3] Add InfoTips in Reviews and Bindings (`web/src/features/reviews/ReviewsPage.tsx`, `web/src/features/bindings/`): at most once per section, after `trusted-signers`, `early-check`, `review`, `binding` and `preview-credential` wherever they appear in a heading, column heading or label (FR-021).
-- [ ] T040 [P] [US3] Add InfoTips in Hosts and Receivers (`web/src/features/hosts/`, `web/src/features/receivers/`) for `enrolment-token`, `fingerprint`, `base-profile`, `profile` and `receiver`.
-- [ ] T041 [P] [US3] Add InfoTips in Inventory, Teams and the picker (`web/src/features/inventory/`, `web/src/features/teams/`, `web/src/app/WorkspacePicker.tsx`) for `inventory-managed`, `inventory-repository`, `workspace`, `team` and `grant`.
+  - it takes an optional `footer` and passes `data-*` attributes to the trigger.
+- [ ] T039 [P] [US3] Add TermTips in Reviews and Bindings (`web/src/features/reviews/ReviewsPage.tsx`, `web/src/features/bindings/`): at most once per section, after `trusted-signers`, `early-check`, `review`, `binding` and `preview-credential` wherever they appear in a heading, column heading or label (FR-021).
+- [ ] T040 [P] [US3] Add TermTips in Hosts and Receivers (`web/src/features/hosts/`, `web/src/features/receivers/`) for `enrolment-token`, `fingerprint`, `base-profile`, `profile` and `receiver`.
+- [ ] T041 [P] [US3] Add TermTips in Inventory, Teams and the picker (`web/src/features/inventory/`, `web/src/features/teams/`, `web/src/app/WorkspacePicker.tsx`) for `inventory-managed`, `inventory-repository`, `workspace`, `team` and `grant`.
 - [ ] T042 [US3] Add the `guide?: GuideRef` prop to `web/src/ui/PageHeader.tsx`. With it set, the description is one line (`md:line-clamp-1`) and followed by `GuideLink`. Add a `SectionIntro` (one line plus `GuideLink`) beside the `ui/form.tsx` tokens for section-level text.
 - [ ] T043 [US3] Shorten the long paragraphs (FR-023): inventory every page and section description over one line at 1280 px. Known ones:
   - Reviews' trusted signers (`ReviewsPage.tsx:449`);
@@ -235,6 +239,7 @@ a label. Its text comes from one glossary. Long paragraphs become one line plus 
 - [ ] T052 Main session only, after all agent work is merged:
   - run `scripts/ci.sh` once;
   - report its wall time, the slowest steps, the change against the last pass, and one speed-up idea;
+  - confirm Depths' and Fathom's web typecheck, lint and unit tests pass with the new `@companion/ui` export;
   - run `scripts/hygiene.sh`.
 - [ ] T053 Run the SC-001 manual walk-through from quickstart.md on a fresh Keel, and record the time in this file.
 - [ ] T054 Last: take the brochure screenshots of the guided Hosts and Receivers empty states, the grouped nav and `/help/getting-started`, and add any guide images to `guides/img/`.

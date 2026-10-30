@@ -34,8 +34,16 @@ emptyVariant(i: { filtered: boolean; canAct: boolean }): 'no-match' | 'guided' |
 // ui/NoMatch.tsx
 NoMatch(props: { what: string; onClear: () => void })   // "No {what} match." + Clear filter
 
-// ui/InfoTip.tsx
-InfoTip(props: { term: TermId })
+// packages/ui/src/info-tip.tsx (exported from @companion/ui; generic)
+InfoTip(props: {
+  label: string                 // the term; the trigger reads "About {label}"
+  children: ReactNode           // the explanation
+  footer?: ReactNode            // e.g. a Learn more link
+  className?: string
+} & Record<`data-${string}`, string>)  // passed to the trigger
+
+// help/TermTip.tsx (Keel)
+TermTip(props: { term: TermId })   // GLOSSARY[term] → InfoTip, footer = GuideLink
 
 // ui/GuideLink.tsx
 GuideLink(props: { to: GuideRef; children?: ReactNode })  // default text "Learn more"
@@ -91,3 +99,6 @@ SECTIONS: readonly Section[]   // = NAV_GROUPS.flatMap(g => g.sections)
 | `data-infotip-content` | popover content | the `TermId` |
 | `data-copy-block` | CopyBlock root | existing; new values: `receiver-url`, `receiver-secret`, `enroll-token`, `enroll-command` (keep existing names where they already exist) |
 | `data-help-guide` | HelpPage article | the slug, or `README` |
+
+Shared-package hooks: the InfoTip trigger has `data-slot="info-tip-trigger"` and the content
+`data-slot="info-tip-content"`. Keel's `TermTip` adds `data-infotip` and `data-infotip-content`.

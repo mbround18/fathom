@@ -28,9 +28,13 @@ A web-only change to `apps/keel/web`, with no server, protocol, permission or co
    - A group with no visible section isn't rendered.
 3. **Help for jargon (US3)**:
    - `help/glossary.ts` is the only source of explanation text (R5).
-   - `ui/InfoTip.tsx` is a toggletip built on the Radix Popover that `radix-ui` already ships to
-     keel-web (no new dependency). It opens on mouse hover, keyboard focus and tap, and closes on
+   - `InfoTip` is a toggletip in the shared `@companion/ui` (`packages/ui/src/info-tip.tsx`),
+     built on the Radix Popover from `radix-ui`, which `packages/ui` already takes as a peer
+     dependency (no new dependency). It opens on mouse hover, keyboard focus and tap, and closes on
      Escape, blur and an outside tap (R4).
+     - It knows nothing about Keel: it takes a label and content.
+     - Keel's `help/TermTip.tsx` feeds it the glossary text and the "Learn more" link.
+     - Depths and Fathom can use it, but this feature doesn't change them.
    - `PageHeader` and the section headers gain a `guide` prop, which renders "Learn more". Long
      paragraphs become one line (R8).
 4. **Guides (FR-030)**:
@@ -48,7 +52,7 @@ A web-only change to `apps/keel/web`, with no server, protocol, permission or co
 
 **Primary Dependencies**:
 
-- Existing: `@companion/ui` (Button, the tooltip pieces), `radix-ui` 1.8 (Popover for `InfoTip`),
+- Existing: `@companion/ui` (Button, and the new shared `InfoTip`), `radix-ui` 1.8 (Popover for `InfoTip`),
   `@phosphor-icons/react` (`InfoIcon`), `react-markdown` and `remark-gfm` (guides, already lazily
   loaded by `features/settings/Markdown.tsx`), `zustand`.
 - **No new dependencies.**
@@ -67,6 +71,9 @@ A web-only change to `apps/keel/web`, with no server, protocol, permission or co
   - `guide-links.test.ts`: every `GuideRef` in the source resolves to a bundled guide and heading
     (SC-006).
   - `slug.test.ts`.
+  - `info-tip.test.tsx`: the shared `InfoTip` opens on hover, focus and click, closes on Escape
+    and blur, and sets `aria-describedby` (`packages/ui` has no test runner of its own, so Keel's
+    Vitest covers it).
 - Playwright: a new project, `s063` (`tests/e2e/s063/`), with one spec per story and a help-route
   spec, against the fake backend.
   - Don't name a spec `enroll.spec.ts` or `settings-*.spec.ts`: the `s060` project's `testMatch`
@@ -117,6 +124,7 @@ the Keel server container.
 | V. Fast and quiet | Static glossary and lazy guide chunks. No timers and no idle work. | Pass |
 | VI. User data is sacred | No data is touched. | Pass |
 | Workflow | Spec → plan → tasks → implement, signed commits, no new dependencies. | Pass |
+| Shared packages | `InfoTip` is a new export in `@companion/ui`. Nothing existing changes, so Depths and Fathom behave the same; their typecheck is part of the batch-end gate. | Pass |
 
 **Post-design re-check (after Phase 1)**: Pass.
 
@@ -159,12 +167,12 @@ apps/keel/
     │   │   ├── glossary.ts            # GLOSSARY: the only tooltip text (FR-024)
     │   │   ├── guides.ts              # GUIDES registry, GuideRef, guideHref(), import.meta.glob
     │   │   ├── slug.ts                # heading → anchor id
+    │   │   ├── TermTip.tsx            # <TermTip term>: glossary text in the shared InfoTip
     │   │   └── HelpPage.tsx           # /help and /help/:guide, renders bundled Markdown
     │   ├── ui/
     │   │   ├── EmptyState.tsx         # + reason, steps, guide, whoCan (R2)
     │   │   ├── empty-variant.ts       # guided | restricted | no-match (R3)
     │   │   ├── NoMatch.tsx            # "Nothing matches" + Clear
-    │   │   ├── InfoTip.tsx            # toggletip (R4)
     │   │   ├── GuideLink.tsx          # "Learn more" / guide link
     │   │   └── PageHeader.tsx         # + guide prop (FR-023)
     │   └── features/                  # runs, reviews, bindings, receivers, inventory, hosts,
@@ -174,6 +182,9 @@ apps/keel/
         └── e2e/
             ├── s063/                  # nav, empty-states, copy-values, glossary, help
             └── polish-screens.spec.ts # + new layout cases (SC-005)
+packages/ui/src/
+├── info-tip.tsx                       # new shared toggletip (R4)
+└── index.ts                           # + export
 docs/guides/keel/
 ├── README.md                          # index: + the six new guides
 ├── getting-started.md                 # new
@@ -188,8 +199,9 @@ docs/guides/keel/
 
 - The work stays inside the existing Keel web app. Help code gets its own folder (`src/help/`)
   because it is shared by every feature.
-- `InfoTip` and `EmptyState` stay in Keel's `src/ui/`, not `packages/ui`, so Depths and Fathom are
-  untouched. They can be promoted later if those apps want them.
+- `InfoTip` goes in `packages/ui`, as the owner chose (2026-10-29), so every app can use it. It
+  stays generic: the glossary and guide links stay in Keel.
+- `EmptyState` stays in Keel's `src/ui/`. It can be promoted later if Depths or Fathom want it.
 
 ## Complexity Tracking
 

@@ -64,9 +64,15 @@ No NEEDS CLARIFICATION remained after the spec. These are the design decisions t
 - **Alternatives considered**: deciding inline in each page. Rejected: that can't be unit tested,
   and it is easy to get wrong in nine places.
 
-## R4. InfoTip is a toggletip on Radix Popover
+## R4. InfoTip is a shared toggletip on Radix Popover
 
-- **Decision**: `ui/InfoTip.tsx` exports `<InfoTip term="trusted-signers" />`.
+- **Decision**: `packages/ui/src/info-tip.tsx` exports
+  `<InfoTip label="trusted signers" footer={…}>{text}</InfoTip>`, and `@companion/ui` re-exports it.
+  It is generic, with no glossary in it.
+  - Keel's `help/TermTip.tsx` exports `<TermTip term="trusted-signers" />`. It looks up
+    `GLOSSARY`, passes the text, passes a `GuideLink` as the footer, and passes the `data-infotip*`
+    attributes through.
+  - The owner chose the shared package (2026-10-29), so Depths and Fathom can adopt it later.
   - **The trigger** is a ghost icon button (`InfoIcon`, `size-3.5`, muted, not accent):
     - its `aria-label` is "About {term}";
     - it has a hit area of at least 24 × 24 px (WCAG 2.2 target size), padded so it doesn't push
@@ -89,7 +95,9 @@ No NEEDS CLARIFICATION remained after the spec. These are the design decisions t
 - **Rationale**:
   - The Radix Tooltip in `@companion/ui` deliberately ignores touch, and a tooltip can't hold a
     link. A toggletip covers hover, focus and tap.
-  - `radix-ui` 1.8 is already a direct dependency of keel-web, so this adds nothing.
+  - `radix-ui` 1.8 is already a peer dependency of `packages/ui` and a direct dependency of
+    keel-web, so this adds nothing.
+  - Keel's Vitest covers it (`info-tip.test.tsx`), because `packages/ui` has no test runner.
 - **Alternatives considered**:
   - `@companion/ui` Tooltip. Rejected: there is no tap support (FR-022).
   - A native `popover` attribute. Rejected: there is no collision handling at 360 px, and focus
