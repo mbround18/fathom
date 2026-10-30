@@ -81,7 +81,7 @@ test('a user on x can run actions, open a shell and edit x masked; reveal and ad
     await expect(page.locator(`[aria-label="Stack actions"] [data-action="${action}"]`)).toBeVisible()
   }
   await expect(page.locator('[data-action="delete"]')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Shell in x-app-1' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Shell in x-app-1', exact: true })).toBeVisible()
 
   // `down` is offered, but without removing volumes or images.
   await page.locator('[aria-label="Stack actions"] [data-action="down"]').click()
