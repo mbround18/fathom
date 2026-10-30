@@ -7,7 +7,7 @@ import { autoWorkers } from '../../../ui/tests/support/workers.js'
  * transport. Every story runs against the fake backend; nothing here talks to a real server.
  *
  * Run one story: `pnpm --filter @companion/keel-web e2e --project us1`. Spec 060's specs are the
- * `s060` project, spec 061's `s061`.
+ * `s060` project, spec 061's `s061`, spec 063's `s063`.
  */
 const STORIES = ['shell', 'us1', 'us2', 'us3', 'us4', 'us5', 'us6', 'us7', 'us8', 'us9', 'us10'] as const
 
@@ -49,7 +49,13 @@ export default defineConfig({
       testDir: './tests/e2e/s061',
       use: { ...devices['Desktop Chrome'] },
     },
-    { name: 's063', testDir: './tests/e2e/s063', use: { ...devices['Desktop Chrome'] } },
+    // Spec 063 (guided UI and in-app help). Never name its specs `enroll.spec.ts` or
+    // `settings-*.spec.ts`: the `s060` match above would run them too.
+    {
+      name: 's063',
+      testDir: './tests/e2e/s063',
+      use: { ...devices['Desktop Chrome'] },
+    },
   ],
   webServer: {
     // The production bundle, as the server ships it. Built rather than served by the dev server.
