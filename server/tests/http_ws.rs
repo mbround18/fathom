@@ -160,11 +160,11 @@ async fn harness(max_tabs: usize) -> Harness {
     }
 }
 
+/// Unique per harness: the tests run in parallel in one process, and a clock tick alone can repeat,
+/// which let one test's cleanup delete another's static directory.
 fn rand_suffix() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 fn set_cookies(r: &reqwest::Response) -> Vec<String> {
