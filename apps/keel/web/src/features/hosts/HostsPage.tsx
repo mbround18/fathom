@@ -10,6 +10,7 @@ import { useEffect, useId, useMemo } from 'react'
 import { useSession } from '@/app/session-store'
 import { WorkspaceSelect } from '@/app/WorkspacePicker'
 import { RefusalText } from '@/features/teams/parts'
+import { TermTip } from '@/help/TermTip'
 import type { HostInfo, HostStatus } from '@/protocol/wire'
 import { ConfirmDialog as Confirm } from '@/ui/ConfirmDialog'
 import { CopyBlock } from '@/ui/CopyBlock'
@@ -17,7 +18,7 @@ import { DataTable, type Column } from '@/ui/DataTable'
 import { EmptyState } from '@/ui/EmptyState'
 import { emptyVariant } from '@/ui/empty-variant'
 import { ErrorLine as Alert } from '@/ui/ErrorLine'
-import { H2, LABEL, LINK, STATUS } from '@/ui/form'
+import { H2, LABEL, LINK, SectionIntro, STATUS } from '@/ui/form'
 import { LoadState } from '@/ui/LoadState'
 import { NoMatch } from '@/ui/NoMatch'
 import { Page } from '@/ui/Page'
@@ -105,10 +106,9 @@ function HostDetailPanel() {
       {detail && (
         <div className="flex min-w-0 flex-col gap-2 p-3">
           <h3 className={LABEL}>Runs outside Keel</h3>
-          <p className="max-w-prose text-muted-foreground">
-            What {name} reports was run on it without Keel. These are the host&apos;s claims: Keel did not
-            make these runs and cannot verify them.
-          </p>
+          <SectionIntro guide={{ guide: 'hosts', anchor: 'hosts-in-the-list' }}>
+            These are the host&apos;s claims, which Keel cannot verify.
+          </SectionIntro>
           {detail.outside_runs.length === 0 ? (
             <p data-pane-state="empty" className="border border-dashed border-border px-3 py-3 text-muted-foreground">
               The host has reported none.
@@ -206,7 +206,10 @@ function NoHosts({ workspace, canAct }: { workspace: string; canAct: boolean }) 
       steps={[
         'Enroll a host to get its one-time command.',
         'Run the command on the host.',
-        'Run the base profile on it.',
+        <span key="base" className="inline-flex items-center gap-1.5">
+          Run the base profile on it.
+          <TermTip term="base-profile" />
+        </span>,
       ]}
       action={
         canAct ? (
@@ -248,11 +251,14 @@ function SshCaLine() {
         SSH certificate authority
       </summary>
       <div className="flex min-w-0 flex-col gap-2 border-t border-border p-3">
-        <p className="max-w-prose text-muted-foreground">
-          Runners pin this line as <code className="font-mono">keel_runner_host_ca</code> to trust the hosts Keel
-          enrolled.
-        </p>
+        <SectionIntro guide={{ guide: 'hosts', anchor: 'check-the-fingerprint' }}>
+          Runners pin this line as <code className="font-mono">keel_runner_host_ca</code>.
+        </SectionIntro>
         <CopyBlock label="keel_runner_host_ca" value={ssh.cert_authority} data="cert-authority" />
+        <div className="flex min-w-0 items-center gap-1.5">
+          <h3 className={LABEL}>Fingerprints</h3>
+          <TermTip term="fingerprint" />
+        </div>
         <ul aria-label="SSH CAs" className="flex min-w-0 flex-col gap-1">
           {ssh.cas.map((ca) => (
             <li key={ca.id} className="font-mono break-all text-muted-foreground">
@@ -305,7 +311,7 @@ export default function HostsPage() {
         ),
       },
       { key: 'state', header: 'State', cell: (h) => <StateBadge state={h.state} /> },
-      { key: 'profiles', header: 'Profiles', cell: (h) => <span className="font-mono">{h.profiles.join(', ')}</span> },
+      { key: 'profiles', header: 'Profiles', tip: <TermTip term="profile" />, cell: (h) => <span className="font-mono">{h.profiles.join(', ')}</span> },
       { key: 'runner', header: 'Runner', cell: (h) => h.runner_version ?? '—' },
       { key: 'ansible', header: 'Ansible', cell: (h) => h.ansible_version ?? '—' },
       { key: 'seen', header: 'Last seen', cell: (h) => <span className="tabular-nums">{h.last_seen_at ?? '—'}</span> },
@@ -327,7 +333,8 @@ export default function HostsPage() {
       <PageHeader
         id="hosts-title"
         title="Hosts"
-        description="The machines enrolled in a workspace, their state, and what ran on them outside Keel."
+        description="Machines enrolled in this workspace, and what ran on them."
+        guide={{ guide: 'hosts' }}
         actions={<EnrollButton quiet={guided} />}
       >
         <WorkspacePicker />

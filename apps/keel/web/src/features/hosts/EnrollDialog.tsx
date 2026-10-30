@@ -13,6 +13,7 @@ import { lazy, Suspense, useEffect, useId, useState, type KeyboardEvent } from '
 
 import { Link } from '@/app/Link'
 import { RefusalText } from '@/features/teams/parts'
+import { TermTip } from '@/help/TermTip'
 import { CopyBlock } from '@/ui/CopyBlock'
 import { Dialog } from '@/ui/Dialog'
 import { FIELD, LABEL } from '@/ui/form'
@@ -221,9 +222,12 @@ function Form({ suggestions, onCancel }: { suggestions: string[]; onCancel: () =
         </p>
       </div>
       <div className="flex min-w-0 flex-col gap-1">
-        <label htmlFor={profilesId} className={LABEL}>
-          Profiles
-        </label>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <label htmlFor={profilesId} className={LABEL}>
+            Profiles
+          </label>
+          <TermTip term="profile" />
+        </div>
         <ProfileChips id={profilesId} value={profiles} onChange={setProfiles} suggestions={suggestions} />
       </div>
     </form>
@@ -269,7 +273,7 @@ function Result({ minted }: { minted: Minted }) {
         <span className="text-muted-foreground"> with profiles </span>
         <span className="font-mono">{minted.profiles.join(', ')}</span>
       </p>
-      <CopyBlock label="Token" value={minted.token} masked data="enroll-token" />
+      <CopyBlock label="Token" tip={<TermTip term="enrolment-token" />} value={minted.token} masked data="enroll-token" />
       <CopyBlock label="Snippet" value={minted.snippet} data="enroll-snippet" />
       <Countdown expiresAt={minted.expires_at} />
       {minted.instructions_unavailable ? (
