@@ -97,8 +97,8 @@ impl BuildInfo {
         self
     }
 
-    /// What the UI calls this build (research R2): the version, else `untagged build <short
-    /// revision>`, else `development build`.
+    /// What the UI calls this build (research R2): the version, else the short
+    /// revision (`abc1234`), else `development build`.
     #[must_use]
     pub fn display(&self) -> String {
         match (&self.version, &self.revision) {
@@ -108,7 +108,7 @@ impl BuildInfo {
                     Some(sha) => (sha, "-dirty"),
                     None => (r.as_str(), ""),
                 };
-                format!("untagged build {}{dirty}", &sha[..7])
+                format!("{}{dirty}", &sha[..7])
             }
             (None, None) => "development build".to_owned(),
         }
@@ -240,11 +240,11 @@ mod tests {
         );
         assert_eq!(
             b(&[("KEEL_BUILD_REVISION", "abc1234def5678")]),
-            "untagged build abc1234"
+            "abc1234"
         );
         assert_eq!(
             b(&[("KEEL_BUILD_REVISION", "abc1234def-dirty")]),
-            "untagged build abc1234-dirty"
+            "abc1234-dirty"
         );
         assert_eq!(b(&[]), "development build");
     }

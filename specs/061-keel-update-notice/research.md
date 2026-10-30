@@ -131,7 +131,7 @@ implemented first builds the crate.
   - `image-push` keeps refusing a dirty tree.
 - **Display**, in this order:
   1. a version: `0.2.0`;
-  2. no version but a revision: `untagged build abc1234`;
+  2. no version but a revision: the short revision, `abc1234` (About reads "Keel abc1234");
   3. neither: `development build`. This is what `cargo run` and `make keel dev` show, since no
      `KEEL_BUILD_*` is set.
 

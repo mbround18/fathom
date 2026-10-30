@@ -8,7 +8,7 @@ import type { Verification } from "./Verification";
  */
 export type Me = { id: string, display_name: string, email: string | null, instance_role: InstanceRole, grants: Array<MeGrant>, verification: Verification, 
 /**
- * The running build's display string (`0.2.0`, `untagged build abc1234`, ...), for everyone
+ * The running build's display string (`0.2.0`, `abc1234`, ...), for everyone
  * (spec 061).
  */
 keel_version: string | null, 

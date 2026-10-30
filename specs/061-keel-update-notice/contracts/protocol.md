@@ -46,7 +46,7 @@ KeelBuild {
   revision: Option<String>,        // null for users
   built_at: Option<String>,        // RFC 3339; null for users
   digest: Option<String>,          // owners and admins only (FR-002); null for users
-  display: String,                 // "0.2.0" | "untagged build abc1234" | "development build"
+  display: String,                 // "0.2.0" | "abc1234" | "development build"
 }
 
 UpdateStatus {                     // owners only

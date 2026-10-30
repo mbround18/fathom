@@ -18,7 +18,7 @@ pub struct KeelBuild {
     pub built_at: Option<String>,
     /// `sha256:…`; owners and admins only.
     pub digest: Option<String>,
-    /// `0.2.0`, `untagged build abc1234` or `development build`.
+    /// `0.2.0`, `abc1234` or `development build`.
     pub display: String,
 }
 

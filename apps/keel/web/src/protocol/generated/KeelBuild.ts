@@ -14,6 +14,6 @@ built_at: string | null,
  */
 digest: string | null, 
 /**
- * `0.2.0`, `untagged build abc1234` or `development build`.
+ * `0.2.0`, `abc1234` or `development build`.
  */
 display: string, };

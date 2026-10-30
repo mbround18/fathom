@@ -18,7 +18,7 @@ What the version line says:
 | It says | Meaning |
 |---|---|
 | `0.2.0` | A release build |
-| `untagged build abc1234` | A build of commit `abc1234` that has no release version |
+| `abc1234` | A build of commit `abc1234` that has no release version |
 | `development build` | A local build, such as `make keel dev`. Revision, date and digest show as unknown |
 
 If the digest shows as unknown, the deployment didn't tell Keel which image it runs. The
