@@ -1,0 +1,54 @@
+/**
+ * The Keel guides, bundled into the app (spec 063 R6). They are the Markdown files in
+ * `docs/guides/keel/`, the same ones the repository shows, so the help a self-hosted Keel serves
+ * matches the version it runs and works offline. Each guide is its own lazy chunk: nothing here
+ * loads a guide until `/help` asks for it.
+ *
+ * Point at a guide with a `GuideRef` object literal, `guide` first and `anchor` after it, e.g.
+ * `{ guide: 'hosts', anchor: 'enroll-a-host' }`. `tests/unit/guide-links.test.ts` finds every such
+ * literal in `src/` and fails when its guide or heading doesn't exist (SC-006).
+ */
+
+/** One per `docs/guides/keel/*.md` file except README, which is the `/help` index. */
+export const GUIDE_SLUGS = [
+  'getting-started',
+  'hosts',
+  'receivers',
+  'bindings',
+  'reviews',
+  'inventory',
+  'enrollment-template',
+  'oidc-roles',
+  'system-workspace',
+  'updates',
+] as const
+
+export type GuideSlug = (typeof GUIDE_SLUGS)[number]
+
+/** A guide, and optionally one of its `##`/`###` headings, as `slug(heading)` (R7). */
+export interface GuideRef {
+  guide: GuideSlug
+  anchor?: string
+}
+
+export function isGuideSlug(s: string): s is GuideSlug {
+  return (GUIDE_SLUGS as readonly string[]).includes(s)
+}
+
+/** The in-app route for a guide: `/help/<slug>`, plus `#<anchor>` when given. */
+export function guideHref(ref: GuideRef): string {
+  return ref.anchor === undefined ? `/help/${ref.guide}` : `/help/${ref.guide}#${ref.anchor}`
+}
+
+const DIR = '../../../../../docs/guides/keel/'
+
+const LOADERS = import.meta.glob<string>('../../../../../docs/guides/keel/*.md', {
+  query: '?raw',
+  import: 'default',
+})
+
+/** A guide's Markdown source; `README` is the index. */
+export function loadGuide(slug: GuideSlug | 'README'): Promise<string> {
+  const load = LOADERS[`${DIR}${slug}.md`]
+  return load ? load() : Promise.reject(new Error(`no guide named ${slug}`))
+}
