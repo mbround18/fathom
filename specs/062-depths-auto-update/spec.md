@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-28
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "for Depth i do want watch tower support which is a separate spec esp for many stack management". Clarified: Depths does Watchtower-style updates itself, honouring Watchtower's labels, rather than driving a Watchtower container.
 

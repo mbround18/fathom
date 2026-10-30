@@ -40,6 +40,8 @@ still read the page (see [Networks and the restricted view](security.md)).
 
 ## What each state means
 
+![The Updates page: each service with its state, running and available version](img/updates-list.png)
+
 | State | Meaning |
 |---|---|
 | Update available | The tag now points to a different image than the one running. The page shows the running and the new version (or digest) |
@@ -68,6 +70,11 @@ Filter the list by state or by stack. Every row links to its stack.
 
 Updating needs an admin, a trusted network and a passkey. Each stack is audited as its own entry,
 with the services, the old and new image, and the outcome.
+
+![The preview for two stacks, in the order they update](img/updates-batch-preview.png)
+
+| ![Updates on a phone](img/updates-phone-list.png) |
+|---|
 
 For each stack, one after the other, Depths:
 
@@ -125,6 +132,8 @@ shows **Update available** again, and would get the old image the next time it i
 ## Unattended updates
 
 Each stack has a policy:
+
+![Choosing a stack's policy](img/updates-policy-sheet.png)
 
 | Policy | What Depths does |
 |---|---|
@@ -201,6 +210,8 @@ that can't be removed (because something uses it) is kept and noted.
 
 Depths honours the Watchtower labels your services already carry, and pauses its own Auto updates
 while a Watchtower container runs. See [Migrating from Watchtower](migrating-from-watchtower.md).
+
+![The banner while Watchtower runs](img/updates-watchtower.png)
 
 ## Depths' own container
 

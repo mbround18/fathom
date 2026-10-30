@@ -263,7 +263,7 @@ them, in the rollout order in quickstart.md.
 - [X] T087 Merge the agent branches into `main`, then remove their worktrees and branches.
 - [X] T088 Run `make keel bindings` once more on the combined branch and confirm no diff.
 - [X] T089 *(2026-10-29: shared 238s, depths 509s, keel 536s at edc00edc; fathom 1603s at f63f6465 after a harness-race fix; all pass)* Run the full gate once, with `scripts/ci.sh`, in the main session only. Report the wall time, the slowest steps, the delta and one speed-up idea.
-- [ ] T090 Run `scripts/hygiene.sh`, then `docker builder prune --filter until=24h` if any images were built.
+- [X] T090 *(2026-10-29: hygiene clean, build cache pruned)* Run `scripts/hygiene.sh`, then `docker builder prune --filter until=24h` if any images were built.
 - [ ] T091 Update `specs/061-keel-update-notice/spec.md` status to Implemented, and tick this file.
 
 ---
