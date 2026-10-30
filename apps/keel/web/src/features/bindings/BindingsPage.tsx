@@ -11,7 +11,7 @@ import { useId, useState, type SyntheticEvent } from 'react'
 import type { BindingInfo, CredentialInfo, CredentialKind, JobSummary, Transport } from '@/protocol/wire'
 import { DataTable } from '@/ui/DataTable'
 import { useReveal } from '@/ui/reveal'
-import { Field as FormField, FIELD, H2, LABEL, LINK } from '@/ui/form'
+import { Field as FormField, FIELD, H2, LABEL, LINK, STATUS } from '@/ui/form'
 import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
@@ -24,7 +24,7 @@ function tone(status: string): string {
 
 function Status({ status, ...rest }: { status: string; [data: `data-${string}`]: boolean }) {
   return (
-    <span {...rest} className={`text-[11px] tracking-wider uppercase ${tone(status)}`}>
+    <span {...rest} className={`${STATUS} ${tone(status)}`}>
       {status}
     </span>
   )

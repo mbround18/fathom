@@ -18,7 +18,7 @@ import { LoadState } from '@/ui/LoadState'
 
 import { useSettings } from './store'
 
-const H2 = 'font-display text-xs font-semibold tracking-wider uppercase'
+const H2 = 'font-display text-base font-semibold'
 
 const ENROLLMENT_STATES: readonly EnrollmentState[] = ['pending', 'used', 'revoked', 'burned', 'expired']
 const API_TOKEN_STATES: readonly ApiTokenState[] = ['active', 'expired', 'revoked']

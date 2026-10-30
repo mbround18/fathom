@@ -15,7 +15,7 @@ import type { HostStats, RunHostInfo, RunInfo, RunSummary } from '@/protocol/wir
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { DataTable } from '@/ui/DataTable'
 import { when } from '@/features/settings/updates'
-import { H2, LINK } from '@/ui/form'
+import { H2, LABEL, LINK } from '@/ui/form'
 import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
@@ -66,7 +66,7 @@ function Summary({ summary }: { summary: RunSummary }) {
           data-count={k}
           className={`flex min-w-20 flex-col border border-border px-2 py-1 ${n > 0 && TONE[k] ? TONE[k] : ''}`}
         >
-          <span className="text-[11px] tracking-wider text-muted-foreground uppercase">{k}</span>
+          <span className={LABEL}>{k}</span>
           <span className="font-mono text-sm tabular-nums">{n}</span>
         </li>
       ))}
@@ -109,7 +109,7 @@ function Hosts({ hosts }: { hosts: RunHostInfo[] }) {
               h.first_failure && (
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <span>
-                    {h.first_failure.unreachable && <span className="mr-1 text-status-err uppercase">unreachable</span>}
+                    {h.first_failure.unreachable && <span className="mr-1 font-medium text-status-err">Unreachable</span>}
                     <span className="font-mono break-all">{h.first_failure.task}</span>
                     {h.first_failure.rc !== null && <span className="ml-1 text-muted-foreground">rc {h.first_failure.rc}</span>}
                   </span>

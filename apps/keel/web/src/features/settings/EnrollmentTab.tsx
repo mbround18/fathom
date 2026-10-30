@@ -32,7 +32,7 @@ const Markdown = lazy(() => import('./Markdown'))
 const TEXTAREA =
   'block w-full min-w-0 resize-y border border-input bg-background p-2 font-mono text-xs outline-none focus-visible:border-accent-neon aria-[invalid=true]:border-status-err'
 const SECTION = 'flex min-w-0 flex-col gap-2'
-const H2 = 'font-display text-xs font-semibold tracking-wider uppercase'
+const H2 = 'font-display text-base font-semibold'
 
 /** The server's limit on the instructions (keel-server settings.rs). */
 const MAX_INSTRUCTIONS_BYTES = 20 * 1024

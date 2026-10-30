@@ -39,27 +39,30 @@ function ProfilePicker({
     setTyped('')
   }
   return (
-    <fieldset aria-labelledby={groupId} className="flex min-w-0 basis-full flex-col gap-1">
+    <fieldset aria-labelledby={groupId} aria-describedby={`${groupId}-hint`} className="flex min-w-0 basis-full flex-col gap-1.5">
       <legend id={groupId} className={LABEL}>
-        Profiles <span className="normal-case tracking-normal">(optional; none = the whole workspace)</span>
+        Profiles
       </legend>
+      <p id={`${groupId}-hint`} className="text-xs text-muted-foreground">
+        Optional. With none chosen, the grant covers the whole workspace.
+      </p>
       {options.length > 0 && (
-        <ul className="flex min-w-0 flex-wrap gap-x-3 gap-y-1">
+        <ul className="flex min-w-0 flex-wrap gap-x-4 gap-y-1.5">
           {options.map((p) => (
-            <li key={p} className="flex items-center gap-1">
+            <li key={p} className="flex items-center gap-1.5">
               <Checkbox
                 id={`${groupId}-${p}`}
                 checked={chosen.includes(p)}
                 onCheckedChange={(v) => toggle(p, v === true)}
               />
-              <label htmlFor={`${groupId}-${p}`} className="font-mono text-xs">
+              <label htmlFor={`${groupId}-${p}`} className="font-mono text-sm">
                 {p}
               </label>
             </li>
           ))}
         </ul>
       )}
-      <div className="flex min-w-0 items-center gap-1">
+      <div className="flex min-w-0 items-center gap-2 sm:max-w-sm">
         <label htmlFor={typedId} className="sr-only">
           Another profile
         </label>
@@ -69,7 +72,7 @@ function ProfilePicker({
           placeholder="Another profile"
           autoComplete="off"
           maxLength={63}
-          className="min-w-0 flex-1 basis-36 text-xs"
+          className="min-w-0 flex-1 basis-36"
           aria-invalid={candidate !== '' && !PROFILE_PATTERN.test(candidate)}
           onChange={(e) => setTyped(e.target.value)}
           onKeyDown={(e) => {
@@ -79,14 +82,14 @@ function ProfilePicker({
             }
           }}
         />
-        <Button type="button" variant="outline" size="xs" disabled={!canAdd} onClick={add}>
+        <Button type="button" variant="outline" disabled={!canAdd} onClick={add}>
           Add profile
         </Button>
       </div>
       {chosen.length > 0 && (
-        <p data-chosen-profiles className="flex min-w-0 flex-wrap items-center gap-1 text-xs">
+        <p data-chosen-profiles className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm">
           {chosen.map((p) => (
-            <span key={p} className="inline-flex items-center gap-0.5 border border-border px-1 font-mono">
+            <span key={p} className="inline-flex items-center gap-0.5 border border-border pl-2 font-mono">
               {p}
               <button type="button" aria-label={`Drop ${p}`} onClick={() => toggle(p, false)} className="-my-1 inline-flex size-6 items-center justify-center text-muted-foreground hover:text-foreground focus-visible:text-foreground focus-visible:ring-1 focus-visible:ring-accent-neon focus-visible:outline-none">
                 <XIcon aria-hidden className="size-3" />
@@ -137,7 +140,7 @@ export function GrantEditor({ team, knownProfiles }: { team: TeamInfo; knownProf
         </Select>
       </Field>
       <ProfilePicker known={knownProfiles} chosen={profiles} onChange={setProfiles} />
-      <Button type="submit" size="sm" disabled={!workspace}>
+      <Button type="submit" disabled={!workspace}>
         Add grant
       </Button>
     </InlineForm>

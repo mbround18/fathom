@@ -36,7 +36,7 @@ import { UpdateLine } from './UpdateLine'
 /** The System workspace's slug, typed to confirm Remove. */
 const SYSTEM_SLUG = 'keel-system'
 
-const H2 = 'font-display text-xs font-semibold tracking-wider uppercase'
+const H2 = 'font-display text-base font-semibold'
 const SECTION = 'flex min-w-0 flex-col gap-2 border border-border p-3'
 
 /** `base, web  db` → `['base', 'web', 'db']`, without repeats. */

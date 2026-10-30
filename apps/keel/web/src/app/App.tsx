@@ -57,7 +57,7 @@ function Notice({ title, kind, children }: { title: string; kind: string; childr
       data-notice={kind}
       className="flex min-h-full flex-col items-center justify-center gap-3 p-4"
     >
-      <h1 className="font-display text-sm font-semibold tracking-wider uppercase">{title}</h1>
+      <h1 className="font-display text-2xl font-semibold">{title}</h1>
       <p className="max-w-sm text-center text-xs text-muted-foreground">{children}</p>
       <Button size="sm" onClick={() => globalThis.location.reload()}>
         Reload

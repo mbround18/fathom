@@ -49,7 +49,7 @@ export function Dialog({
         className={`flex max-h-[calc(100dvh-2rem)] max-w-[calc(100%-1rem)] min-w-0 flex-col gap-3 overflow-hidden ${WIDTH[size]}`}
       >
         <DialogHeader className="pr-8">
-          <DialogTitle className="font-display text-sm font-semibold tracking-wider uppercase">{title}</DialogTitle>
+          <DialogTitle className="font-display text-lg font-semibold">{title}</DialogTitle>
           {description !== undefined ? (
             <DialogDescription data-summary>{description}</DialogDescription>
           ) : (

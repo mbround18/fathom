@@ -13,7 +13,7 @@ import type { DeliveryInfo, ReceiverInfo, ReceiverProvider } from '@/protocol/wi
 import { CopyBlock } from '@/ui/CopyBlock'
 import { DataTable } from '@/ui/DataTable'
 import { EmptyState } from '@/ui/EmptyState'
-import { FIELD, H2, LABEL } from '@/ui/form'
+import { FIELD, H2, LABEL, STATUS } from '@/ui/form'
 import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
@@ -100,7 +100,7 @@ function ReceiverRow({ receiver }: { receiver: ReceiverInfo }) {
         <span className="text-muted-foreground">{PROVIDERS.find((p) => p.provider === receiver.provider)?.label ?? receiver.provider}</span>
         <span
           data-receiver-status
-          className={`text-[11px] tracking-wider uppercase ${receiver.status === 'active' ? 'text-status-ok' : 'text-muted-foreground'}`}
+          className={`${STATUS} ${receiver.status === 'active' ? 'text-status-ok' : 'text-muted-foreground'}`}
         >
           {receiver.status}
         </span>

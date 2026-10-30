@@ -11,7 +11,7 @@ import { Badge, Button, Input } from '@companion/ui'
 import { useEffect, useId, useState } from 'react'
 
 import type { GrantInfo, TeamInfo, WorkspaceInfo } from '@/protocol/wire'
-import { LABEL, Select } from '@/ui/form'
+import { H3, Select } from '@/ui/form'
 import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
@@ -22,7 +22,7 @@ import { ROLE_LABEL } from './labels'
 import { Field, InlineForm, ListState, Pane } from './parts'
 import { useGovernance } from './store'
 
-const ROW = 'flex min-h-9 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-border px-3 py-1.5 text-xs first:border-t-0'
+const ROW = 'flex min-h-10 min-w-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-4 py-2 text-sm first:border-t-0'
 
 function NewWorkspace({ onDone }: { onDone: () => void }) {
   const propose = useGovernance((s) => s.propose)
@@ -40,12 +40,12 @@ function NewWorkspace({ onDone }: { onDone: () => void }) {
       }}
     >
       <Field label="Slug" htmlFor={slugId}>
-        <Input id={slugId} value={slug} maxLength={63} pattern="[a-z0-9][a-z0-9\-]{0,62}" title="Lowercase letters, digits and dashes" autoComplete="off" className="text-xs" onChange={(e) => setSlug(e.target.value)} />
+        <Input id={slugId} value={slug} maxLength={63} pattern="[a-z0-9][a-z0-9\-]{0,62}" title="Lowercase letters, digits and dashes" autoComplete="off" onChange={(e) => setSlug(e.target.value)} />
       </Field>
       <Field label="Name" htmlFor={nameId}>
-        <Input id={nameId} value={name} maxLength={64} autoComplete="off" className="text-xs" onChange={(e) => setName(e.target.value)} />
+        <Input id={nameId} value={name} maxLength={64} autoComplete="off" onChange={(e) => setName(e.target.value)} />
       </Field>
-      <Button type="submit" size="sm" disabled={!slug.trim() || !name.trim()}>
+      <Button type="submit" disabled={!slug.trim() || !name.trim()}>
         Preview
       </Button>
     </InlineForm>
@@ -71,12 +71,12 @@ function NewProject({ workspace, onDone }: { workspace: WorkspaceInfo; onDone: (
       }}
     >
       <Field label="Project slug" htmlFor={slugId}>
-        <Input id={slugId} value={slug} maxLength={63} pattern="[a-z0-9][a-z0-9\-]{0,62}" title="Lowercase letters, digits and dashes" autoComplete="off" className="text-xs" onChange={(e) => setSlug(e.target.value)} />
+        <Input id={slugId} value={slug} maxLength={63} pattern="[a-z0-9][a-z0-9\-]{0,62}" title="Lowercase letters, digits and dashes" autoComplete="off" onChange={(e) => setSlug(e.target.value)} />
       </Field>
       <Field label="Project name" htmlFor={nameId}>
-        <Input id={nameId} value={name} maxLength={64} autoComplete="off" className="text-xs" onChange={(e) => setName(e.target.value)} />
+        <Input id={nameId} value={name} maxLength={64} autoComplete="off" onChange={(e) => setName(e.target.value)} />
       </Field>
-      <Button type="submit" size="sm" disabled={!slug.trim() || !name.trim()}>
+      <Button type="submit" disabled={!slug.trim() || !name.trim()}>
         Preview
       </Button>
     </InlineForm>
@@ -102,7 +102,7 @@ function WorkspaceRow({ ws }: { ws: WorkspaceInfo }) {
           <>
             <Button
               variant="ghost"
-              size="icon-xs"
+              size="icon-sm"
               aria-label={`New project in ${ws.slug}`}
               aria-expanded={adding}
               onClick={() => setAdding((a) => !a)}
@@ -111,7 +111,7 @@ function WorkspaceRow({ ws }: { ws: WorkspaceInfo }) {
             </Button>
             <Button
               variant="ghost"
-              size="icon-xs"
+              size="icon-sm"
               aria-label={`Archive ${ws.slug}`}
               onClick={() => propose('Archive workspace', { type: 'PreviewWorkspaceArchive', data: { workspace: ws.id } })}
             >
@@ -135,7 +135,7 @@ function Workspaces() {
       title="Workspaces"
       count={workspaces?.length}
       actions={
-        <Button variant="outline" size="xs" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
+        <Button variant="outline" size="sm" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
           <PlusIcon aria-hidden />
           New workspace
         </Button>
@@ -168,9 +168,9 @@ function NewTeam({ onDone }: { onDone: () => void }) {
       }}
     >
       <Field label="Team name" htmlFor={nameId}>
-        <Input id={nameId} value={name} maxLength={64} autoComplete="off" className="text-xs" onChange={(e) => setName(e.target.value)} />
+        <Input id={nameId} value={name} maxLength={64} autoComplete="off" onChange={(e) => setName(e.target.value)} />
       </Field>
-      <Button type="submit" size="sm" disabled={!name.trim()}>
+      <Button type="submit" disabled={!name.trim()}>
         Preview
       </Button>
     </InlineForm>
@@ -205,10 +205,10 @@ function AddMember({ team }: { team: TeamInfo }) {
             ))}
           </Select>
         ) : (
-          <Input id={userId} value={user} placeholder="User id" autoComplete="off" className="text-xs" onChange={(e) => setUser(e.target.value)} />
+          <Input id={userId} value={user} placeholder="User id" autoComplete="off" onChange={(e) => setUser(e.target.value)} />
         )}
       </Field>
-      <Button type="submit" size="sm" disabled={!user.trim()}>
+      <Button type="submit" disabled={!user.trim()}>
         Add member
       </Button>
     </InlineForm>
@@ -230,10 +230,10 @@ function TeamRow({ team, knownProfiles }: { team: TeamInfo; knownProfiles: reado
         aria-expanded={open}
         aria-controls={bodyId}
         onClick={() => setOpen((o) => !o)}
-        className="flex min-h-9 w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1.5 text-left text-xs hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:ring-1 focus-visible:ring-accent-neon focus-visible:outline-none focus-visible:ring-inset"
+        className="flex min-h-11 w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-left text-sm hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:ring-1 focus-visible:ring-accent-neon focus-visible:outline-none focus-visible:ring-inset"
       >
-        {open ? <CaretDownIcon aria-hidden className="size-3" /> : <CaretRightIcon aria-hidden className="size-3" />}
-        <span className="font-medium">{team.name}</span>
+        {open ? <CaretDownIcon aria-hidden className="size-3.5" /> : <CaretRightIcon aria-hidden className="size-3.5" />}
+        <span className="font-semibold">{team.name}</span>
         <span className="text-muted-foreground tabular-nums">
           {team.members.length} {team.members.length === 1 ? 'member' : 'members'}
         </span>
@@ -241,48 +241,54 @@ function TeamRow({ team, knownProfiles }: { team: TeamInfo; knownProfiles: reado
           {team.grants.length === 0 ? 'no grants' : team.grants.map(grantLabel).join(', ')}
         </span>
       </button>
+      {/* Members and grants side by side on a wide screen, one after the other on a phone: two
+          plain sections under the team, not a third level of boxes. */}
       {open && (
-        <div id={bodyId} className="flex min-w-0 flex-col border-t border-border bg-muted/10 pb-1 pl-4">
-          <h3 className={`px-3 pt-2 pb-1 ${LABEL}`}>Members</h3>
-          <ul aria-label={`Members of ${team.name}`} className="min-w-0">
-            {team.members.map((m) => (
-              <li key={m.user} data-member={m.display_name} className={ROW}>
-                <span className="min-w-0 flex-1 break-words">{m.display_name}</span>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label={`Remove ${m.display_name} from ${team.name}`}
-                  onClick={() =>
-                    propose('Remove member', { type: 'PreviewTeamMemberRemove', data: { team: team.id, user: m.user } })
-                  }
-                >
-                  <TrashIcon />
-                </Button>
-              </li>
-            ))}
-          </ul>
-          <AddMember team={team} />
-          <h3 className={`px-3 pt-2 pb-1 ${LABEL}`}>Grants</h3>
-          <ul aria-label={`Grants of ${team.name}`} className="min-w-0">
-            {team.grants.map((g) => (
-              <li key={g.id} data-grant={`${g.workspace_slug}:${g.role}`} className={ROW}>
-                <span className="font-mono">{g.workspace_slug}</span>
-                <Badge variant="secondary">{ROLE_LABEL[g.role]}</Badge>
-                <span className="min-w-0 flex-1 break-words text-muted-foreground">
-                  {g.profiles.length === 0 ? 'whole workspace' : g.profiles.join(', ')}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label={`Remove grant ${grantLabel(g)}`}
-                  onClick={() => propose('Remove grant', { type: 'PreviewGrantRemove', data: { grant: g.id } })}
-                >
-                  <TrashIcon />
-                </Button>
-              </li>
-            ))}
-          </ul>
-          <GrantEditor team={team} knownProfiles={knownProfiles} />
+        <div id={bodyId} className="grid min-w-0 border-t border-border lg:grid-cols-2 lg:divide-x lg:divide-border">
+          <section className="flex min-w-0 flex-col pt-3">
+            <h3 className={`px-4 pb-1 ${H3}`}>Members</h3>
+            <ul aria-label={`Members of ${team.name}`} className="min-w-0">
+              {team.members.map((m) => (
+                <li key={m.user} data-member={m.display_name} className={ROW}>
+                  <span className="min-w-0 flex-1 break-words">{m.display_name}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Remove ${m.display_name} from ${team.name}`}
+                    onClick={() =>
+                      propose('Remove member', { type: 'PreviewTeamMemberRemove', data: { team: team.id, user: m.user } })
+                    }
+                  >
+                    <TrashIcon />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            <AddMember team={team} />
+          </section>
+          <section className="flex min-w-0 flex-col border-t border-border pt-3 lg:border-t-0">
+            <h3 className={`px-4 pb-1 ${H3}`}>Grants</h3>
+            <ul aria-label={`Grants of ${team.name}`} className="min-w-0">
+              {team.grants.map((g) => (
+                <li key={g.id} data-grant={`${g.workspace_slug}:${g.role}`} className={ROW}>
+                  <span className="font-mono">{g.workspace_slug}</span>
+                  <span data-grant-role>{ROLE_LABEL[g.role]}</span>
+                  <span className="min-w-0 flex-1 break-words text-muted-foreground">
+                    {g.profiles.length === 0 ? 'whole workspace' : g.profiles.join(', ')}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`Remove grant ${grantLabel(g)}`}
+                    onClick={() => propose('Remove grant', { type: 'PreviewGrantRemove', data: { grant: g.id } })}
+                  >
+                    <TrashIcon />
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            <GrantEditor team={team} knownProfiles={knownProfiles} />
+          </section>
         </div>
       )}
     </li>
@@ -300,7 +306,7 @@ function Teams() {
       title="Teams"
       count={teams?.length}
       actions={
-        <Button variant="outline" size="xs" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
+        <Button variant="outline" size="sm" aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
           <PlusIcon aria-hidden />
           New team
         </Button>

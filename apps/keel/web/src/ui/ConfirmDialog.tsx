@@ -28,7 +28,7 @@ export function PreviewDetails({
     <>
       {preview.affected.length > 0 && (
         <div className="flex min-w-0 flex-col gap-1">
-          <h3 className="text-[11px] tracking-wider text-muted-foreground uppercase">
+          <h3 className="text-sm font-semibold">
             Affects {String(preview.affected.length)}
           </h3>
           <ul aria-label="Affected" data-affected className="max-h-48 min-w-0 overflow-y-auto border border-border text-xs">

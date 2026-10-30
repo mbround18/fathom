@@ -25,7 +25,7 @@ export default function SignIn() {
         aria-labelledby="sign-in-title"
         className="flex w-full max-w-sm flex-col gap-3 border border-border bg-card p-4"
       >
-        <h1 id="sign-in-title" className="font-display text-sm font-semibold tracking-wider uppercase">
+        <h1 id="sign-in-title" className="font-display text-xl font-semibold">
           Sign in
         </h1>
         {notice && (

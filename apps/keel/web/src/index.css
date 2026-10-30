@@ -18,7 +18,9 @@
 
   html {
     @apply font-mono;
-    font-size: var(--font-size-base);
+    /* 16px, not the shared 15px density default: Keel is read more than it is scanned, and its
+       smallest text (text-xs) is then 12px rather than 11. */
+    font-size: 16px;
     -webkit-text-size-adjust: 100%;
     color-scheme: light;
   }
@@ -35,7 +37,6 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-size: var(--font-size-base);
   }
 }
 

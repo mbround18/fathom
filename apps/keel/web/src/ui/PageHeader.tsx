@@ -4,6 +4,8 @@
  */
 import type { ReactNode } from 'react'
 
+import { H1 } from './form'
+
 export function PageHeader({
   id,
   title,
@@ -20,13 +22,13 @@ export function PageHeader({
   children?: ReactNode
 }) {
   return (
-    <header className="flex min-w-0 flex-col gap-2 border-b border-border pb-3">
+    <header className="flex min-w-0 flex-col gap-3 border-b border-border pb-4">
       <div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-2">
-        <div className="flex min-w-0 flex-1 basis-48 flex-col gap-0.5">
-          <h1 id={id} className="font-display text-sm font-semibold tracking-wider uppercase">
+        <div className="flex min-w-0 flex-1 basis-48 flex-col gap-1">
+          <h1 id={id} className={H1}>
             {title}
           </h1>
-          {description !== undefined && <p className="text-xs text-muted-foreground">{description}</p>}
+          {description !== undefined && <p className="max-w-prose text-sm text-muted-foreground">{description}</p>}
         </div>
         {actions !== undefined && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
       </div>

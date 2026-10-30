@@ -70,11 +70,11 @@ export function DataTable<T>({
           {empty}
         </div>
       ) : isWide ? (
-        <table aria-label={label} className="w-full table-fixed border-collapse text-left text-xs">
+        <table aria-label={label} className="w-full table-fixed border-collapse text-left text-sm">
           <thead className="text-muted-foreground">
             <tr className="border-b border-border">
               {columns.map((c) => (
-                <th key={c.key} scope="col" className={`px-2 py-1.5 font-normal tracking-wider uppercase ${c.className ?? ''}`}>
+                <th key={c.key} scope="col" className={`px-2 py-2 font-medium ${c.className ?? ''}`}>
                   {c.header}
                 </th>
               ))}

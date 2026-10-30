@@ -65,7 +65,7 @@ export default function Markdown({ text, ...rest }: { text: string } & Omit<Comp
     <div
       {...rest}
       data-markdown
-      className="min-w-0 text-xs/relaxed break-words [&_code]:bg-muted/50 [&_code]:px-0.5 [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:uppercase [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:my-1.5 [&_pre]:overflow-x-auto [&_pre]:border [&_pre]:border-border [&_pre]:p-2 [&_table]:block [&_table]:overflow-x-auto [&_td]:border [&_td]:border-border [&_td]:px-1 [&_th]:border [&_th]:border-border [&_th]:px-1 [&_ul]:list-disc"
+      className="min-w-0 text-sm/relaxed break-words [&_code]:bg-muted/50 [&_code]:px-0.5 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:list-decimal [&_p]:my-1.5 [&_pre]:overflow-x-auto [&_pre]:border [&_pre]:border-border [&_pre]:p-2 [&_table]:block [&_table]:overflow-x-auto [&_td]:border [&_td]:border-border [&_td]:px-1 [&_th]:border [&_th]:border-border [&_th]:px-1 [&_ul]:list-disc"
     >
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkHtmlAsText]} components={components} skipHtml={false}>
         {text}

@@ -37,7 +37,7 @@ function Values({ build }: { build: KeelBuild }) {
         ) : (
           <span className="flex min-w-0 flex-col py-1">
             <Unknown />
-            <span data-hint="pin-digest" className="text-[11px] text-status-warn">
+            <span data-hint="pin-digest" className="text-xs text-status-warn">
               Deploy Keel pinned to an image digest and pass it as KEEL_IMAGE_DIGEST, so a rollback can name it.
             </span>
           </span>

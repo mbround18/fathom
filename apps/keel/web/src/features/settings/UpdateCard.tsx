@@ -159,7 +159,7 @@ function Build({ title, data, build }: { title: string; data: string; build: Kee
   const version = build.version ?? ('display' in build ? build.display : null)
   return (
     <div data-build={data} className="flex min-w-0 flex-1 basis-56 flex-col gap-1 border border-border p-2">
-      <h3 className="text-[11px] tracking-wider text-muted-foreground uppercase">{title}</h3>
+      <h3 className="text-sm font-semibold">{title}</h3>
       <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-0.5 text-xs">
         <Row term="Version" data="version">
           {version !== null ? <span className="font-mono">{version}</span> : <Unknown text="untagged" />}
@@ -204,7 +204,7 @@ function ReleaseNotes({ image }: { image: AvailableImage }) {
 function Manual({ path }: { path: Extract<UpdatePath, { kind: 'manual' }> }) {
   return (
     <div data-update-manual={path.missing} className="flex min-w-0 flex-col gap-2 border-t border-border pt-3">
-      <h3 className="text-[11px] tracking-wider text-muted-foreground uppercase">Update by hand</h3>
+      <h3 className="text-sm font-semibold">Update by hand</h3>
       <p data-missing className="text-xs text-status-warn">
         {MISSING_TEXT[path.missing] ?? `Keel cannot run its own update (${path.missing}).`}
       </p>

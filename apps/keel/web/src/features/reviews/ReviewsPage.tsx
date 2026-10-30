@@ -16,7 +16,7 @@ import { ConfirmDialog as Confirm } from '@/ui/ConfirmDialog'
 import { useReveal } from '@/ui/reveal'
 import { DataTable } from '@/ui/DataTable'
 import { ErrorLine as Alert } from '@/ui/ErrorLine'
-import { FIELD, H2, LABEL, LINK, Select } from '@/ui/form'
+import { FIELD, H2, LABEL, LINK, Select, STATUS } from '@/ui/form'
 import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
@@ -121,7 +121,7 @@ function ReviewList() {
         {
           key: 'state',
           header: 'State',
-          cell: (r) => <span className={`text-[11px] tracking-wider uppercase ${stateTone(r.state)}`}>{r.state}</span>,
+          cell: (r) => <span className={`${STATUS} ${stateTone(r.state)}`}>{r.state}</span>,
         },
         {
           key: 'approvals',
@@ -174,7 +174,7 @@ function Flags() {
   if (flags.length === 0) return null
   return (
     <section aria-label="Flagged changes" className="flex min-w-0 flex-col gap-1 border border-status-warn/50 bg-status-warn/5 p-2">
-      <h3 className="text-[11px] tracking-wider text-status-warn uppercase">These change who or what Keel trusts and targets</h3>
+      <h3 className="text-sm font-semibold text-status-warn">These change who or what Keel trusts and targets</h3>
       <ul className="flex min-w-0 flex-col gap-1 text-xs">
         {flags.map((f) => (
           <li key={`${f.kind}:${f.path}`} data-flag={f.kind}>
@@ -375,7 +375,7 @@ function Detail() {
       <div className="flex min-w-0 flex-col gap-4 p-3">
         <p className="text-xs text-muted-foreground">
           {REASON_LABELS[r.reason]}. Base <span className="font-mono">{shortSha(r.base)}</span>.{' '}
-          <span className={`tracking-wider uppercase ${stateTone(r.state)}`} data-state>
+          <span className={`${STATUS} ${stateTone(r.state)}`} data-state>
             {r.state}
           </span>{' '}
           ({r.approvals}/{r.quorum} approvals)

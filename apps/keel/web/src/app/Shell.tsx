@@ -38,7 +38,7 @@ const CONNECTION_LABEL = {
 } as const
 
 const NAV_LINK =
-  'relative inline-flex h-7 shrink-0 items-center gap-1.5 border-b border-transparent px-2 text-xs text-muted-foreground ' +
+  'relative inline-flex h-8 shrink-0 items-center gap-2 border-b border-transparent px-3 text-sm text-muted-foreground ' +
   'hover:text-foreground focus-visible:ring-1 focus-visible:ring-accent-neon focus-visible:outline-none ' +
   'aria-[current=page]:border-accent-neon aria-[current=page]:text-primary md:border-b-0 md:border-l md:aria-[current=page]:bg-accent-neon/5'
 
@@ -62,7 +62,7 @@ function NavLink({
   }, [dot])
   return (
     <Link to={to} aria-current={current ? 'page' : undefined} className={`${NAV_LINK} ${className}`}>
-      <Icon aria-hidden className="size-3.5 shrink-0" />
+      <Icon aria-hidden className="size-4 shrink-0" />
       {label}
       {/* The link is `relative` so the sr-only text stays inside the phone's scrolling strip
           instead of widening the page from wherever the strip scrolled it to. */}
@@ -84,7 +84,7 @@ function Nav() {
   return (
     <nav
       aria-label="Sections"
-      className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border px-1 py-1 md:w-44 md:flex-col md:overflow-x-visible md:border-r md:border-b-0 md:py-2"
+      className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border px-1 py-1 md:w-48 md:flex-col md:overflow-x-visible md:border-r md:border-b-0 md:py-2"
     >
       {SECTIONS.map((section) => (
         <NavLink key={section.path} section={section} path={path} />
@@ -132,7 +132,7 @@ function AccountMenu() {
           </DropdownMenuItem>
         )}
         <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-[11px] font-normal tracking-wider text-muted-foreground uppercase">About</DropdownMenuLabel>
+        <DropdownMenuLabel className="text-xs font-medium text-muted-foreground">About</DropdownMenuLabel>
         <div data-keel-version className="flex items-center gap-1.5 px-2 pb-1.5 text-xs">
           <CubeIcon aria-hidden className="size-3.5 text-muted-foreground" />
           Keel {me.keel_version ?? 'version unknown'}

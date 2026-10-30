@@ -186,8 +186,10 @@ const SCREENS: Screen[] = [
   {
     name: 'teams',
     path: '/teams',
+    // Opened, so the members, the grants and the grant editor are measured too.
     ready: async (page) => {
-      await expect(page.getByText('platform-operations').first()).toBeVisible()
+      await page.locator('[data-team="platform-operations"] > button').click()
+      await expect(page.getByRole('list', { name: 'Grants of platform-operations' })).toBeVisible()
     },
   },
   {
@@ -287,6 +289,8 @@ for (const theme of THEMES) {
           await screen.ready(page)
           // Fonts and late layout settle before measuring.
           await page.evaluate(() => document.fonts.ready)
+          // KEEL_SHOTS=<dir> also saves each screen, for comparing a visual pass before and after.
+          if (process.env.KEEL_SHOTS) await page.screenshot({ path: `${process.env.KEEL_SHOTS}/${screen.name}-${theme}-${String(width)}.png`, fullPage: true })
           const { doc, main, offenders } = await widths(page)
           expect(doc[0], `${screen.path}: the page is ${String(doc[0] - doc[1])} px wider than the viewport`).toBeLessThanOrEqual(doc[1])
           expect(main[0], `${screen.path}: the section scrolls ${String(main[0] - main[1])} px sideways: ${offenders.join('; ')}`).toBeLessThanOrEqual(main[1])

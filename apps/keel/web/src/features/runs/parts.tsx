@@ -1,6 +1,7 @@
 /** Small pieces the run pages share (spec 055 US2, T072). */
 import type { HostPhase, RunPhase } from '@/protocol/wire'
 import { ErrorLine as Alert } from '@/ui/ErrorLine'
+import { STATUS } from '@/ui/form'
 
 import { useRuns } from './store'
 
@@ -22,7 +23,7 @@ function tone(state: RunPhase | HostPhase): string {
 }
 
 export function StateBadge({ state }: { state: RunPhase | HostPhase }) {
-  return <span className={`text-[11px] tracking-wider uppercase ${tone(state)}`}>{state.replace(/_/g, ' ')}</span>
+  return <span className={`${STATUS} ${tone(state)}`}>{state.replace(/_/g, ' ')}</span>
 }
 
 export function ErrorLine() {

@@ -6,7 +6,7 @@ import type { ReactNode } from 'react'
 
 export function Page({ name, labelledBy, children }: { name: string; labelledBy: string; children: ReactNode }) {
   return (
-    <section data-page={name} aria-labelledby={labelledBy} className="flex min-w-0 flex-col gap-4 p-3 sm:p-4">
+    <section data-page={name} aria-labelledby={labelledBy} className="flex min-w-0 flex-col gap-6 p-4 sm:p-6">
       {children}
     </section>
   )

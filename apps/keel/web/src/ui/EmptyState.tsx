@@ -21,8 +21,8 @@ export function EmptyState({
       className="flex min-w-0 flex-col items-start gap-2 border border-dashed border-border px-4 py-6 sm:items-center sm:text-center"
     >
       {icon !== undefined && <span className="text-muted-foreground [&_svg]:size-6">{icon}</span>}
-      <p className="font-display text-xs font-semibold tracking-wider uppercase">{title}</p>
-      {children !== undefined && <div className="max-w-prose text-xs text-muted-foreground">{children}</div>}
+      <p className="font-display text-base font-semibold">{title}</p>
+      {children !== undefined && <div className="max-w-prose text-sm text-muted-foreground">{children}</div>}
       {action !== undefined && <div className="pt-1">{action}</div>}
     </div>
   )

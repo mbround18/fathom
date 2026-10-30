@@ -36,7 +36,7 @@ function Mapping({ mapping }: { mapping: RoleMappingInfo }) {
   return (
     <section aria-label="Role mapping" className="flex min-w-0 flex-col gap-2 border border-border p-3 text-xs">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <h2 className="font-display text-xs font-semibold tracking-wider uppercase">Role mapping</h2>
+        <h2 className="font-display text-base font-semibold">Role mapping</h2>
         <Badge variant="outline">read-only</Badge>
       </div>
       <dl className="grid min-w-0 grid-cols-[minmax(0,8rem)_minmax(0,1fr)] gap-x-3 gap-y-1">

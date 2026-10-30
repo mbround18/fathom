@@ -6,7 +6,7 @@
 import { WarningOctagonIcon } from '@phosphor-icons/react'
 import type { ComponentProps, ReactNode } from 'react'
 
-import { H2, LABEL, Select } from '@/ui/form'
+import { FORM_WIDTH, H2, LABEL, Select } from '@/ui/form'
 import { LoadState } from '@/ui/LoadState'
 
 import type { Refusal } from './store'
@@ -17,9 +17,9 @@ export function RefusalText({ refusal }: { refusal: Refusal }) {
     <p
       role="alert"
       data-refusal={refusal.kind}
-      className="flex min-w-0 items-start gap-1.5 border border-status-err/40 px-2 py-1 text-xs text-status-err"
+      className="flex min-w-0 items-start gap-1.5 border border-status-err/40 px-2 py-1.5 text-sm text-status-err"
     >
-      <WarningOctagonIcon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+      <WarningOctagonIcon aria-hidden className="mt-0.5 size-4 shrink-0" />
       {refusal.kind === 'denied' ? (
         <span className="min-w-0 break-words">
           Denied: <code data-denied-action>{refusal.action}</code> (
@@ -50,12 +50,12 @@ export function Pane({
 }) {
   return (
     <section data-pane={id} aria-labelledby={`${id}-title`} className="flex min-w-0 flex-col border border-border">
-      <div className="flex min-h-10 min-w-0 flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-3 py-1.5">
+      <div className="flex min-h-12 min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-4 py-2">
         <h2 id={`${id}-title`} className={H2}>
           {title}
         </h2>
         {count !== undefined && count !== null && (
-          <span className="border border-border px-1.5 text-[11px] text-muted-foreground tabular-nums">{count}</span>
+          <span data-pane-count className="text-sm text-muted-foreground tabular-nums">{count}</span>
         )}
         <span className="flex-1" />
         {actions}
@@ -77,19 +77,19 @@ export function ListState({
 }) {
   if (refusal)
     return (
-      <div className="p-3">
+      <div className="p-4">
         <RefusalText refusal={refusal} />
       </div>
     )
   if (items === null)
     return (
-      <div className="px-3">
+      <div className="px-4">
         <LoadState loading />
       </div>
     )
   if (items.length === 0)
     return (
-      <p data-pane-state="empty" className="m-3 border border-dashed border-border px-3 py-4 text-xs text-muted-foreground">
+      <p data-pane-state="empty" className="m-4 max-w-prose text-sm text-muted-foreground">
         {empty}
       </p>
     )
@@ -101,10 +101,10 @@ export function NativeSelect({ className = '', ...props }: ComponentProps<'selec
   return <Select {...props} dense className={className} />
 }
 
-/** A labelled field in an inline form; stacks on narrow screens. */
+/** A labelled field in an inline form; stacks on narrow screens and stops growing at a name's width. */
 export function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-1 basis-36 flex-col gap-0.5">
+    <div className="flex min-w-0 flex-1 basis-48 flex-col gap-1 sm:max-w-72">
       <label htmlFor={htmlFor} className={LABEL}>
         {label}
       </label>
@@ -113,7 +113,7 @@ export function Field({ label, htmlFor, children }: { label: string; htmlFor: st
   )
 }
 
-/** An inline form row under a pane header. */
+/** An inline form under a pane header: no band of its own, just the fields and their button. */
 export function InlineForm({
   label,
   onSubmit,
@@ -130,7 +130,7 @@ export function InlineForm({
         e.preventDefault()
         onSubmit()
       }}
-      className="flex min-w-0 flex-wrap items-end gap-2 border-b border-border bg-muted/20 px-3 py-3"
+      className={`flex min-w-0 flex-wrap items-end gap-3 px-4 py-4 ${FORM_WIDTH}`}
     >
       {children}
     </form>

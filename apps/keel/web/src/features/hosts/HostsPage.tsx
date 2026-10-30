@@ -14,7 +14,7 @@ import { ConfirmDialog as Confirm } from '@/ui/ConfirmDialog'
 import { CopyBlock } from '@/ui/CopyBlock'
 import { DataTable, type Column } from '@/ui/DataTable'
 import { ErrorLine as Alert } from '@/ui/ErrorLine'
-import { H2, LABEL, LINK } from '@/ui/form'
+import { H2, LABEL, LINK, STATUS } from '@/ui/form'
 import { Page } from '@/ui/Page'
 import { useReveal } from '@/ui/reveal'
 import { PageHeader } from '@/ui/PageHeader'
@@ -36,7 +36,7 @@ function tone(state: HostStatus): string {
 }
 
 function StateBadge({ state }: { state: HostStatus }) {
-  return <span className={`text-[11px] tracking-wider uppercase ${tone(state)}`}>{state}</span>
+  return <span className={`${STATUS} ${tone(state)}`}>{state}</span>
 }
 
 /** The host reported a run Keel did not make (058 A2). */
@@ -45,7 +45,7 @@ function ChangedBadge() {
     <span
       data-changed-outside
       title="The host reported an ansible-playbook run that Keel did not make."
-      className="border border-status-warn/50 px-1 text-[11px] tracking-wider whitespace-nowrap text-status-warn uppercase"
+      className="border border-status-warn/50 px-1.5 text-xs font-medium whitespace-nowrap text-status-warn"
     >
       Changed outside Keel
     </span>
