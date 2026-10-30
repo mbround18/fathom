@@ -101,7 +101,7 @@ test('a review shows commits, flags and a paged diff, and is approved with a pas
   await expect(dialog.locator('[data-override-expires]')).toHaveText('2026-10-28T12:00:00Z')
   await dialog.getByRole('button', { name: 'Sign and approve' }).click()
   await expect(dialog).toHaveCount(0)
-  await expect(review.locator('[data-state]')).toHaveText('approved')
+  await expect(review.locator('span[data-state]')).toHaveText('approved')
   await expect(review.getByRole('region', { name: 'Decisions' })).toContainText('Checked the runner user change')
   await expect(review.getByRole('form', { name: 'Decide' })).toHaveCount(0)
   expect(reviews.decisions).toEqual([
@@ -126,7 +126,7 @@ test('approving without a passkey asks for one; denying needs only a comment', a
   const dialog = page.getByRole('dialog')
   await expect(dialog.locator('[data-preview-summary]')).toContainText('denied')
   await dialog.getByRole('button', { name: 'Confirm' }).click()
-  await expect(review.locator('[data-state]')).toHaveText('denied')
+  await expect(review.locator('span[data-state]')).toHaveText('denied')
   expect(reviews.decisions).toEqual([{ group: 'group-0001', approve: false, comment: 'Not reviewed yet.', credential: null }])
   // A decided group leaves the open list.
   await expect(page.locator('[data-empty-page="reviews"]')).toContainText('Nothing to review')
