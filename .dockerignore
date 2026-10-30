@@ -11,6 +11,8 @@ specs
 # The Keel web build typechecks tests/unit, and template.test.ts imports this shared contract.
 !specs/060-keel-enroll-settings/contracts/template-vectors.json
 docs
+# The Keel web build bundles its guides as the in-app help (spec 063 R6).
+!docs/guides/keel
 apps/depths/web/dist
 apps/depths/web/test-results
 apps/depths/web/playwright-report

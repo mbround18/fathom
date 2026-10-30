@@ -36,8 +36,8 @@ the implementation lands. Playwright runs against the fake backend. Nothing reac
 
 ## Phase 1: Setup
 
-- [ ] T001 Add Playwright project `s063` to `web/playwright.config.ts`: `testDir: './tests/e2e/s063'`, Desktop Chrome. Add a comment that its specs must not be named `enroll.spec.ts` or `settings-*.spec.ts`, because the `s060` `testMatch` would also run them. Create `web/tests/e2e/s063/`.
-- [ ] T002 [P] In `apps/keel/Dockerfile`'s `web` stage, add `COPY docs/guides/keel/ ./docs/guides/keel/` next to the existing `specs/060…/template-vectors.json` copy, so the build can bundle the guides (research R6).
+- [X] T001 Add Playwright project `s063` to `web/playwright.config.ts`: `testDir: './tests/e2e/s063'`, Desktop Chrome. Add a comment that its specs must not be named `enroll.spec.ts` or `settings-*.spec.ts`, because the `s060` `testMatch` would also run them. Create `web/tests/e2e/s063/`.
+- [X] T002 [P] In `apps/keel/Dockerfile`'s `web` stage, add `COPY docs/guides/keel/ ./docs/guides/keel/` next to the existing `specs/060…/template-vectors.json` copy, so the build can bundle the guides (research R6).
 
 ---
 

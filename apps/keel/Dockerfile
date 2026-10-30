@@ -45,6 +45,8 @@ COPY packages/ ./packages/
 COPY apps/keel/web/ ./apps/keel/web/
 # `build` typechecks tests/unit too, and the template test imports the vectors shared with keel_core.
 COPY specs/060-keel-enroll-settings/contracts/template-vectors.json ./specs/060-keel-enroll-settings/contracts/
+# The in-app help (spec 063 R6) bundles the Keel guides, and tests/unit checks their anchors.
+COPY docs/guides/keel/ ./docs/guides/keel/
 RUN --mount=type=cache,id=keel-pnpm-store,target=/pnpm-store \
     --mount=type=cache,id=keel-corepack,target=/root/.cache/node/corepack \
     pnpm install --offline --frozen-lockfile --filter @companion/keel-web... \
