@@ -42,6 +42,8 @@ export interface ReposState {
   receivers: ReceiverInfo[]
   deliveries: DeliveryInfo[]
   credentials: CredentialInfo[]
+  /** Which lists have answered for this workspace, so an empty one means none rather than not yet. */
+  loaded: { bindings: boolean; receivers: boolean; credentials: boolean }
   preview: Preview | null
   /** A receiver's secret, shown once. */
   secret: { url: string; secret: string } | null
@@ -77,6 +79,8 @@ function upsert<T extends { id: string }>(items: T[], item: T, front = false): T
   return front ? [item, ...items] : [...items, item]
 }
 
+const NOT_LOADED = { bindings: false, receivers: false, credentials: false }
+
 export const useRepos = create<ReposState>()((set, get) => ({
   workspace: null,
   bindings: [],
@@ -84,13 +88,22 @@ export const useRepos = create<ReposState>()((set, get) => ({
   receivers: [],
   deliveries: [],
   credentials: [],
+  loaded: NOT_LOADED,
   preview: null,
   secret: null,
   error: null,
 
   load: (workspace) => {
     if (get().workspace !== workspace) {
-      set({ workspace, bindings: [], detail: null, receivers: [], deliveries: [], credentials: [] })
+      set({
+        workspace,
+        bindings: [],
+        detail: null,
+        receivers: [],
+        deliveries: [],
+        credentials: [],
+        loaded: NOT_LOADED,
+      })
     }
     send({ type: 'ListBindings', data: { workspace } })
     send({ type: 'ListReceivers', data: { workspace } })
@@ -140,7 +153,7 @@ onServerEvent(({ reply_to, event }) => {
   const ours = reply_to !== undefined && mine.has(reply_to)
   switch (event.type) {
     case 'Bindings':
-      useRepos.setState({ bindings: event.data.items })
+      useRepos.setState((s) => ({ bindings: event.data.items, loaded: { ...s.loaded, bindings: true } }))
       break
     case 'Binding': {
       const { binding, jobs } = event.data
@@ -160,7 +173,7 @@ onServerEvent(({ reply_to, event }) => {
       }
       break
     case 'Receivers':
-      useRepos.setState({ receivers: event.data.items })
+      useRepos.setState((s) => ({ receivers: event.data.items, loaded: { ...s.loaded, receivers: true } }))
       break
     case 'ReceiverSecret':
       if (ours) useRepos.setState({ secret: event.data })
@@ -174,7 +187,7 @@ onServerEvent(({ reply_to, event }) => {
       })
       break
     case 'Credentials':
-      useRepos.setState({ credentials: event.data.items })
+      useRepos.setState((s) => ({ credentials: event.data.items, loaded: { ...s.loaded, credentials: true } }))
       break
     case 'Preview':
       if (ours) useRepos.setState({ preview: event.data, error: null })

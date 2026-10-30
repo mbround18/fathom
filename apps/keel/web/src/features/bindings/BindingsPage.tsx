@@ -6,10 +6,15 @@
  */
 import { PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
-import { useId, useState, type SyntheticEvent } from 'react'
+import { useId, useRef, useState, type SyntheticEvent } from 'react'
 
+import { useSession } from '@/app/session-store'
+import { canOperate } from '@/features/hosts/workspaces'
 import type { BindingInfo, CredentialInfo, CredentialKind, JobSummary, Transport } from '@/protocol/wire'
 import { DataTable } from '@/ui/DataTable'
+import { EmptyState } from '@/ui/EmptyState'
+import { LoadState } from '@/ui/LoadState'
+import { emptyVariant } from '@/ui/empty-variant'
 import { useReveal } from '@/ui/reveal'
 import { Field as FormField, FIELD, H2, LABEL, LINK, STATUS } from '@/ui/form'
 import { Page } from '@/ui/Page'
@@ -258,10 +263,36 @@ function Detail({ binding }: { binding: BindingInfo }) {
   )
 }
 
-function Credentials() {
+/** No credentials in the workspace yet (spec 063 FR-011, FR-012). */
+function NoCredentials({ canAct, onAdd }: { canAct: boolean; onAdd: () => void }) {
+  return (
+    <EmptyState
+      page="credentials"
+      title="Add a credential"
+      reason="A private repository needs a token or SSH key before Keel can fetch it."
+      steps={['Add a token or SSH key.', 'Grant it to the binding that needs it.']}
+      action={
+        canAct ? (
+          // Outline: the bindings list above holds the page's one primary action.
+          <Button size="sm" variant="outline" onClick={onAdd}>
+            <PlusIcon aria-hidden />
+            Add a credential
+          </Button>
+        ) : undefined
+      }
+      whoCan="An operator or workspace admin"
+      verb="add credentials"
+      guide={{ guide: 'bindings', anchor: 'credentials' }}
+    />
+  )
+}
+
+function Credentials({ canAct }: { canAct: boolean }) {
   const workspace = useRepos((s) => s.workspace)
   const credentials = useRepos((s) => s.credentials)
+  const loaded = useRepos((s) => s.loaded.credentials)
   const propose = useRepos((s) => s.propose)
+  const nameRef = useRef<HTMLInputElement>(null)
   const [name, setName] = useState('')
   const [kind, setKind] = useState<CredentialKind>('git_https_token')
   const [value, setValue] = useState('')
@@ -285,45 +316,56 @@ function Credentials() {
           Secrets a binding uses to fetch or run. Keel stores the value and shows only its fingerprint.
         </p>
       </div>
-      <DataTable<CredentialInfo>
-        label="Credentials"
-        rows={credentials}
-        rowKey={(c) => c.id}
-        columns={[
-          { key: 'name', header: 'Name', cell: (c) => <span className="font-mono">{c.name}</span> },
-          { key: 'kind', header: 'Kind', cell: (c) => KINDS.find((k) => k.kind === c.kind)?.label ?? c.kind },
-          { key: 'fp', header: 'Fingerprint', className: 'w-[40%]', cell: (c) => <span className="font-mono break-all">{c.fingerprint}</span> },
-          { key: 'grants', header: 'Granted to', cell: (c) => <span className="tabular-nums">{c.grants.length}</span> },
-        ]}
-        empty="No credentials yet. A public repository needs none."
-      />
-      <form aria-label="New credential" onSubmit={submit} className="flex min-w-0 flex-wrap items-end gap-2 border border-border bg-muted/20 p-3">
-        <Field label="Name" id={`${id}-name`}>
-          <Input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} required />
-        </Field>
-        <Field label="Kind" id={`${id}-kind`}>
-          <select id={`${id}-kind`} className={FIELD} value={kind} onChange={(e) => setKind(e.target.value as CredentialKind)}>
-            {KINDS.map((k) => (
-              <option key={k.kind} value={k.kind}>
-                {k.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Value" id={`${id}-value`}>
-          <Input
-            id={`${id}-value`}
-            type="password"
-            autoComplete="off"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            required
-          />
-        </Field>
-        <Button type="submit" size="sm">
-          Preview credential
-        </Button>
-      </form>
+      {loaded && credentials.length === 0 ? (
+        <NoCredentials
+          canAct={canAct}
+          onAdd={() => {
+            nameRef.current?.focus()
+          }}
+        />
+      ) : (
+        <DataTable<CredentialInfo>
+          label="Credentials"
+          rows={credentials}
+          rowKey={(c) => c.id}
+          columns={[
+            { key: 'name', header: 'Name', cell: (c) => <span className="font-mono">{c.name}</span> },
+            { key: 'kind', header: 'Kind', cell: (c) => KINDS.find((k) => k.kind === c.kind)?.label ?? c.kind },
+            { key: 'fp', header: 'Fingerprint', className: 'w-[40%]', cell: (c) => <span className="font-mono break-all">{c.fingerprint}</span> },
+            { key: 'grants', header: 'Granted to', cell: (c) => <span className="tabular-nums">{c.grants.length}</span> },
+          ]}
+          empty={<LoadState loading label="Loading credentials…" />}
+        />
+      )}
+      {canAct && (
+        <form aria-label="New credential" onSubmit={submit} className="flex min-w-0 flex-wrap items-end gap-2 border border-border bg-muted/20 p-3">
+          <Field label="Name" id={`${id}-name`}>
+            <Input id={`${id}-name`} ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} required />
+          </Field>
+          <Field label="Kind" id={`${id}-kind`}>
+            <select id={`${id}-kind`} className={FIELD} value={kind} onChange={(e) => setKind(e.target.value as CredentialKind)}>
+              {KINDS.map((k) => (
+                <option key={k.kind} value={k.kind}>
+                  {k.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Value" id={`${id}-value`}>
+            <Input
+              id={`${id}-value`}
+              type="password"
+              autoComplete="off"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              required
+            />
+          </Field>
+          <Button type="submit" size="sm">
+            Preview credential
+          </Button>
+        </form>
+      )}
     </section>
   )
 }
@@ -333,7 +375,13 @@ export default function BindingsPage() {
   const detail = useRepos((s) => s.detail)
   const workspace = useRepos((s) => s.workspace)
   const open = useRepos((s) => s.open)
+  const loaded = useRepos((s) => s.loaded.bindings)
+  const me = useSession((s) => s.me)
   const [adding, setAdding] = useState(false)
+  const variant = emptyVariant({ filtered: false, canAct: workspace !== null && canOperate(me, workspace) })
+  const canAct = variant === 'guided'
+  // The guided state stands in for the table once the list has answered empty, until the form opens.
+  const empty = loaded && bindings.length === 0 && !adding
   const current = detail ? (bindings.find((b) => b.id === detail.binding.id) ?? detail.binding) : null
 
   return (
@@ -343,8 +391,9 @@ export default function BindingsPage() {
         title="Bindings"
         description="Repositories bound to a project, the jobs they define, and the credentials they use."
         actions={
-          workspace && (
-            <Button size="sm" variant={adding ? 'ghost' : 'default'} aria-expanded={adding} onClick={() => setAdding((a) => !a)}>
+          workspace &&
+          canAct && (
+            <Button size="sm" variant={adding ? 'ghost' : empty ? 'outline' : 'default'} aria-expanded={adding} onClick={() => setAdding((a) => !a)}>
               {adding ? <XIcon aria-hidden /> : <PlusIcon aria-hidden />}
               {adding ? 'Close the form' : 'New binding'}
             </Button>
@@ -355,7 +404,35 @@ export default function BindingsPage() {
       </PageHeader>
       <ErrorLine />
       {adding && <NewBinding />}
-      {workspace && (
+      {workspace && empty && (
+        <EmptyState
+          page="bindings"
+          title="Bind a repository"
+          reason="A binding says which branch Keel runs, and where."
+          steps={[
+            'Add a credential if the repository is private.',
+            'Bind a branch to this workspace.',
+            'Push to the branch.',
+          ]}
+          action={
+            canAct ? (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setAdding(true)
+                }}
+              >
+                <PlusIcon aria-hidden />
+                Bind a repository
+              </Button>
+            ) : undefined
+          }
+          whoCan="An operator or workspace admin"
+          verb="bind repositories"
+          guide={{ guide: 'bindings', anchor: 'bind-a-repository' }}
+        />
+      )}
+      {workspace && !empty && (
         <DataTable<BindingInfo>
           label="Bindings"
           rows={bindings}
@@ -377,11 +454,11 @@ export default function BindingsPage() {
             { key: 'commit', header: 'Commit', cell: (b) => <span className="font-mono">{short(b.last_commit)}</span> },
             { key: 'error', header: 'Error', cell: (b) => <span className="text-status-err">{b.last_sync_error ?? ''}</span> },
           ]}
-          empty="No repository is bound yet."
+          empty={loaded ? 'No repository is bound yet.' : <LoadState loading label="Loading bindings…" />}
         />
       )}
       {current && <Detail binding={current} />}
-      {workspace && <Credentials />}
+      {workspace && <Credentials canAct={canAct} />}
       <PreviewDialog />
     </Page>
   )

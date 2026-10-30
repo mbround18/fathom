@@ -3,16 +3,20 @@
  * deliveries they recorded with their decisions. A receiver's secret is shown once, right after
  * it is created or rotated, and never again.
  */
-import { KeyIcon, LinkBreakIcon } from '@phosphor-icons/react'
+import { KeyIcon, LinkBreakIcon, PlusIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
-import { useId, useState, type SyntheticEvent } from 'react'
+import { useId, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
+
+import { useSession } from '@/app/session-store'
 
 import { ErrorLine, Field, PreviewDialog, WorkspacePicker } from '@/features/bindings/parts'
 import { short, useRepos } from '@/features/bindings/store'
+import { canOperate } from '@/features/hosts/workspaces'
 import type { DeliveryInfo, ReceiverInfo, ReceiverProvider } from '@/protocol/wire'
 import { CopyBlock } from '@/ui/CopyBlock'
 import { DataTable } from '@/ui/DataTable'
 import { EmptyState } from '@/ui/EmptyState'
+import { emptyVariant } from '@/ui/empty-variant'
 import { FIELD, H2, LABEL, STATUS } from '@/ui/form'
 import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
@@ -34,8 +38,14 @@ function Secret() {
         <KeyIcon aria-hidden className="size-4 text-accent-neon" />
         Copy the secret now. Keel will not show it again.
       </p>
-      <CopyBlock label="Payload URL" value={secret.url} valueData={{ 'data-hook-url': true }} />
-      <CopyBlock label="Secret" value={secret.secret} valueData={{ 'data-hook-secret': true }} />
+      <CopyBlock label="Payload URL" value={secret.url} data="receiver-url" valueData={{ 'data-hook-url': true }} />
+      <CopyBlock
+        label="Secret"
+        value={secret.secret}
+        masked
+        data="receiver-secret"
+        valueData={{ 'data-hook-secret': true }}
+      />
       <div>
         <Button size="sm" onClick={dismiss}>
           I have copied it
@@ -45,7 +55,16 @@ function Secret() {
   )
 }
 
-function NewReceiver({ workspace }: { workspace: string }) {
+/** `quiet` while the empty list's own button is the page's one primary action. */
+function NewReceiver({
+  workspace,
+  nameRef,
+  quiet,
+}: {
+  workspace: string
+  nameRef: RefObject<HTMLInputElement | null>
+  quiet: boolean
+}) {
   const propose = useRepos((s) => s.propose)
   const [name, setName] = useState('')
   const [provider, setProvider] = useState<ReceiverProvider>('github')
@@ -61,7 +80,7 @@ function NewReceiver({ workspace }: { workspace: string }) {
       className="flex min-w-0 flex-wrap items-end gap-2 border border-border bg-muted/20 p-3"
     >
       <Field label="Name" id={`${id}-name`}>
-        <Input id={`${id}-name`} value={name} onChange={(e) => setName(e.target.value)} required />
+        <Input id={`${id}-name`} ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} required />
       </Field>
       <Field label="Provider" id={`${id}-provider`}>
         <select
@@ -77,7 +96,7 @@ function NewReceiver({ workspace }: { workspace: string }) {
           ))}
         </select>
       </Field>
-      <Button type="submit" size="sm">
+      <Button type="submit" size="sm" variant={quiet ? 'outline' : 'default'}>
         Preview receiver
       </Button>
     </form>
@@ -207,9 +226,41 @@ function Deliveries() {
   )
 }
 
+/** No receivers in the workspace yet (spec 063 FR-011, FR-012). */
+function NoReceivers({ canAct, onCreate }: { canAct: boolean; onCreate: () => void }) {
+  return (
+    <EmptyState
+      page="receivers"
+      title="Create a receiver"
+      reason="A receiver is how your Git host tells Keel about a push."
+      steps={[
+        'Create a receiver.',
+        'Add its URL and secret as a webhook at your Git host.',
+        'Push to see the first delivery.',
+      ]}
+      action={
+        canAct ? (
+          <Button size="sm" onClick={onCreate}>
+            <PlusIcon aria-hidden />
+            Create a receiver
+          </Button>
+        ) : undefined
+      }
+      whoCan="An operator or workspace admin"
+      verb="create receivers"
+      guide={{ guide: 'receivers', anchor: 'create-a-receiver' }}
+    />
+  )
+}
+
 export default function ReceiversPage() {
   const workspace = useRepos((s) => s.workspace)
   const receivers = useRepos((s) => s.receivers)
+  const loaded = useRepos((s) => s.loaded.receivers)
+  const me = useSession((s) => s.me)
+  const nameRef = useRef<HTMLInputElement>(null)
+  const variant = emptyVariant({ filtered: false, canAct: workspace !== null && canOperate(me, workspace) })
+  const empty = loaded && receivers.length === 0
   return (
     <Page name="receivers" labelledBy="receivers-title">
       <PageHeader
@@ -223,11 +274,16 @@ export default function ReceiversPage() {
       <Secret />
       {workspace && (
         <>
-          <NewReceiver workspace={workspace} />
-          {receivers.length === 0 ? (
-            <EmptyState title="No receivers yet">
-              Create one, then add its URL and secret at your Git host.
-            </EmptyState>
+          {variant === 'guided' && (
+            <NewReceiver workspace={workspace} nameRef={nameRef} quiet={empty} />
+          )}
+          {empty ? (
+            <NoReceivers
+              canAct={variant === 'guided'}
+              onCreate={() => {
+                nameRef.current?.focus()
+              }}
+            />
           ) : (
             <ul aria-label="Receivers" className="flex min-w-0 flex-col gap-2">
               {receivers.map((r) => (
