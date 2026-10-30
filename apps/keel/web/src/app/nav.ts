@@ -1,6 +1,7 @@
 /**
- * The shell's sections, in navigation order. Each is one route and one lazily loaded page
- * (routes.tsx); the shell draws the navigation from this list.
+ * The shell's sections, grouped and in navigation order (spec 063 FR-001). Each is one route and
+ * one lazily loaded page (routes.tsx); the shell draws the navigation from `visibleGroups`, and
+ * everything else reads the flat `SECTIONS`, derived from the groups so the order lives in one place.
  */
 import {
   ArrowsLeftRightIcon,
@@ -17,24 +18,68 @@ import {
   type Icon,
 } from '@phosphor-icons/react'
 
+import type { Me } from '@/protocol/wire'
+
 export interface Section {
   path: string
   label: string
   icon: Icon
+  /** Whether this person sees the section; absent means everyone does (FR-004). */
+  visible?: (me: Me) => boolean
 }
 
-export const SECTIONS: readonly Section[] = [
-  { path: '/runs', label: 'Runs', icon: PlayIcon },
-  { path: '/reviews', label: 'Reviews', icon: SealCheckIcon },
-  { path: '/bindings', label: 'Bindings', icon: TreeStructureIcon },
-  { path: '/receivers', label: 'Receivers', icon: WebhooksLogoIcon },
-  { path: '/inventory', label: 'Inventory', icon: ListChecksIcon },
-  { path: '/hosts', label: 'Hosts', icon: HardDrivesIcon },
-  { path: '/teams', label: 'Teams', icon: UsersThreeIcon },
-  { path: '/users', label: 'Users', icon: UserListIcon },
-  { path: '/audit', label: 'Audit', icon: ClipboardTextIcon },
-  { path: '/migration', label: 'Migration', icon: ArrowsLeftRightIcon },
+export interface NavGroup {
+  /** Also the group's `data-nav-group`. */
+  id: 'pipelines' | 'infrastructure' | 'administration'
+  /** The group's heading, in sentence case (FR-002). */
+  label: string
+  sections: readonly Section[]
+}
+
+export const NAV_GROUPS: readonly NavGroup[] = [
+  {
+    id: 'pipelines',
+    label: 'Pipelines',
+    sections: [
+      { path: '/runs', label: 'Runs', icon: PlayIcon },
+      { path: '/reviews', label: 'Reviews', icon: SealCheckIcon },
+      { path: '/bindings', label: 'Bindings', icon: TreeStructureIcon },
+      { path: '/receivers', label: 'Receivers', icon: WebhooksLogoIcon },
+    ],
+  },
+  {
+    id: 'infrastructure',
+    label: 'Infrastructure',
+    sections: [
+      { path: '/inventory', label: 'Inventory', icon: ListChecksIcon },
+      { path: '/hosts', label: 'Hosts', icon: HardDrivesIcon },
+    ],
+  },
+  {
+    id: 'administration',
+    label: 'Administration',
+    sections: [
+      { path: '/teams', label: 'Teams', icon: UsersThreeIcon },
+      { path: '/users', label: 'Users', icon: UserListIcon },
+      { path: '/audit', label: 'Audit', icon: ClipboardTextIcon },
+      { path: '/migration', label: 'Migration', icon: ArrowsLeftRightIcon },
+    ],
+  },
 ]
+
+export const SECTIONS: readonly Section[] = NAV_GROUPS.flatMap((g) => g.sections)
+
+/**
+ * The groups as this person sees them: each keeps the sections it may show, and a group left with
+ * none is dropped with its heading and divider (FR-004). Signed out, a gated section is hidden.
+ * `groups` is for tests: no section is gated yet.
+ */
+export function visibleGroups(me: Me | null, groups: readonly NavGroup[] = NAV_GROUPS): NavGroup[] {
+  return groups.map((g) => ({
+    ...g,
+    sections: g.sections.filter((s) => s.visible === undefined || (me !== null && s.visible(me))),
+  })).filter((g) => g.sections.length > 0)
+}
 
 /**
  * System Settings: pinned to the bottom of the nav, for owners and admins only
