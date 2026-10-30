@@ -101,15 +101,15 @@ can act. Values to paste elsewhere are one click to copy.
 
 ### Tests for US1
 
-- [ ] T013 [P] [US1] Write `web/tests/unit/empty-variant.test.ts`: `emptyVariant({filtered:true, canAct:*})` → `'no-match'`; `{filtered:false, canAct:true}` → `'guided'`; `{filtered:false, canAct:false}` → `'restricted'`.
-- [ ] T014 [P] [US1] Write `web/tests/e2e/s063/empty-states.spec.ts` against the fake backend with empty lists. Cover each page in data-model.md's table (`data-empty-page`):
+- [X] T013 [P] [US1] Write `web/tests/unit/empty-variant.test.ts`: `emptyVariant({filtered:true, canAct:*})` → `'no-match'`; `{filtered:false, canAct:true}` → `'guided'`; `{filtered:false, canAct:false}` → `'restricted'`.
+- [X] T014 [P] [US1] Write `web/tests/e2e/s063/empty-states.spec.ts` against the fake backend with empty lists. Cover each page in data-model.md's table (`data-empty-page`):
   - as owner: `data-empty="guided"`, exactly one primary button under `[data-empty-action]`, an `<ol>` with 2–3 items, and a `[data-guide-link]` whose slug matches the table;
   - as a viewer (no operate grant): `data-empty="restricted"`, `[data-who-can]` shown, and no button inside the empty state;
   - with no workspace: the owner sees "Create a workspace", which goes to `/teams`; a plain user sees the "owner or admin grants workspaces from Teams" line and no button (FR-013);
   - Hosts with "changed outside Keel" on: `data-empty="no-match"`, and Clear returns to the guided state (FR-014);
   - while loading or after an error, no empty state shows;
   - secondary lists (deliveries, revisions, run hosts) still show their one-line message (FR-016).
-- [ ] T015 [P] [US1] Write `web/tests/e2e/s063/copy-values.spec.ts`, granting clipboard permissions:
+- [X] T015 [P] [US1] Write `web/tests/e2e/s063/copy-values.spec.ts`, granting clipboard permissions:
   - in the enrol dialog, every value to paste (token, command and fingerprint if shown) has its own Copy button;
   - after creating a receiver, its URL and secret each have one;
   - each click shows "Copied", and `navigator.clipboard.readText()` equals the value;
@@ -117,31 +117,31 @@ can act. Values to paste elsewhere are one click to copy.
 
 ### Implementation for US1
 
-- [ ] T016 [US1] Implement `web/src/ui/empty-variant.ts` (R3).
-- [ ] T017 [US1] Extend `web/src/ui/EmptyState.tsx` per contracts/ui.md:
+- [X] T016 [US1] Implement `web/src/ui/empty-variant.ts` (R3).
+- [X] T017 [US1] Extend `web/src/ui/EmptyState.tsx` per contracts/ui.md:
   - new props `reason`, `steps` (2–3, as an `<ol>` with visible numbers), `whoCan` and `verb`, and `guide` (rendered as `GuideLink`);
   - `data-empty`, `data-empty-page` and `data-empty-action` / `data-who-can`;
   - centre it in the content area, with steps left-aligned in a `max-w-prose` block;
   - never render `action` and `whoCan` together, and never use illustrations (FR-011, FR-012, FR-017).
   - Existing callers (Settings, Passkeys, IdentityTab, SystemTab, ReceiversPage) must render unchanged; check with `pnpm run -s typecheck`.
-- [ ] T018 [P] [US1] Implement `web/src/ui/NoMatch.tsx`: "No {what} match." plus a ghost "Clear filter" button, with `data-pane-state="empty"` and `data-empty="no-match"`.
-- [ ] T019 [US1] Workspace picker, no workspace: in `web/src/app/WorkspacePicker.tsx`, replace the one-liner (line ~85) with `EmptyState` (`data-empty-page="workspace-picker"`). For owners and admins (`canSeeSettings(role)`) show the "Create a workspace" action → `/teams`. For everyone else, `whoCan="An owner or admin"`, `verb="grant workspaces from Teams"`. Guide: `getting-started#create-a-workspace`. Apply the same change to Hosts' no-workspace message (`HostsPage.tsx:164`) (FR-013).
-- [ ] T020 [P] [US1] Hosts: in `web/src/features/hosts/HostsPage.tsx` (~line 313), use `emptyVariant({ filtered: changedOnly, canAct: canOperate(me, ws) })`.
+- [X] T018 [P] [US1] Implement `web/src/ui/NoMatch.tsx`: "No {what} match." plus a ghost "Clear filter" button, with `data-pane-state="empty"` and `data-empty="no-match"`.
+- [X] T019 [US1] Workspace picker, no workspace: in `web/src/app/WorkspacePicker.tsx`, replace the one-liner (line ~85) with `EmptyState` (`data-empty-page="workspace-picker"`). For owners and admins (`canSeeSettings(role)`) show the "Create a workspace" action → `/teams`. For everyone else, `whoCan="An owner or admin"`, `verb="grant workspaces from Teams"`. Guide: `getting-started#create-a-workspace`. Apply the same change to Hosts' no-workspace message (`HostsPage.tsx:164`) (FR-013).
+- [X] T020 [P] [US1] Hosts: in `web/src/features/hosts/HostsPage.tsx` (~line 313), use `emptyVariant({ filtered: changedOnly, canAct: canOperate(me, ws) })`.
   - Guided: "Enroll a host", with the three steps from data-model.md and the dialog's existing open action. Guide: `hosts#enroll-a-host`.
   - No match: `NoMatch` clearing `changedOnly`.
   - Restricted: `whoCan="An operator or workspace admin"`.
-- [ ] T021 [P] [US1] Receivers: in `web/src/features/receivers/ReceiversPage.tsx` (~line 228), replace the current `EmptyState` with the guided one: "Create a receiver", the three steps, and the existing create action under the page's existing guard. Guide: `receivers#create-a-receiver`. Restricted otherwise. Deliveries (~line 205) keep their one-liner.
-- [ ] T022 [P] [US1] Bindings: in `web/src/features/bindings/BindingsPage.tsx`, give the bindings list (~line 380) the guided "Bind a repository" state, using the existing grant check (the one behind `disabled={!grant}` at ~line 238) to choose guided or restricted, never a disabled button. Guide: `bindings#bind-a-repository`. The credentials list (~line 298) gets the guided "Add a credential" state, with guide `bindings#credentials`.
-- [ ] T023 [P] [US1] Runs: in `web/src/features/runs/RunsPage.tsx` (~line 51), "No runs yet", with three steps and a "Go to bindings" link button for whoever may bind (else restricted). Guide: `getting-started#your-first-run`. `RunPage.tsx:121` keeps its one-liner.
-- [ ] T024 [P] [US1] Reviews queue: in `web/src/features/reviews/ReviewsPage.tsx` (~line 141), "Nothing to review", with two steps and a "Trusted signers" action that scrolls to the page's trusted-signers section (only for whoever may edit signers, else restricted). Guide: `reviews#trusted-signers`.
-- [ ] T025 [P] [US1] Inventory: in `web/src/features/inventory/InventoryPage.tsx` (~line 483), "No inventory yet", with three steps and a "Go to hosts" action (`canOperate`). Guide: `inventory`. Revisions (~line 236) keep their one-liner. If the page has a search or filter, an emptied result shows `NoMatch`.
-- [ ] T026 [P] [US1] Teams: in `web/src/features/teams/TeamsPage.tsx`:
+- [X] T021 [P] [US1] Receivers: in `web/src/features/receivers/ReceiversPage.tsx` (~line 228), replace the current `EmptyState` with the guided one: "Create a receiver", the three steps, and the existing create action under the page's existing guard. Guide: `receivers#create-a-receiver`. Restricted otherwise. Deliveries (~line 205) keep their one-liner.
+- [X] T022 [P] [US1] Bindings: in `web/src/features/bindings/BindingsPage.tsx`, give the bindings list (~line 380) the guided "Bind a repository" state, using the existing grant check (the one behind `disabled={!grant}` at ~line 238) to choose guided or restricted, never a disabled button. Guide: `bindings#bind-a-repository`. The credentials list (~line 298) gets the guided "Add a credential" state, with guide `bindings#credentials`.
+- [X] T023 [P] [US1] Runs: in `web/src/features/runs/RunsPage.tsx` (~line 51), "No runs yet", with three steps and a "Go to bindings" link button for whoever may bind (else restricted). Guide: `getting-started#your-first-run`. `RunPage.tsx:121` keeps its one-liner.
+- [X] T024 [P] [US1] Reviews queue: in `web/src/features/reviews/ReviewsPage.tsx` (~line 141), "Nothing to review", with two steps and a "Trusted signers" action that scrolls to the page's trusted-signers section (only for whoever may edit signers, else restricted). Guide: `reviews#trusted-signers`.
+- [X] T025 [P] [US1] Inventory: in `web/src/features/inventory/InventoryPage.tsx` (~line 483), "No inventory yet", with three steps and a "Go to hosts" action (`canOperate`). Guide: `inventory`. Revisions (~line 236) keep their one-liner. If the page has a search or filter, an emptied result shows `NoMatch`.
+- [X] T026 [P] [US1] Teams: in `web/src/features/teams/TeamsPage.tsx`:
   - workspaces (~line 145): "Create a workspace", using the existing create action for owners and admins, else restricted;
   - teams (~line 316): "Create a team", using the existing guard;
   - guides `getting-started#create-a-workspace` and `#give-people-access`.
-- [ ] T027 [US1] Copy values: audit `web/src/features/hosts/EnrollDialog.tsx` and the receiver-created result in `ReceiversPage.tsx` (R9). Every value to paste elsewhere gets its own `CopyBlock` (`data` = `enroll-token`, `enroll-command`, `receiver-url`, `receiver-secret`, keeping any existing names that tests already use). Secrets use `masked`, and their "shown once" warnings stay beside them.
-- [ ] T028 [US1] Run `/impeccable clarify` and `/impeccable onboard` over the nine empty states: one-line reasons, at most three steps, verbs on buttons, sentence case. Settle the final copy in the components, and update data-model.md's table to match.
-- [ ] T029 [US1] Make T013, T014 and T015 pass. Then run `tests/e2e/us*` specs that assert the old empty strings, one project at a time, and update only their assertions on empty text.
+- [X] T027 [US1] Copy values: audit `web/src/features/hosts/EnrollDialog.tsx` and the receiver-created result in `ReceiversPage.tsx` (R9). Every value to paste elsewhere gets its own `CopyBlock` (`data` = `enroll-token`, `enroll-command`, `receiver-url`, `receiver-secret`, keeping any existing names that tests already use). Secrets use `masked`, and their "shown once" warnings stay beside them.
+- [X] T028 [US1] Run `/impeccable clarify` and `/impeccable onboard` over the nine empty states: one-line reasons, at most three steps, verbs on buttons, sentence case. Settle the final copy in the components, and update data-model.md's table to match.
+- [X] T029 [US1] Make T013, T014 and T015 pass. Then run `tests/e2e/us*` specs that assert the old empty strings, one project at a time, and update only their assertions on empty text.
 
 **Checkpoint**: US1 is complete, and can be shipped on its own as the MVP.
 
