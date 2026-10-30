@@ -438,11 +438,10 @@ function NoInventory({ canAct }: { canAct: boolean }) {
     <EmptyState
       page="inventory"
       title="No inventory yet"
-      reason="Inventory lists the hosts each job runs against."
+      reason="An inventory lists the hosts a run targets, and their vars."
       steps={[
-        'Enroll a host.',
-        'Run the base profile on it.',
-        'Or bind a repository that declares its own inventory.',
+        'Enroll the hosts it will list.',
+        'Create a managed inventory here, or sync one from a bound repository.',
       ]}
       action={
         canAct ? (

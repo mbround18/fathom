@@ -231,7 +231,7 @@ function NoReceivers({ canAct, onCreate }: { canAct: boolean; onCreate: () => vo
   return (
     <EmptyState
       page="receivers"
-      title="Create a receiver"
+      title={canAct ? 'Create a receiver' : 'No receivers yet'}
       reason="A receiver is how your Git host tells Keel about a push."
       steps={[
         'Create a receiver.',

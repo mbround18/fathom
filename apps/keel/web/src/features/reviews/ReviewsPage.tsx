@@ -98,8 +98,8 @@ function NoReviews({ canAct }: { canAct: boolean }) {
     <EmptyState
       page="reviews"
       title="Nothing to review"
-      reason="Changes wait here when the early check can't trust their commits."
-      steps={['Add trusted signers so their commits skip review.', 'Push a change.']}
+      reason="A change waits here when no trusted signer signed its commit."
+      steps={['Add trusted signers, whose signed commits skip review.', 'Push a change to a bound branch.']}
       action={
         canAct ? (
           <Button
@@ -108,7 +108,7 @@ function NoReviews({ canAct }: { canAct: boolean }) {
               document.getElementById('signers-title')?.scrollIntoView({ block: 'start' })
             }}
           >
-            Trusted signers
+            Go to trusted signers
           </Button>
         ) : undefined
       }

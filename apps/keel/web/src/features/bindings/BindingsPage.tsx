@@ -268,7 +268,7 @@ function NoCredentials({ canAct, onAdd }: { canAct: boolean; onAdd: () => void }
   return (
     <EmptyState
       page="credentials"
-      title="Add a credential"
+      title={canAct ? 'Add a credential' : 'No credentials yet'}
       reason="A private repository needs a token or SSH key before Keel can fetch it."
       steps={['Add a token or SSH key.', 'Grant it to the binding that needs it.']}
       action={
@@ -407,7 +407,7 @@ export default function BindingsPage() {
       {workspace && empty && (
         <EmptyState
           page="bindings"
-          title="Bind a repository"
+          title={canAct ? 'Bind a repository' : 'No repository is bound yet'}
           reason="A binding says which branch Keel runs, and where."
           steps={[
             'Add a credential if the repository is private.',

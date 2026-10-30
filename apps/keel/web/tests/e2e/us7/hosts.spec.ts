@@ -152,6 +152,8 @@ test('a user who cannot operate anywhere is not offered Enroll', async ({ page, 
     grants: [{ workspace: WORKSPACE, workspace_slug: 'ops', role: 'viewer', profiles: [] }],
   })
   await page.goto('/hosts')
-  await expect(page.getByRole('table', { name: 'Hosts' })).toBeVisible()
+  // An empty list says who can enroll instead (spec 063 FR-013).
+  await expect(page.locator('[data-empty-page="hosts"]')).toContainText('No hosts yet')
+  await expect(page.locator('[data-empty-page="hosts"]')).toHaveAttribute('data-empty', 'restricted')
   await expect(page.getByRole('button', { name: 'Enroll host' })).toHaveCount(0)
 })

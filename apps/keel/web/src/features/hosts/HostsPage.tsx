@@ -201,8 +201,8 @@ function NoHosts({ workspace, canAct }: { workspace: string; canAct: boolean }) 
   return (
     <EmptyState
       page="hosts"
-      title="Enroll a host"
-      reason="Keel only runs jobs on hosts that have enrolled."
+      title={canAct ? 'Enroll a host' : 'No hosts yet'}
+      reason="Keel only runs on hosts that have enrolled."
       steps={[
         'Enroll a host to get its one-time command.',
         'Run the command on the host.',

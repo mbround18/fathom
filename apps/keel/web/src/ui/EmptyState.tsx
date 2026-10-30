@@ -75,7 +75,14 @@ export function EmptyState({
           {whoCan} can {verb}.
         </p>
       )}
-      {guide !== undefined && <GuideLink to={guide} />}
+      {guide !== undefined && (
+        <GuideLink to={guide}>
+          {/* The visible text is the contract's "Learn more"; the hidden title makes the link's
+              name make sense in a screen reader's list of links. */}
+          <span aria-hidden>Learn more</span>
+          <span className="sr-only">Learn more: {title}</span>
+        </GuideLink>
+      )}
     </div>
   )
 }

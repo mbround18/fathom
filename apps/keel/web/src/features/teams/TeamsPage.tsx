@@ -158,7 +158,7 @@ function Workspaces() {
           empty={
             <EmptyState
               page="workspaces"
-              title="Create a workspace"
+              title={canAct ? 'Create a workspace' : 'No workspaces yet'}
               reason="Hosts, bindings and runs all live in a workspace."
               steps={['Create a workspace.', 'Grant a team access to it.', 'Enroll a host into it.']}
               action={
@@ -359,7 +359,7 @@ function Teams() {
           empty={
             <EmptyState
               page="teams"
-              title="Create a team"
+              title={canAct ? 'Create a team' : 'No teams yet'}
               reason="Teams carry workspace grants to their members."
               steps={['Create a team.', 'Add members.', 'Grant it a workspace.']}
               action={

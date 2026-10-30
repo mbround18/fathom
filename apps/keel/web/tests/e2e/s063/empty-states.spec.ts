@@ -143,7 +143,8 @@ test.describe('no workspace', () => {
     const empty = page.locator('[data-empty-page="workspace-picker"]')
     await expect(empty).toHaveAttribute('data-empty', 'guided')
     await expect(empty.locator('[data-guide-link]')).toHaveAttribute('href', '/help/getting-started#create-a-workspace')
-    await empty.getByRole('link', { name: 'Create a workspace' }).click()
+    await expect(empty.locator('[data-guide-link]')).toHaveAccessibleName('Learn more: Create a workspace')
+    await empty.getByRole('link', { name: 'Create a workspace', exact: true }).click()
     await expect(page).toHaveURL(/\/teams$/)
   })
 

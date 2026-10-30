@@ -56,17 +56,23 @@ page's current button guard.
 
 | Page | Title | Reason (one line) | Steps | Action (who can act) | Guide |
 |---|---|---|---|---|---|
-| Workspace picker (no workspace) | Create a workspace | Hosts, bindings and runs all live in a workspace. | 1. Create a workspace. 2. Grant a team access. 3. Enroll a host into it. | "Create a workspace" → `/teams` (owner or admin, `canSeeSettings`) | `getting-started#create-a-workspace` |
-| Hosts | Enroll a host | Keel can only run on hosts that have enrolled. | 1. Enroll a host to get its command. 2. Run the command on the host. 3. Run the base profile. | "Enroll a host" (`canOperate(me, ws)`) | `hosts#enroll-a-host` |
-| Receivers | Create a receiver | A receiver is how your Git host tells Keel about a push. | 1. Create a receiver. 2. Add its URL and secret as a webhook at your Git host. 3. Push to see the first delivery. | "Create a receiver" (the page's existing guard) | `receivers#create-a-receiver` |
-| Bindings | Bind a repository | A binding says which branch Keel runs, and where. | 1. Add a credential for the repository. 2. Bind a branch to this workspace. 3. Push to the branch. | "Bind a repository" (existing grant check) | `bindings#bind-a-repository` |
-| Runs | No runs yet | A run applies a bound branch to its hosts. | 1. Bind a repository. 2. Push to the bound branch. 3. Approve the review if asked. | "Go to bindings" → `/bindings` (same as Bindings) | `getting-started#your-first-run` |
-| Reviews (queue) | Nothing to review | Changes wait here when the early check can't trust them. | 1. Add trusted signers to skip reviews for their commits. 2. Push a change. | "Trusted signers" → `#trusted-signers` on the same page (whoever may edit signers) | `reviews#trusted-signers` |
-| Inventory | No inventory yet | Inventory lists the hosts Keel manages and the repository's own. | 1. Enroll a host. 2. Run the base profile. 3. Or import the repository's inventory. | "Go to hosts" → `/hosts` (`canOperate`) | `inventory` |
-| Teams: workspaces | Create a workspace | (same as the picker) | (same as the picker) | "Create a workspace" (owner or admin) | `getting-started#create-a-workspace` |
-| Teams: teams | Create a team | Teams carry workspace grants to their members. | 1. Create a team. 2. Add members. 3. Grant it a workspace. | "Create a team" (existing guard) | `getting-started#give-people-access` |
+| Workspace picker (no workspace) | Create a workspace (owner or admin); No workspace yet (everyone else) | Hosts, bindings and runs all live in a workspace. | 1. Create a workspace. 2. Grant a team access to it. 3. Enroll a host into it. (Owner or admin only.) | "Create a workspace" → `/teams` (owner or admin, `canSeeSettings`); else "An owner or admin can grant you a workspace from Teams." | `getting-started#create-a-workspace` |
+| Hosts | Enroll a host (No hosts yet) | Keel only runs on hosts that have enrolled. | 1. Enroll a host to get its one-time command. 2. Run the command on the host. 3. Run the base profile on it. | "Enroll a host" (`canOperate(me, ws)`) | `hosts#enroll-a-host` |
+| Receivers | Create a receiver (No receivers yet) | A receiver is how your Git host tells Keel about a push. | 1. Create a receiver. 2. Add its URL and secret as a webhook at your Git host. 3. Push to see the first delivery. | "Create a receiver", focuses the new receiver's name (`canOperate`) | `receivers#create-a-receiver` |
+| Bindings | Bind a repository (No repository is bound yet) | A binding says which branch Keel runs, and where. | 1. Add a credential if the repository is private. 2. Bind a branch to this workspace. 3. Push to the branch. | "Bind a repository", opens the New binding form (`canOperate`) | `bindings#bind-a-repository` |
+| Bindings: credentials | Add a credential (No credentials yet) | A private repository needs a token or SSH key before Keel can fetch it. | 1. Add a token or SSH key. 2. Grant it to the binding that needs it. | "Add a credential" (outline: Bindings holds the page's primary action), focuses the name (`canOperate`) | `bindings#credentials` |
+| Runs | No runs yet | A run applies a bound branch to its hosts. | 1. Bind a repository. 2. Push to the bound branch. 3. Approve the review if Keel asks. | "Go to bindings" → `/bindings` (`canOperate`) | `getting-started#your-first-run` |
+| Reviews (queue) | Nothing to review | A change waits here when no trusted signer signed its commit. | 1. Add trusted signers, whose signed commits skip review. 2. Push a change to a bound branch. | "Go to trusted signers", scrolls to the page's signers section (`canOperate`) | `reviews#trusted-signers` |
+| Inventory | No inventory yet | An inventory lists the hosts a run targets, and their vars. | 1. Enroll the hosts it will list. 2. Create a managed inventory here, or sync one from a bound repository. | "Go to hosts" → `/hosts` (`canOperate`) | `inventory` |
+| Teams: workspaces | Create a workspace (No workspaces yet) | (same as the picker) | (same as the picker) | "Create a workspace" (owner or admin) | `getting-started#create-a-workspace` |
+| Teams: teams | Create a team (No teams yet) | Teams carry workspace grants to their members. | 1. Create a team. 2. Add members. 3. Grant it a workspace. | "Create a team" (owner or admin) | `getting-started#give-people-access` |
 
-The draft copy above is final only after `/impeccable clarify`. The rules hold regardless:
+A title in brackets replaces an imperative one for someone who can't act. Restricted variants read "An operator or workspace admin can {verb}." on workspace pages and "An
+owner or admin can {verb}." on Teams. The server requires Administer for receivers, credentials,
+signers, inventory and bindings, which is narrower than `canOperate`; the guided state follows the
+page's existing client guard, so an operator can be offered an action the server then refuses.
+
+The copy above is final after `/impeccable clarify` and `/impeccable onboard` (T028). The rules hold:
 
 - one line of reason;
 - at most three steps;
