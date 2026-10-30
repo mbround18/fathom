@@ -19,7 +19,7 @@ Each entry has at most two sentences and at most 240 characters.
 | `base-profile` | Base profile | The profile from your Ansible repository that every host gets first. Run with an enrolment token, it installs the Keel runner and enrolls the host. | `hosts#run-the-base-profile` |
 | `enrolment-token` | Enrolment token | A one-time token that lets one host enroll in a workspace with the profiles you chose. It is shown once and expires after 15 minutes. | `hosts#enroll-a-host` |
 | `fingerprint` | Fingerprint | A short code that identifies a key or secret without showing it. Compare it with your own copy to check they match. | `hosts#check-the-fingerprint` |
-| `preview-credential` | Preview credential | Shows what adding the credential will change before anything is saved. Keel stores the value only once you confirm, and then shows just its fingerprint. | `bindings#credentials` |
+| `credential` | Credential | A secret a binding uses to fetch the repository or to run its jobs. Keel stores it sealed once you confirm the preview, and from then on shows only its fingerprint. | `bindings#credentials` |
 | `inventory-managed` | Managed inventory | An inventory you write and edit in Keel. Each save is a new revision you can compare or restore. | `inventory#managed-and-repository-inventory` |
 | `inventory-repository` | Repository inventory | An inventory read from a file in a bound repository. It is read-only here and changes when the repository changes. | `inventory#managed-and-repository-inventory` |
 | `workspace` | Workspace | Keeps a set of hosts, bindings, inventories and runs apart from the rest. People get access to it through their team's grants. | `getting-started#create-a-workspace` |
@@ -69,8 +69,8 @@ targets for T045–T049 to create, not yet checked.
   value).
   `crates/keel-protocol/src/host.rs` (`SshCaInfo`), `crates/keel-protocol/src/review.rs` (`SignerInfo`),
   `crates/keel-protocol/src/binding.rs` (`CredentialInfo`), `apps/keel/web/src/features/hosts/HostsPage.tsx`.
-- **`preview-credential`**: corrected. There is no read-only "preview credential". "Preview
-  credential" is the submit button on the Bindings page's New credential form. Like every
+- **`credential`** (was `preview-credential`): corrected, then renamed. There is no read-only
+  "preview credential". "Preview credential" is the submit button on the Bindings page's New credential form. Like every
   privileged command, it returns a preview, and the value is stored only on Confirm (create needs
   step-up). See the note under "Open question" below.
   `apps/keel/web/src/features/bindings/BindingsPage.tsx` (`Credentials`), `apps/keel/server/src/credentials.rs`,
@@ -96,9 +96,9 @@ targets for T045–T049 to create, not yet checked.
   `specs/055-ansible-repo-control-plane/contracts/repo-manifest.md`, `apps/keel/server/src/sync.rs`,
   `specs/055-ansible-repo-control-plane/spec.md` (FR-037).
 
-## Open question
+## Resolved: credential, not preview credential
 
-`preview-credential` is in FR-020 because the label reads like jargon, but it names an action
-(preview, then confirm), not a thing. Replacing the term with `credential` might serve people
-better: "A secret a binding uses to fetch or run. Keel stores it sealed and shows only its
-fingerprint." That changes FR-020's term list, so it is left for the owner.
+`preview-credential` was in FR-020 because the label reads like jargon, but it names an action
+(preview, then confirm), not a thing. The owner decided on 2026-10-29 to define `credential`
+instead, describing the secret itself; preview is one action that uses it. FR-020 lists
+credential, and the tip sits on the Credentials heading of the Bindings page.

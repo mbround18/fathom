@@ -111,7 +111,7 @@ Next to the terms Keel's newcomers don't know, an info icon opens a one- or two-
 
 **Help for jargon (US3)**
 
-- **FR-020**: A single glossary MUST define at least: binding, receiver, trusted signers, early check, review, base profile, enroll / enrolment token, fingerprint, preview credential, inventory (managed and repository), workspace, team, grant, profile. Each entry is one or two sentences and may name a guide section.
+- **FR-020**: A single glossary MUST define at least: binding, receiver, trusted signers, early check, review, base profile, enroll / enrolment token, fingerprint, credential, inventory (managed and repository), workspace, team, grant, profile. Each entry is one or two sentences and may name a guide section.
 - **FR-021**: Where a glossary term appears in a page heading, section heading, table column heading or form label, an info icon MUST follow it, opening the glossary text. Each term gets an icon at most once per section.
 - **FR-022**: The explanation MUST open on hover, on keyboard focus and on tap; it MUST close on Escape, on blur and on tapping elsewhere; it MUST be announced to assistive technology as help for the term.
 - **FR-023**: Explanatory text under page and section headings longer than one line at desktop width MUST become a one-line subtitle plus a "Learn more" link to the guide.

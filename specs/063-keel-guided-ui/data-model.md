@@ -93,7 +93,7 @@ Secondary lists keep their one-liners (FR-016): deliveries, revisions, and hosts
 The required terms (FR-020):
 
 - `binding`, `receiver`, `trusted-signers`, `early-check`, `review`, `base-profile`;
-- `enrolment-token`, `fingerprint`, `preview-credential`;
+- `enrolment-token`, `fingerprint`, `credential`;
 - `inventory-managed`, `inventory-repository`;
 - `workspace`, `team`, `grant`, `profile`.
 

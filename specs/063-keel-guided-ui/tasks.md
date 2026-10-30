@@ -184,7 +184,7 @@ a label. Its text comes from one glossary. Long paragraphs become one line plus 
   - every FR-020 `TermId` is present;
   - each `text` has at most two sentences (split on `. `) and at most 240 characters, in sentence case;
   - each `guide` ref resolves (reusing T006's resolver).
-- [ ] T036 [P] [US3] Write `web/tests/e2e/s063/glossary.spec.ts`. For one term per page (Reviews `trusted-signers`, Hosts `fingerprint`, Bindings `preview-credential`, Receivers `receiver`, Inventory `inventory-managed`, Teams `grant`):
+- [ ] T036 [P] [US3] Write `web/tests/e2e/s063/glossary.spec.ts`. For one term per page (Reviews `trusted-signers`, Hosts `fingerprint`, Bindings `credential`, Receivers `receiver`, Inventory `inventory-managed`, Teams `grant`):
   - mouse hover opens `[data-infotip-content]`;
   - Tab focus opens it, and the trigger's `aria-describedby` points at it;
   - Escape closes it;
@@ -203,7 +203,7 @@ a label. Its text comes from one glossary. Long paragraphs become one line plus 
   - `onOpenAutoFocus` is prevented;
   - the content has `role="note"`, `max-w-[min(20rem,calc(100vw-2rem))]`, `collisionPadding={16}` and `motion-reduce:animate-none`;
   - it takes an optional `footer` and passes `data-*` attributes to the trigger.
-- [ ] T039 [P] [US3] Add TermTips in Reviews and Bindings (`web/src/features/reviews/ReviewsPage.tsx`, `web/src/features/bindings/`): at most once per section, after `trusted-signers`, `early-check`, `review`, `binding` and `preview-credential` wherever they appear in a heading, column heading or label (FR-021).
+- [ ] T039 [P] [US3] Add TermTips in Reviews and Bindings (`web/src/features/reviews/ReviewsPage.tsx`, `web/src/features/bindings/`): at most once per section, after `trusted-signers`, `early-check`, `review`, `binding` and `credential` wherever they appear in a heading, column heading or label (FR-021).
 - [ ] T040 [P] [US3] Add TermTips in Hosts and Receivers (`web/src/features/hosts/`, `web/src/features/receivers/`) for `enrolment-token`, `fingerprint`, `base-profile`, `profile` and `receiver`.
 - [ ] T041 [P] [US3] Add TermTips in Inventory, Teams and the picker (`web/src/features/inventory/`, `web/src/features/teams/`, `web/src/app/WorkspacePicker.tsx`) for `inventory-managed`, `inventory-repository`, `workspace`, `team` and `grant`.
 - [ ] T042 [US3] Add the `guide?: GuideRef` prop to `web/src/ui/PageHeader.tsx`. With it set, the description is one line (`md:line-clamp-1`) and followed by `GuideLink`. Add a `SectionIntro` (one line plus `GuideLink`) beside the `ui/form.tsx` tokens for section-level text.
