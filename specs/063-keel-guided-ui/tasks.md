@@ -220,16 +220,16 @@ a label. Its text comes from one glossary. Long paragraphs become one line plus 
 
 ## Phase 6: Guides (FR-030)
 
-- [ ] T045 [P] Write `guides/getting-started.md` in full. It covers workspace → access → host → receiver → binding → first run, in the guides' current voice: short numbered steps, each linking to the topic guide.
-- [ ] T046 [P] Write `guides/hosts.md` in full: enrolment, the token's lifetime and single use, checking the fingerprint, running the base profile, what "changed outside Keel" means. Link `enrollment-template.md` for admins.
-- [ ] T047 [P] Write `guides/receivers.md` in full: creating one, adding the webhook at the Git host (generic steps, plus notes for GitHub, GitLab and Forgejo), reading deliveries, rotating the secret.
-- [ ] T048 [P] Write `guides/bindings.md` and `guides/reviews.md` in full:
+- [X] T045 [P] Write `guides/getting-started.md` in full. It covers workspace → access → host → receiver → binding → first run, in the guides' current voice: short numbered steps, each linking to the topic guide.
+- [X] T046 [P] Write `guides/hosts.md` in full: enrolment, the token's lifetime and single use, checking the fingerprint, running the base profile, what "changed outside Keel" means. Link `enrollment-template.md` for admins.
+- [X] T047 [P] Write `guides/receivers.md` in full: creating one, adding the webhook at the Git host (generic steps, plus notes for GitHub, GitLab and Forgejo), reading deliveries, rotating the secret.
+- [X] T048 [P] Write `guides/bindings.md` and `guides/reviews.md` in full:
   - credentials, including the preview credential;
   - binding a branch;
   - the early check, trusted signers and how they relate to `keel_runner_trusted_signers` (the text moved out of ReviewsPage in T043);
   - approving with a passkey.
-- [ ] T049 [P] Write `guides/inventory.md` in full: managed vs repository inventory, revisions, importing.
-- [ ] T050 Re-run `web/tests/unit/guide-links.test.ts` and `tests/e2e/s063/help.spec.ts`. Check that `guides/README.md` lists every guide.
+- [X] T049 [P] Write `guides/inventory.md` in full: managed vs repository inventory, revisions, importing.
+- [X] T050 Re-run `web/tests/unit/guide-links.test.ts` and `tests/e2e/s063/help.spec.ts`. Check that `guides/README.md` lists every guide.
 
 ---
 
