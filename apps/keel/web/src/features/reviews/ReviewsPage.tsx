@@ -13,6 +13,7 @@ import { useId, useState } from 'react'
 import { useSession } from '@/app/session-store'
 import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
 import { canOperate } from '@/features/hosts/workspaces'
+import { TermTip } from '@/help/TermTip'
 import type { ReviewState, ReviewInfo, SignatureStatus, SignerInfo, SignerKind } from '@/protocol/wire'
 import { ConfirmDialog as Confirm } from '@/ui/ConfirmDialog'
 import { useReveal } from '@/ui/reveal'
@@ -20,7 +21,7 @@ import { DataTable } from '@/ui/DataTable'
 import { EmptyState } from '@/ui/EmptyState'
 import { emptyVariant } from '@/ui/empty-variant'
 import { ErrorLine as Alert } from '@/ui/ErrorLine'
-import { FIELD, H2, LABEL, LINK, Select, STATUS } from '@/ui/form'
+import { FIELD, H2, LABEL, LINK, SectionIntro, Select, STATUS } from '@/ui/form'
 import { LoadState } from '@/ui/LoadState'
 import { NoMatch } from '@/ui/NoMatch'
 import { Page } from '@/ui/Page'
@@ -161,7 +162,7 @@ function ReviewList() {
         { key: 'commit', header: 'Commit', cell: (r) => <span className="font-mono">{shortSha(r.target)}</span> },
         { key: 'base', header: 'Base', cell: (r) => <span className="font-mono">{shortSha(r.base)}</span> },
         { key: 'hosts', header: 'Hosts', className: 'w-[18%]', cell: (r) => <span className="font-mono">{r.hosts.join(', ')}</span> },
-        { key: 'why', header: 'Why', cell: (r) => REASON_LABELS[r.reason] },
+        { key: 'why', header: 'Why', tip: <TermTip term="early-check" />, cell: (r) => REASON_LABELS[r.reason] },
         {
           key: 'state',
           header: 'State',
@@ -498,13 +499,15 @@ function Signers() {
   return (
     <section aria-labelledby="signers-title" className="flex min-w-0 flex-col gap-3">
       <div className="flex min-w-0 flex-col gap-0.5">
-        <h2 id="signers-title" className={H2}>
-          Trusted signers
-        </h2>
-        <p className="max-w-prose text-xs text-muted-foreground">
-        Commits signed by these keys pass Keel&apos;s early check. Hosts check signatures against their own
-        keel_runner_trusted_signers, so keep the two lists in step.
-        </p>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <h2 id="signers-title" className={H2}>
+            Trusted signers
+          </h2>
+          <TermTip term="trusted-signers" />
+        </div>
+        <SectionIntro guide={{ guide: 'reviews', anchor: 'trusted-signers' }}>
+          Commits signed by these keys pass the early check.
+        </SectionIntro>
       </div>
       <DataTable<SignerInfo>
         label="Trusted signers"
@@ -513,7 +516,7 @@ function Signers() {
         columns={[
           { key: 'label', header: 'Label', cell: (s) => s.label },
           { key: 'kind', header: 'Kind', cell: (s) => (s.kind === 'ssh' ? 'SSH' : 'OpenPGP') },
-          { key: 'fp', header: 'Fingerprint', className: 'w-[40%]', cell: (s) => <span className="font-mono break-all">{s.fingerprint}</span> },
+          { key: 'fp', header: 'Fingerprint', tip: <TermTip term="fingerprint" />, className: 'w-[40%]', cell: (s) => <span className="font-mono break-all">{s.fingerprint}</span> },
           { key: 'added', header: 'Added', cell: (s) => <span className="tabular-nums">{s.added_at}</span> },
         ]}
         actions={(s) => (
@@ -598,7 +601,9 @@ export default function ReviewsPage() {
       <PageHeader
         id="reviews-title"
         title="Reviews"
-        description="Runs held for a person to check, because their commits were not signed by a trusted key."
+        tip={<TermTip term="review" />}
+        description="Runs the early check held back, until someone decides."
+        guide={{ guide: 'reviews' }}
       >
         <WorkspacePicker />
         {workspace && <FilterPicker />}

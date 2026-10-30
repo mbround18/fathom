@@ -10,13 +10,14 @@ import { useId, useRef, useState, type SyntheticEvent } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { canOperate } from '@/features/hosts/workspaces'
+import { TermTip } from '@/help/TermTip'
 import type { BindingInfo, CredentialInfo, CredentialKind, JobSummary, Transport } from '@/protocol/wire'
 import { DataTable } from '@/ui/DataTable'
 import { EmptyState } from '@/ui/EmptyState'
 import { LoadState } from '@/ui/LoadState'
 import { emptyVariant } from '@/ui/empty-variant'
 import { useReveal } from '@/ui/reveal'
-import { Field as FormField, FIELD, H2, LABEL, LINK, STATUS } from '@/ui/form'
+import { Field as FormField, FIELD, H2, LABEL, LINK, SectionIntro, STATUS } from '@/ui/form'
 import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
@@ -84,7 +85,10 @@ export function NewBinding() {
       onSubmit={submit}
       className="grid min-w-0 gap-3 border border-border bg-muted/20 p-3 sm:grid-cols-2"
     >
-      <h2 className={`${H2} sm:col-span-2`}>New binding</h2>
+      <div className="flex min-w-0 items-center gap-1.5 sm:col-span-2">
+        <h2 className={H2}>New binding</h2>
+        <TermTip term="binding" />
+      </div>
       <Field label="Project id" id={`${id}-project`}>
         <Input id={`${id}-project`} value={project} onChange={(e) => setProject(e.target.value)} required />
       </Field>
@@ -214,7 +218,7 @@ function Detail({ binding }: { binding: BindingInfo }) {
             columns={[
               { key: 'job', header: 'Job', cell: (j) => <span className="font-mono">{j.name}</span> },
               { key: 'playbook', header: 'Playbook', cell: (j) => <span className="font-mono break-all">{j.playbook}</span> },
-              { key: 'profiles', header: 'Profiles', cell: (j) => j.profiles.join(', ') },
+              { key: 'profiles', header: 'Profiles', tip: <TermTip term="profile" />, cell: (j) => j.profiles.join(', ') },
               { key: 'inventory', header: 'Inventory', cell: (j) => j.inventory },
               {
                 key: 'state',
@@ -312,9 +316,9 @@ function Credentials({ canAct }: { canAct: boolean }) {
         <h2 id={`${id}-title`} className={H2}>
           Credentials
         </h2>
-        <p className="text-xs text-muted-foreground">
-          Secrets a binding uses to fetch or run. Keel stores the value and shows only its fingerprint.
-        </p>
+        <SectionIntro guide={{ guide: 'bindings', anchor: 'credentials' }}>
+          Secrets a binding uses to fetch or run.
+        </SectionIntro>
       </div>
       {loaded && credentials.length === 0 ? (
         <NoCredentials
@@ -331,7 +335,7 @@ function Credentials({ canAct }: { canAct: boolean }) {
           columns={[
             { key: 'name', header: 'Name', cell: (c) => <span className="font-mono">{c.name}</span> },
             { key: 'kind', header: 'Kind', cell: (c) => KINDS.find((k) => k.kind === c.kind)?.label ?? c.kind },
-            { key: 'fp', header: 'Fingerprint', className: 'w-[40%]', cell: (c) => <span className="font-mono break-all">{c.fingerprint}</span> },
+            { key: 'fp', header: 'Fingerprint', tip: <TermTip term="fingerprint" />, className: 'w-[40%]', cell: (c) => <span className="font-mono break-all">{c.fingerprint}</span> },
             { key: 'grants', header: 'Granted to', cell: (c) => <span className="tabular-nums">{c.grants.length}</span> },
           ]}
           empty={<LoadState loading label="Loading credentials…" />}
@@ -361,9 +365,12 @@ function Credentials({ canAct }: { canAct: boolean }) {
               required
             />
           </Field>
-          <Button type="submit" size="sm">
-            Preview credential
-          </Button>
+          <span className="inline-flex items-center gap-1.5">
+            <Button type="submit" size="sm">
+              Preview credential
+            </Button>
+            <TermTip term="preview-credential" />
+          </span>
         </form>
       )}
     </section>
@@ -389,7 +396,9 @@ export default function BindingsPage() {
       <PageHeader
         id="bindings-title"
         title="Bindings"
-        description="Repositories bound to a project, the jobs they define, and the credentials they use."
+        tip={<TermTip term="binding" />}
+        description="Branches Keel runs from, their jobs and their credentials."
+        guide={{ guide: 'bindings' }}
         actions={
           workspace &&
           canAct && (

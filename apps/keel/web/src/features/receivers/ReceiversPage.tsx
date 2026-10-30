@@ -12,6 +12,7 @@ import { useSession } from '@/app/session-store'
 import { ErrorLine, Field, PreviewDialog, WorkspacePicker } from '@/features/bindings/parts'
 import { short, useRepos } from '@/features/bindings/store'
 import { canOperate } from '@/features/hosts/workspaces'
+import { TermTip } from '@/help/TermTip'
 import type { DeliveryInfo, ReceiverInfo, ReceiverProvider } from '@/protocol/wire'
 import { CopyBlock } from '@/ui/CopyBlock'
 import { DataTable } from '@/ui/DataTable'
@@ -206,7 +207,7 @@ function Deliveries() {
       rowData={(d) => ({ 'data-decision': d.decision })}
       columns={[
         { key: 'at', header: 'Received', cell: (d) => <span className="tabular-nums">{d.received_at}</span> },
-        { key: 'receiver', header: 'Receiver', cell: (d) => nameOf(d.receiver) },
+        { key: 'receiver', header: 'Receiver', tip: <TermTip term="receiver" />, cell: (d) => nameOf(d.receiver) },
         { key: 'delivery', header: 'Delivery', cell: (d) => <span className="font-mono break-all">{d.provider_delivery_id}</span> },
         {
           key: 'decision',
@@ -266,7 +267,9 @@ export default function ReceiversPage() {
       <PageHeader
         id="receivers-title"
         title="Receivers"
-        description="Webhook endpoints your Git host calls, the bindings each one syncs, and what arrived."
+        tip={<TermTip term="receiver" />}
+        description="Webhooks your Git host calls on each push, and what arrived."
+        guide={{ guide: 'receivers' }}
       >
         <WorkspacePicker />
       </PageHeader>
