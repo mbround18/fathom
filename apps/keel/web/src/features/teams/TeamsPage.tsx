@@ -14,6 +14,7 @@ import { useSession } from '@/app/session-store'
 import { canSeeSettings } from '@/features/settings/tabs'
 import { TermTip } from '@/help/TermTip'
 import type { GrantInfo, TeamInfo, WorkspaceInfo } from '@/protocol/wire'
+import { CopyBlock } from '@/ui/CopyBlock'
 import { EmptyState } from '@/ui/EmptyState'
 import { H3, Select } from '@/ui/form'
 import { Page } from '@/ui/Page'
@@ -96,11 +97,6 @@ function WorkspaceRow({ ws }: { ws: WorkspaceInfo }) {
         <span className="font-mono">{ws.slug}</span>
         <span className="min-w-0 break-words text-muted-foreground">{ws.name}</span>
         {ws.archived && <Badge variant="outline">archived</Badge>}
-        {ws.projects.length > 0 && (
-          <span data-projects className="min-w-0 break-words text-muted-foreground">
-            {ws.projects.map((p) => p.slug).join(', ')}
-          </span>
-        )}
         <span className="flex-1" />
         {!ws.archived && (
           <>
@@ -124,6 +120,15 @@ function WorkspaceRow({ ws }: { ws: WorkspaceInfo }) {
           </>
         )}
       </div>
+      {ws.projects.length > 0 && (
+        <ul data-projects aria-label={`Projects in ${ws.slug}`} className="flex min-w-0 flex-col gap-2 px-4 pb-2">
+          {ws.projects.map((p) => (
+            <li key={p.id} data-project={p.slug} className="min-w-0">
+              <CopyBlock label={`Project ${p.slug} id`} value={p.id} data="project-id" />
+            </li>
+          ))}
+        </ul>
+      )}
       {adding && <NewProject workspace={ws} onDone={() => setAdding(false)} />}
     </li>
   )

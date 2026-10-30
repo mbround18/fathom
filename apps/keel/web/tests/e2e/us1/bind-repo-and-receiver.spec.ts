@@ -4,7 +4,8 @@
  * fake backend (tests/support/fake-repos.ts).
  */
 import { expect, fixtures, test, type FakeBackend } from '../../support/fake-backend'
-import { HEAD, PROJECT, WORKSPACE } from '../../support/fake-repos'
+import { governance } from '../../support/fake-governance'
+import { HEAD, NOW, PROJECT, WORKSPACE } from '../../support/fake-repos'
 
 const URL = 'https://git.example.com/ops/infra.git'
 
@@ -12,6 +13,21 @@ function admin(backend: FakeBackend): void {
   backend.me = fixtures.me({
     grants: [{ workspace: WORKSPACE, workspace_slug: 'ops', role: 'ws_admin', profiles: [] }],
     verification: fixtures.verification({ verified: true, enrolled: true, at: '2026-10-27T11:59:00Z' }),
+  })
+  // Two projects, so the New binding form asks which (spec 063 T056).
+  governance(backend, (g) => {
+    g.workspaces.push({
+      id: WORKSPACE,
+      slug: 'ops',
+      name: 'Ops',
+      created: NOW,
+      archived: false,
+      projects: [
+        { id: PROJECT, slug: 'infra', name: 'Infra' },
+        { id: '01J00000000000000000000PR2', slug: 'apps', name: 'Apps' },
+      ],
+      system: false,
+    })
   })
 }
 
@@ -24,7 +40,7 @@ test('bind a repository, create and bind a receiver, see its deliveries', async 
   // Create a binding: the preview reports the test fetch before anything is stored.
   await page.getByRole('button', { name: 'New binding' }).click()
   const form = page.getByRole('form', { name: 'New binding' })
-  await form.getByLabel('Project id').fill(PROJECT)
+  await form.getByLabel('Project').selectOption(PROJECT)
   await form.getByLabel('Repository URL').fill(URL)
   await form.getByRole('button', { name: 'Preview binding' }).click()
   const dialog = page.getByRole('dialog')
@@ -88,7 +104,7 @@ test('a repository bound twice is refused with the reason', async ({ page, backe
   for (const attempt of [1, 2]) {
     if (attempt === 1) await page.getByRole('button', { name: 'New binding' }).click()
     const form = page.getByRole('form', { name: 'New binding' })
-    await form.getByLabel('Project id').fill(PROJECT)
+    await form.getByLabel('Project').selectOption(PROJECT)
     await form.getByLabel('Repository URL').fill(URL)
     await form.getByRole('button', { name: 'Preview binding' }).click()
     if (attempt === 1) {

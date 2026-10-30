@@ -53,11 +53,21 @@ test('an owner sets up the System workspace, binds it, enrolls into it and remov
 
   // Bind the repository holding Keel's own playbooks, with the usual form.
   backend.repos.workspace = SYSTEM_WORKSPACE
+  g.workspaces.push({
+    id: SYSTEM_WORKSPACE,
+    slug: 'keel-system',
+    name: 'Keel system',
+    created: NOW,
+    archived: false,
+    projects: [{ id: PROJECT, slug: 'keel', name: 'Keel' }],
+    system: true,
+  })
   const bindings = configured.getByRole('region', { name: 'System bindings' })
   await expect(bindings).toContainText('No repository is bound yet.')
   await bindings.getByRole('button', { name: 'New binding' }).click()
   const form = bindings.getByRole('form', { name: 'New binding' })
-  await form.getByLabel('Project id').fill(PROJECT)
+  // Its one project is picked already.
+  await expect(form.getByLabel('Project')).toHaveValue(PROJECT)
   await form.getByLabel('Repository URL').fill(URL)
   await form.getByRole('button', { name: 'Preview binding' }).click()
   await expect(dialog).toContainText(`fetched ${HEAD.slice(0, 12)}`)
@@ -65,7 +75,6 @@ test('an owner sets up the System workspace, binds it, enrolls into it and remov
   await expect(bindings.getByRole('list', { name: 'Bindings' }).locator('[data-binding]')).toContainText(URL)
 
   // Enroll a host into it: the dialog starts on the System workspace.
-  g.workspaces.push({ id: SYSTEM_WORKSPACE, slug: 'keel-system', name: 'Keel system', created: NOW, archived: false, projects: [], system: true })
   const hosts = configured.getByRole('region', { name: 'System hosts' })
   await expect(hosts.locator('[data-system-hosts]')).toHaveText('0')
   await hosts.getByRole('button', { name: 'Enroll host' }).click()

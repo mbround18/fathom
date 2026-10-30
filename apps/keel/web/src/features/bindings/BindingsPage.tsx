@@ -8,8 +8,9 @@ import { PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
 import { useId, useRef, useState, type SyntheticEvent } from 'react'
 
+import { Link } from '@/app/Link'
 import { useSession } from '@/app/session-store'
-import { canAdminister, canOperate } from '@/features/hosts/workspaces'
+import { canAdminister, canOperate, useWorkspaces } from '@/features/hosts/workspaces'
 import { TermTip } from '@/help/TermTip'
 import type { BindingInfo, CredentialInfo, CredentialKind, JobSummary, Transport } from '@/protocol/wire'
 import { DataTable } from '@/ui/DataTable'
@@ -17,7 +18,7 @@ import { EmptyState } from '@/ui/EmptyState'
 import { LoadState } from '@/ui/LoadState'
 import { emptyVariant } from '@/ui/empty-variant'
 import { useReveal } from '@/ui/reveal'
-import { Field as FormField, FIELD, H2, LABEL, LINK, SectionIntro, STATUS } from '@/ui/form'
+import { Field as FormField, FIELD, H2, LABEL, LINK, SectionIntro, Select, STATUS } from '@/ui/form'
 import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
@@ -44,10 +45,50 @@ const KINDS: { kind: CredentialKind; label: string }[] = [
   { kind: 'secret_vars', label: 'Secret vars' },
 ]
 
+/**
+ * The project a new binding lands in, picked from the current workspace's projects (ListWorkspaces).
+ * One project is picked for you; none sends you to Teams to create one.
+ */
+function ProjectField({ id, value, onChange }: { id: string; value: string; onChange: (project: string) => void }) {
+  const workspace = useRepos((s) => s.workspace)
+  const { all } = useWorkspaces()
+  const projects = all === null ? null : (all.find((w) => w.id === workspace)?.projects ?? [])
+  return (
+    <Field label="Project" id={id}>
+      {projects === null ? (
+        <p role="status" className="text-xs text-muted-foreground">
+          Loading projects…
+        </p>
+      ) : projects.length === 0 ? (
+        <p data-no-projects className="text-xs text-muted-foreground">
+          This workspace has no projects yet.{' '}
+          <Link to="/teams" className="text-accent-neon underline underline-offset-2">
+            Create one in Teams
+          </Link>
+        </p>
+      ) : (
+        <Select id={id} value={value} onChange={(e) => onChange(e.target.value)} required>
+          <option value="">Choose a project…</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} ({p.slug})
+            </option>
+          ))}
+        </Select>
+      )}
+    </Field>
+  )
+}
+
 export function NewBinding() {
   const propose = useRepos((s) => s.propose)
   const credentials = useRepos((s) => s.credentials)
-  const [project, setProject] = useState('')
+  const workspace = useRepos((s) => s.workspace)
+  const { all } = useWorkspaces()
+  const projects = all?.find((w) => w.id === workspace)?.projects ?? []
+  const [picked, setProject] = useState('')
+  // A workspace with one project needs no choice.
+  const project = picked !== '' ? picked : projects.length === 1 ? (projects[0]?.id ?? '') : ''
   const [url, setUrl] = useState('')
   const [branch, setBranch] = useState('main')
   const [transport, setTransport] = useState<Transport>('https')
@@ -62,7 +103,7 @@ export function NewBinding() {
     propose({
       type: 'PreviewBindingCreate',
       data: {
-        project: project.trim(),
+        project,
         url: url.trim(),
         branch: branch.trim(),
         transport,
@@ -89,9 +130,7 @@ export function NewBinding() {
         <h2 className={H2}>New binding</h2>
         <TermTip term="binding" />
       </div>
-      <Field label="Project id" id={`${id}-project`}>
-        <Input id={`${id}-project`} value={project} onChange={(e) => setProject(e.target.value)} required />
-      </Field>
+      <ProjectField id={`${id}-project`} value={project} onChange={setProject} />
       <Field label="Repository URL" id={`${id}-url`}>
         <Input id={`${id}-url`} value={url} onChange={(e) => setUrl(e.target.value)} required />
       </Field>
@@ -128,7 +167,9 @@ export function NewBinding() {
         <Input id={`${id}-poll`} inputMode="numeric" value={poll} onChange={(e) => setPoll(e.target.value)} />
       </FormField>
       <div className="flex items-start sm:col-span-2">
-        <Button type="submit">Preview binding</Button>
+        <Button type="submit" disabled={project === ''}>
+          Preview binding
+        </Button>
       </div>
     </form>
   )
