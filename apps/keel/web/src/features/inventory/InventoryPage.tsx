@@ -13,10 +13,15 @@ import { ArrowCounterClockwiseIcon, PlusIcon, XIcon } from '@phosphor-icons/reac
 import { Button, Input } from '@companion/ui'
 import { lazy, Suspense, useId, useState, type ReactNode, type SyntheticEvent } from 'react'
 
+import { Link } from '@/app/Link'
+import { useSession } from '@/app/session-store'
 import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
+import { canOperate } from '@/features/hosts/workspaces'
 import type { InventoryProblem } from '@/protocol/wire'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { DataTable } from '@/ui/DataTable'
+import { EmptyState } from '@/ui/EmptyState'
+import { emptyVariant } from '@/ui/empty-variant'
 import { ErrorLine as Alert } from '@/ui/ErrorLine'
 import { Field as FormField, H2, LABEL, LINK, Select } from '@/ui/form'
 import { LoadState } from '@/ui/LoadState'
@@ -427,11 +432,42 @@ function NewInventory() {
   )
 }
 
+/** No inventory in the workspace yet (spec 063 FR-011, FR-012). */
+function NoInventory({ canAct }: { canAct: boolean }) {
+  return (
+    <EmptyState
+      page="inventory"
+      title="No inventory yet"
+      reason="Inventory lists the hosts each job runs against."
+      steps={[
+        'Enroll a host.',
+        'Run the base profile on it.',
+        'Or bind a repository that declares its own inventory.',
+      ]}
+      action={
+        canAct ? (
+          <Button asChild size="sm">
+            <Link to="/hosts">Go to hosts</Link>
+          </Button>
+        ) : undefined
+      }
+      whoCan="An operator or workspace admin"
+      verb="enroll hosts"
+      guide={{ guide: 'inventory' }}
+    />
+  )
+}
+
 export default function InventoryPage() {
   const items = useInventory((s) => s.items)
+  const loaded = useInventory((s) => s.loaded)
+  const workspace = useInventory((s) => s.workspace)
   const opened = useInventory((s) => s.opened)
   const open = useInventory((s) => s.open)
+  const me = useSession((s) => s.me)
   const [creating, setCreating] = useState(false)
+  const variant = emptyVariant({ filtered: false, canAct: workspace !== null && canOperate(me, workspace) })
+  const empty = loaded && items.length === 0
 
   return (
     <Page name="inventory" labelledBy="inventory-title">
@@ -440,7 +476,10 @@ export default function InventoryPage() {
         title="Inventory"
         description="The hosts and groups each job runs against, with every revision kept and checked."
         actions={
-          <Button size="sm" variant={creating ? 'ghost' : 'default'} aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
+          <Button
+            size="sm"
+            variant={creating ? 'ghost' : empty && variant === 'guided' ? 'outline' : 'default'}
+            aria-expanded={creating} onClick={() => setCreating((c) => !c)}>
             {creating ? <XIcon aria-hidden /> : <PlusIcon aria-hidden />}
             {creating ? 'Close the form' : 'New inventory'}
           </Button>
@@ -451,37 +490,40 @@ export default function InventoryPage() {
       <ErrorLine />
       {creating && <NewInventory />}
 
-      <DataTable<Item>
-        label="Inventories"
-        rows={items}
-        rowKey={(i) => i.id}
-        selected={(i) => opened?.inventory.id === i.id}
-        columns={[
-          {
-            key: 'name',
-            header: 'Name',
-            className: 'w-[28%]',
-            cell: (i) => (
-              <button type="button" className={`${LINK} font-mono break-all`} onClick={() => open(i.id)}>
-                {i.name}
-              </button>
-            ),
-          },
-          { key: 'source', header: 'Source', cell: (i) => i.source },
-          { key: 'status', header: 'Status', cell: (i) => i.status },
-          {
-            key: 'head',
-            header: 'Newest revision',
-            cell: (i) => (
-              <span className={i.head_status === 'invalid' ? 'text-status-err' : undefined}>
-                {i.head_seq === null ? '—' : `${String(i.head_seq)} (${i.head_status ?? ''})`}
-              </span>
-            ),
-          },
-          { key: 'hosts', header: 'Hosts', cell: (i) => <span className="tabular-nums">{i.host_count}</span> },
-        ]}
-        empty="No inventory yet. Bind a repository that declares one, or create a managed one."
-      />
+      {empty && <NoInventory canAct={variant === 'guided'} />}
+      {workspace && !empty && (
+        <DataTable<Item>
+          label="Inventories"
+          rows={items}
+          rowKey={(i) => i.id}
+          selected={(i) => opened?.inventory.id === i.id}
+          columns={[
+            {
+              key: 'name',
+              header: 'Name',
+              className: 'w-[28%]',
+              cell: (i) => (
+                <button type="button" className={`${LINK} font-mono break-all`} onClick={() => open(i.id)}>
+                  {i.name}
+                </button>
+              ),
+            },
+            { key: 'source', header: 'Source', cell: (i) => i.source },
+            { key: 'status', header: 'Status', cell: (i) => i.status },
+            {
+              key: 'head',
+              header: 'Newest revision',
+              cell: (i) => (
+                <span className={i.head_status === 'invalid' ? 'text-status-err' : undefined}>
+                  {i.head_seq === null ? '—' : `${String(i.head_seq)} (${i.head_status ?? ''})`}
+                </span>
+              ),
+            },
+            { key: 'hosts', header: 'Hosts', cell: (i) => <span className="tabular-nums">{i.host_count}</span> },
+          ]}
+          empty={<LoadState loading label="Loading inventory…" />}
+        />
+      )}
 
       {opened && <Detail opened={opened} />}
       <PreviewDialog />

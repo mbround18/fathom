@@ -54,6 +54,8 @@ export interface RunDetail {
 export interface RunsState {
   workspace: string | null
   runs: RunInfo[]
+  /** Whether `runs` has answered for this workspace, so an empty list means no runs. */
+  loaded: boolean
   /** The run open, by id, once `Run` answers. */
   open: string | null
   detail: RunDetail | null
@@ -110,6 +112,7 @@ function eventLine(kind: string, host: string | null, task: string | null): stri
 export const useRuns = create<RunsState>()((set, get) => ({
   workspace: null,
   runs: [],
+  loaded: false,
   open: null,
   detail: null,
   lines: [],
@@ -120,7 +123,7 @@ export const useRuns = create<RunsState>()((set, get) => ({
   error: null,
 
   load: (workspace) => {
-    if (get().workspace !== workspace) set({ workspace, runs: [] })
+    if (get().workspace !== workspace) set({ workspace, runs: [], loaded: false })
     send({
       type: 'ListRuns',
       data: { workspace, binding: null, host: null, actor: null, state: null, from: null, to: null },
@@ -162,7 +165,7 @@ onServerEvent(({ reply_to, event }) => {
   const ours = reply_to !== undefined && mine.has(reply_to)
   switch (event.type) {
     case 'Runs':
-      if (ours) useRuns.setState({ runs: event.data.items })
+      if (ours) useRuns.setState({ runs: event.data.items, loaded: true })
       break
     case 'Run': {
       const { run, hosts } = event.data

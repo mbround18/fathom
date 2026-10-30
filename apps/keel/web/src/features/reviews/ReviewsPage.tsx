@@ -10,13 +10,19 @@ import { CaretLeftIcon, CaretRightIcon, PlusIcon, XIcon } from '@phosphor-icons/
 import { Button } from '@companion/ui'
 import { useId, useState } from 'react'
 
+import { useSession } from '@/app/session-store'
 import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
+import { canOperate } from '@/features/hosts/workspaces'
 import type { ReviewState, ReviewInfo, SignatureStatus, SignerInfo, SignerKind } from '@/protocol/wire'
 import { ConfirmDialog as Confirm } from '@/ui/ConfirmDialog'
 import { useReveal } from '@/ui/reveal'
 import { DataTable } from '@/ui/DataTable'
+import { EmptyState } from '@/ui/EmptyState'
+import { emptyVariant } from '@/ui/empty-variant'
 import { ErrorLine as Alert } from '@/ui/ErrorLine'
 import { FIELD, H2, LABEL, LINK, Select, STATUS } from '@/ui/form'
+import { LoadState } from '@/ui/LoadState'
+import { NoMatch } from '@/ui/NoMatch'
 import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
@@ -86,10 +92,48 @@ function FilterPicker() {
   )
 }
 
+/** The queue is empty (spec 063 FR-011, FR-012); the action leads to the signers below. */
+function NoReviews({ canAct }: { canAct: boolean }) {
+  return (
+    <EmptyState
+      page="reviews"
+      title="Nothing to review"
+      reason="Changes wait here when the early check can't trust their commits."
+      steps={['Add trusted signers so their commits skip review.', 'Push a change.']}
+      action={
+        canAct ? (
+          <Button
+            size="sm"
+            onClick={() => {
+              document.getElementById('signers-title')?.scrollIntoView({ block: 'start' })
+            }}
+          >
+            Trusted signers
+          </Button>
+        ) : undefined
+      }
+      whoCan="An operator or workspace admin"
+      verb="add trusted signers"
+      guide={{ guide: 'reviews', anchor: 'trusted-signers' }}
+    />
+  )
+}
+
 function ReviewList() {
   const items = useReviews((s) => s.items)
+  const loaded = useReviews((s) => s.loaded)
+  const filter = useReviews((s) => s.filter)
+  const setFilter = useReviews((s) => s.setFilter)
+  const workspace = useReviews((s) => s.workspace)
   const selected = useReviews((s) => s.selected)
   const select = useReviews((s) => s.select)
+  const me = useSession((s) => s.me)
+  // Open is the default view and All hides nothing, so only the other states filter.
+  const variant = emptyVariant({
+    filtered: filter !== 'open' && filter !== null,
+    canAct: workspace !== null && canOperate(me, workspace),
+  })
+  if (loaded && items.length === 0 && variant !== 'no-match') return <NoReviews canAct={variant === 'guided'} />
   return (
     <DataTable<ReviewInfo>
       label="Reviews"
@@ -138,7 +182,18 @@ function ReviewList() {
           cell: (r) => <span className={`tabular-nums ${r.flagged > 0 ? 'text-status-warn' : ''}`}>{r.flagged}</span>,
         },
       ]}
-      empty="Nothing to review. Runs whose commits fail the signature check wait here."
+      empty={
+        loaded ? (
+          <NoMatch
+            what="reviews"
+            onClear={() => {
+              setFilter('open')
+            }}
+          />
+        ) : (
+          <LoadState loading label="Loading reviews…" />
+        )
+      }
     />
   )
 }

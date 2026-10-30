@@ -63,6 +63,8 @@ export interface Diff {
 export interface InventoryState {
   workspace: string | null
   items: InventoryInfo[]
+  /** Whether `items` has answered for this workspace, so an empty list means none. */
+  loaded: boolean
   opened: Opened | null
   /** The text waiting for, or holding, the newest check. */
   checking: string | null
@@ -105,6 +107,7 @@ function send(cmd: Cmd): RequestId | null {
 export const useInventory = create<InventoryState>()((set, get) => ({
   workspace: null,
   items: [],
+  loaded: false,
   opened: null,
   checking: null,
   validation: null,
@@ -116,7 +119,7 @@ export const useInventory = create<InventoryState>()((set, get) => ({
 
   load: (workspace) => {
     if (get().workspace !== workspace) {
-      set({ workspace, items: [], opened: null, diff: null, validation: null, checking: null, schemaValidation: null, checkingSchema: null })
+      set({ workspace, items: [], loaded: false, opened: null, diff: null, validation: null, checking: null, schemaValidation: null, checkingSchema: null })
     }
     send({ type: 'ListInventories', data: { workspace } })
   },
@@ -190,7 +193,7 @@ onServerEvent(({ reply_to, event }) => {
     case 'Inventories': {
       const items = event.data.items.filter((i) => s.workspace === null || i.workspace === s.workspace)
       const open = s.opened && items.find((i) => i.id === s.opened?.inventory.id)
-      useInventory.setState({ items, ...(s.opened && open ? { opened: { ...s.opened, inventory: open } } : {}) })
+      useInventory.setState({ items, loaded: true, ...(s.opened && open ? { opened: { ...s.opened, inventory: open } } : {}) })
       break
     }
     case 'InventoryRevision': {

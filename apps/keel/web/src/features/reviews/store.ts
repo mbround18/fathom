@@ -102,6 +102,8 @@ export interface ReviewsState {
   workspace: string | null
   filter: ReviewState | null
   items: ReviewInfo[]
+  /** Whether `items` has answered for this workspace and filter, so an empty list means none. */
+  loaded: boolean
   selected: string | null
   detail: ReviewDetail | null
   files: DiffFile[]
@@ -146,6 +148,7 @@ export const useReviews = create<ReviewsState>()((set, get) => ({
   workspace: null,
   filter: 'open',
   items: [],
+  loaded: false,
   selected: null,
   detail: null,
   files: [],
@@ -157,13 +160,13 @@ export const useReviews = create<ReviewsState>()((set, get) => ({
 
   load: (workspace) => {
     if (get().workspace !== workspace) {
-      set({ workspace, items: [], selected: null, detail: null, files: [], diff: null, signers: [] })
+      set({ workspace, items: [], loaded: false, selected: null, detail: null, files: [], diff: null, signers: [] })
     }
     list()
     send({ type: 'ListSigners', data: { workspace } })
   },
   setFilter: (filter) => {
-    set({ filter })
+    set({ filter, loaded: false })
     list()
   },
   select: (group) => {
@@ -245,7 +248,7 @@ onServerEvent(({ reply_to, event }) => {
   const ours = purpose !== undefined
   switch (event.type) {
     case 'Reviews':
-      if (ours) useReviews.setState({ items: event.data.items })
+      if (ours) useReviews.setState({ items: event.data.items, loaded: true })
       break
     case 'ReviewRequested':
       if (event.data.workspace === s.workspace) list()
