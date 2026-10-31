@@ -236,7 +236,7 @@ a label. Its text comes from one glossary. Long paragraphs become one line plus 
 ## Phase 7: Polish and cross-cutting
 
 - [X] T051 Extend `web/tests/e2e/polish-screens.spec.ts` to cover the nine guided empty states, the grouped nav and an open InfoTip, at 360 and 1280 px in light and dark: no horizontal scroll, and no accent on group headings (SC-005, FR-032). Run it alone, with `--project s060`.
-- [ ] T052 Main session only, after all agent work is merged:
+- [X] T052 Main session only, after all agent work is merged:
   - run `scripts/ci.sh` once;
   - report its wall time, the slowest steps, the change against the last pass, and one speed-up idea;
   - confirm Depths' and Fathom's web typecheck, lint and unit tests pass with the new `@companion/ui` export;
