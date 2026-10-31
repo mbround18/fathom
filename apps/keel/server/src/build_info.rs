@@ -238,10 +238,7 @@ mod tests {
             ]),
             "0.2.0"
         );
-        assert_eq!(
-            b(&[("KEEL_BUILD_REVISION", "abc1234def5678")]),
-            "abc1234"
-        );
+        assert_eq!(b(&[("KEEL_BUILD_REVISION", "abc1234def5678")]), "abc1234");
         assert_eq!(
             b(&[("KEEL_BUILD_REVISION", "abc1234def-dirty")]),
             "abc1234-dirty"
