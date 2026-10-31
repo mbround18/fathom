@@ -17,9 +17,9 @@ test('an owner with no grants enrolls into any workspace and sees the token once
   const hosts = new FakeHosts(backend)
 
   await page.goto('/hosts')
-  await page.getByRole('button', { name: 'Enroll host' }).click()
+  await page.locator('[data-enroll-open]').click()
   const dialog = page.getByRole('dialog')
-  const form = dialog.getByRole('form', { name: 'Enroll a host' })
+  const form = dialog.getByRole('form', { name: 'Enroll host' })
   // Every workspace, though the owner holds no grant on any.
   await expect(form.getByLabel('Workspace').locator('option')).toHaveText(['ops', 'db'].map((s) => new RegExp(s)))
   const db = g.workspaces[1]?.id ?? 'missing'
@@ -45,8 +45,8 @@ test('an owner with no grants enrolls into any workspace and sees the token once
   await expect(page.getByText(minted)).toHaveCount(0)
 
   // Opening Enroll again starts a new form: nothing brings the token back.
-  await page.getByRole('button', { name: 'Enroll host' }).click()
-  await expect(dialog.getByRole('form', { name: 'Enroll a host' })).toBeVisible()
+  await page.locator('[data-enroll-open]').click()
+  await expect(dialog.getByRole('form', { name: 'Enroll host' })).toBeVisible()
   await expect(dialog.locator('[data-copy="enroll-token"]')).toHaveCount(0)
 })
 
@@ -67,5 +67,4 @@ test('someone who cannot operate on any workspace is not offered Enroll', async 
   // An empty list says who can enroll instead (spec 063 FR-013).
   await expect(page.locator('[data-empty-page="hosts"]')).toHaveAttribute('data-empty', 'restricted')
   await expect(page.getByRole('button', { name: 'Enroll host' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Enroll a host' })).toHaveCount(0)
 })

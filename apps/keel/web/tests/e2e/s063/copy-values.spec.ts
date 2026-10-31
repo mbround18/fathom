@@ -43,7 +43,7 @@ test.beforeEach(async ({ context }) => {
 test('the enrol token and snippet each copy exactly', async ({ page, backend }) => {
   const hosts = admin(backend)
   await page.goto('/hosts')
-  await page.locator('[data-empty-action]').getByRole('button', { name: 'Enroll a host' }).click()
+  await page.locator('[data-empty-action]').getByRole('button', { name: 'Enroll host' }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Inventory name').fill('web-1')
   await dialog.getByRole('button', { name: 'Continue' }).click()

@@ -78,7 +78,7 @@ test('an owner sets up the System workspace, binds it, enrolls into it and remov
   const hosts = configured.getByRole('region', { name: 'System hosts' })
   await expect(hosts.locator('[data-system-hosts]')).toHaveText('0')
   await hosts.getByRole('button', { name: 'Enroll host' }).click()
-  await expect(dialog.getByRole('form', { name: 'Enroll a host' }).getByLabel('Workspace')).toHaveValue(SYSTEM_WORKSPACE)
+  await expect(dialog.getByRole('form', { name: 'Enroll host' }).getByLabel('Workspace')).toHaveValue(SYSTEM_WORKSPACE)
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(dialog).toHaveCount(0)
 

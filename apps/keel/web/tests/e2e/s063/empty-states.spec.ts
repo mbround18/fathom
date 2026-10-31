@@ -85,8 +85,8 @@ test.describe('an operator', () => {
 
   test('the Hosts action opens the Enroll dialog', async ({ page }) => {
     await page.goto('/hosts')
-    await page.locator('[data-empty-action]').getByRole('button', { name: 'Enroll a host' }).click()
-    await expect(page.getByRole('dialog').getByRole('form', { name: 'Enroll a host' })).toBeVisible()
+    await page.locator('[data-empty-action]').getByRole('button', { name: 'Enroll host' }).click()
+    await expect(page.getByRole('dialog').getByRole('form', { name: 'Enroll host' })).toBeVisible()
   })
 
   test('the Runs action goes to Bindings', async ({ page }) => {

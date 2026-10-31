@@ -172,7 +172,7 @@ function Form({ suggestions, onCancel }: { suggestions: string[]; onCancel: () =
   return (
     <form
       id="enroll-form"
-      aria-label="Enroll a host"
+      aria-label="Enroll host"
       className="flex min-w-0 flex-col gap-3"
       onSubmit={(e) => {
         e.preventDefault()
@@ -313,7 +313,7 @@ export function EnrollDialog({ suggestions = [] }: { suggestions?: string[] }) {
     }
   }
 
-  const title = phase === 'result' ? 'Host token' : mode === 'roll' ? 'Roll enrolment token' : 'Enroll a host'
+  const title = phase === 'result' ? 'Host token' : mode === 'roll' ? 'Roll enrolment token' : 'Enroll host'
   const description =
     phase === 'form'
       ? 'Keel mints a one-time token. Run the snippet on the host to enroll it.'

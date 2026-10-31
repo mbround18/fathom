@@ -201,10 +201,10 @@ function NoHosts({ workspace, canAct }: { workspace: string; canAct: boolean }) 
   return (
     <EmptyState
       page="hosts"
-      title={canAct ? 'Enroll a host' : 'No hosts yet'}
+      title={canAct ? 'Enroll host' : 'No hosts yet'}
       reason="Keel only runs on hosts that have enrolled."
       steps={[
-        'Enroll a host to get its one-time command.',
+        'Select Enroll host to get its one-time command.',
         'Run the command on the host.',
         <span key="base" className="inline-flex items-center gap-1.5">
           Run the base profile on it.
@@ -220,7 +220,7 @@ function NoHosts({ workspace, canAct }: { workspace: string; canAct: boolean }) 
             }}
           >
             <PlusIcon aria-hidden />
-            Enroll a host
+            Enroll host
           </Button>
         ) : undefined
       }

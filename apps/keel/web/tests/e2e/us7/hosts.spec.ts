@@ -34,12 +34,12 @@ test('a host is enrolled with a one-time token, comes online and is revoked', as
   await page.goto('/hosts')
   await expect(page.getByRole('heading', { name: 'Hosts', level: 1 })).toBeVisible()
   const table = page.getByRole('table', { name: 'Hosts' })
-  await expect(page.locator('[data-empty-page="hosts"]')).toContainText('Enroll a host')
+  await expect(page.locator('[data-empty-page="hosts"]')).toContainText('Enroll host')
 
   // Enroll: the form, previewed in the same dialog, confirmed, then the token once.
-  await page.getByRole('button', { name: 'Enroll host' }).click()
+  await page.locator('[data-enroll-open]').click()
   const dialog = page.getByRole('dialog')
-  const form = dialog.getByRole('form', { name: 'Enroll a host' })
+  const form = dialog.getByRole('form', { name: 'Enroll host' })
   await expect(form.getByLabel('Workspace')).toHaveValue(WORKSPACE)
   await form.getByLabel('Inventory name').fill('web 1')
   await expect(form).toContainText('Letters, digits')
@@ -105,9 +105,9 @@ test('an unknown profile or a name already enrolled is refused', async ({ page, 
   const hosts = admin(backend)
   await page.goto('/hosts')
   const dialog = page.getByRole('dialog')
-  const form = dialog.getByRole('form', { name: 'Enroll a host' })
+  const form = dialog.getByRole('form', { name: 'Enroll host' })
 
-  await page.getByRole('button', { name: 'Enroll host' }).click()
+  await page.locator('[data-enroll-open]').click()
   await form.getByLabel('Inventory name').fill('db-1')
   await form.getByLabel('Profiles').fill('db')
   await form.getByLabel('Profiles').press('Enter')
@@ -123,7 +123,7 @@ test('an unknown profile or a name already enrolled is refused', async ({ page, 
 
   hosts.connect('web-1')
   await expect(page.getByRole('table', { name: 'Hosts' }).locator('tr[data-host-state="online"]')).toHaveCount(1)
-  await page.getByRole('button', { name: 'Enroll host' }).click()
+  await page.locator('[data-enroll-open]').click()
   await form.getByLabel('Inventory name').fill('web-1')
   await dialog.getByRole('button', { name: 'Continue' }).click()
   await expect(dialog).toContainText('already enrolled')
@@ -133,7 +133,7 @@ test('an unknown profile or a name already enrolled is refused', async ({ page, 
 test('cancelling the enrol preview mints no token', async ({ page, backend }) => {
   const hosts = admin(backend)
   await page.goto('/hosts')
-  await page.getByRole('button', { name: 'Enroll host' }).click()
+  await page.locator('[data-enroll-open]').click()
   const dialog = page.getByRole('dialog')
   await dialog.getByLabel('Inventory name').fill('web-2')
   await dialog.getByRole('button', { name: 'Continue' }).click()
