@@ -828,3 +828,112 @@ async fn the_sweeper_catches_up_on_start() {
     assert_eq!(state, "expired");
     f.finish().await;
 }
+
+// ---- US4: what waits for approvers (T023) ----------------------------------------------------
+
+impl Fx {
+    /// `(workspace, count)` pairs from `CountPendingApprovals` as `est`.
+    async fn counts(&self, est: &Established) -> Vec<(Uuid, u32)> {
+        match self
+            .h
+            .cmd_as(est, Cmd::CountPendingApprovals)
+            .await
+            .as_slice()
+        {
+            [Event::PendingApprovals { counts }] => {
+                counts.iter().map(|c| (c.workspace, c.count)).collect()
+            }
+            other => panic!("count: {other:?}"),
+        }
+    }
+
+    /// A copy of held `run` in another workspace, where only the owner has a say.
+    async fn elsewhere(&self, run: Uuid) -> Uuid {
+        let ws = Uuid::now_v7();
+        sqlx::query("insert into workspaces (id, slug, name) values ($1, 'infra', 'Infra')")
+            .bind(ws)
+            .execute(&self.h.db.owner)
+            .await
+            .expect("workspace");
+        sqlx::query(
+            "insert into runs select (jsonb_populate_record(null::runs, \
+             to_jsonb(r) || jsonb_build_object('id', $2::uuid, 'workspace_id', $3::uuid))).* \
+             from runs r where r.id = $1",
+        )
+        .bind(run)
+        .bind(Uuid::now_v7())
+        .bind(ws)
+        .execute(&self.h.db.owner)
+        .await
+        .expect("copy run");
+        ws
+    }
+}
+
+#[tokio::test]
+async fn approvers_count_what_they_could_answer() {
+    let Some(f) = Fx::new("approval_count", 2, true).await else {
+        return;
+    };
+    let ws = f.h.workspace;
+    // Nothing waits yet: an empty list, not a zero.
+    assert_eq!(f.counts(&f.ann).await, []);
+    let by_olga = f.start(&f.olga).await;
+    let by_owner = f.start(&f.h.owner).await;
+    let other = f.elsewhere(by_olga).await;
+
+    // Approvers count both, and only in their workspace.
+    assert_eq!(f.counts(&f.ann).await, [(ws, 2)]);
+    assert_eq!(f.counts(&f.ben).await, [(ws, 2)]);
+    // The owner counts every workspace, but not the four-eyes run they asked for.
+    let mut owner = f.counts(&f.h.owner).await;
+    owner.sort();
+    let mut want = vec![(ws, 1), (other, 1)];
+    want.sort();
+    assert_eq!(owner, want);
+
+    // Once Ann has answered a run it no longer waits for her, but still for Ben.
+    replied(&f.answer(&f.ann, approve(by_olga)).await);
+    assert_eq!(f.counts(&f.ann).await, [(ws, 1)]);
+    assert_eq!(f.counts(&f.ben).await, [(ws, 2)]);
+    // A run past its window is not counted.
+    f.overdue(by_owner).await;
+    assert_eq!(f.counts(&f.ann).await, []);
+    assert_eq!(f.counts(&f.ben).await, [(ws, 1)]);
+
+    // Viewers and operators can't approve: nothing is counted for them.
+    assert_eq!(f.counts(&f.vic).await, []);
+    assert_eq!(f.counts(&f.olga).await, []);
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn the_waiting_filter_lists_the_oldest_first() {
+    let Some(f) = Fx::new("approval_waiting_order", 1, false).await else {
+        return;
+    };
+    let first = f.start(&f.olga).await;
+    let second = f.start(&f.olga).await;
+    let third = f.start(&f.olga).await;
+    replied(&f.answer(&f.ann, approve(second)).await);
+    let list = |state| Cmd::ListRuns {
+        workspace: f.h.workspace,
+        binding: None,
+        host: None,
+        actor: None,
+        state,
+        from: None,
+        to: None,
+    };
+    let ids = |out: Vec<Event>| match out.as_slice() {
+        [Event::Runs { items }] => items.iter().map(|r| r.id).collect::<Vec<_>>(),
+        other => panic!("runs: {other:?}"),
+    };
+    assert_eq!(
+        ids(f.h.cmd(list(Some(RunPhase::PendingApproval))).await),
+        [first, third]
+    );
+    // Unfiltered, newest first as before.
+    assert_eq!(ids(f.h.cmd(list(None)).await), [third, second, first]);
+    f.finish().await;
+}

@@ -1273,7 +1273,8 @@ async fn list_runs(app: &AppState, f: &Filter) -> Result<Vec<RunInfo>, sqlx::Err
          and ($5::text is null or r.state = $5) \
          and ($6::timestamptz is null or r.created_at >= $6) \
          and ($7::timestamptz is null or r.created_at < $7) \
-         order by r.created_at desc limit $8"
+         order by case when $5 = 'pending_approval' then r.created_at end asc, \
+         r.created_at desc limit $8"
     )))
     .bind(f.workspace)
     .bind(f.binding)

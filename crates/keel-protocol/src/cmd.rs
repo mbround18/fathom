@@ -393,7 +393,8 @@ pub enum Cmd {
         token: Uuid,
     },
     // Runs (US2)
-    /// `Runs`: the workspace's runs, newest first (at most 200), filtered.
+    /// `Runs`: the workspace's runs, newest first (at most 200), filtered. Filtered to
+    /// `pending_approval`, oldest first: the longest-waiting run comes first.
     ListRuns {
         #[ts(type = "string")]
         workspace: Uuid,

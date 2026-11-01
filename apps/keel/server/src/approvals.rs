@@ -7,10 +7,10 @@
 //! `run_answered`. The rules themselves live in [`keel_core::approval`].
 
 use keel_core::approval::{self, HeldTerms, Refusal};
-use keel_core::authz::Capability;
+use keel_core::authz::{self, Capability};
 use keel_core::run::{RunEvent, RunState, RunStatus};
 use keel_core::{InstanceRole, TeamRole, WorkspaceId};
-use keel_protocol::{Cmd, Event};
+use keel_protocol::{Cmd, Event, WorkspaceCount};
 use serde_json::json;
 use sqlx::PgConnection;
 use std::time::Duration;
@@ -18,7 +18,7 @@ use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use crate::audit::{self, Decision, Entry};
-use crate::bindings::{db_failed, internal, not_found, op_error, require};
+use crate::bindings::{db_failed, internal, not_found, op_error, require, subject};
 use crate::dispatch::{PendingOp, Request};
 use crate::identity::Caller;
 use crate::preview::Draft;
@@ -35,6 +35,7 @@ pub async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
             let reason = reason.map(|r| r.as_str().trim().to_owned());
             preview_run_deny(app, req, run, reason).await
         }
+        Cmd::CountPendingApprovals => count_pending_approvals(app, req.caller).await,
         _ => internal(),
     }
 }
@@ -428,6 +429,42 @@ async fn approve(app: &AppState, caller: &Caller, run: Uuid) -> Result<Outcome, 
         crate::queue::kick(app);
     }
     Ok(Ok(()))
+}
+
+// ---- counting --------------------------------------------------------------------------------
+
+/// Per workspace, the held runs `caller` could answer now: still in their window, not already
+/// answered by them, and not four-eyes runs they asked for. Workspaces where they lack `Approve`
+/// are skipped, as are workspaces with nothing waiting.
+async fn count_pending_approvals(app: &AppState, caller: &Caller) -> Vec<Event> {
+    let rows: Vec<(Uuid, i64)> = match sqlx::query_as(
+        "select r.workspace_id, count(*) from runs r \
+         where r.state = 'pending_approval' and r.approval_expires_at > now() \
+           and not (r.four_eyes and r.requested_by is not distinct from $1) \
+           and not exists (select 1 from approvals a where a.run_id = r.id \
+                           and a.approver_user_id = $1 and a.kind = 'approval') \
+         group by r.workspace_id order by r.workspace_id",
+    )
+    .bind(caller.user.id)
+    .fetch_all(&app.db)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return db_failed(&e),
+    };
+    let me = subject(caller);
+    let counts = rows
+        .into_iter()
+        .filter(|(ws, _)| {
+            caller.token.as_ref().is_none_or(|t| t.workspace.0 == *ws)
+                && authz::require(&me, Capability::Approve, WorkspaceId(*ws), &[]).is_ok()
+        })
+        .map(|(workspace, n)| WorkspaceCount {
+            workspace,
+            count: u32::try_from(n).unwrap_or(u32::MAX),
+        })
+        .collect();
+    vec![Event::PendingApprovals { counts }]
 }
 
 // ---- expiring --------------------------------------------------------------------------------
