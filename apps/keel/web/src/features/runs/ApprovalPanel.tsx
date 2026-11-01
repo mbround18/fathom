@@ -1,13 +1,15 @@
 /**
- * The approval panel on a held run (spec 064 US1): what its policy needs, the approvals so far,
- * when its window closes, and Approve for someone who may give one. The variant comes from
+ * The approval panel on a held run (spec 064 US1, US2): what its policy needs, the approvals so far,
+ * when its window closes, and Approve and Deny for someone who may answer (Deny only for whoever
+ * started a four-eyes run). A denied run shows who denied it and why. The variant comes from
  * `approvalView`; the server decides again when the person confirms, and its refusal shows in the
  * dialog in its own words.
  *
  * A run whose approval is over (queued, denied, expired) keeps the panel as its history.
  */
-import { CheckIcon, FingerprintIcon } from '@phosphor-icons/react'
+import { CheckIcon, FingerprintIcon, ProhibitIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
+import { useId } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { when } from '@/features/settings/updates'
@@ -15,11 +17,11 @@ import { TermTip } from '@/help/TermTip'
 import type { ApprovalEntry, RunApproval, RunInfo } from '@/protocol/wire'
 import { PreviewDetails } from '@/ui/ConfirmDialog'
 import { Dialog } from '@/ui/Dialog'
-import { H2 } from '@/ui/form'
+import { FIELD, H2, LABEL } from '@/ui/form'
 import { RefusalText } from '@/ui/RefusalText'
 
 import { approvalView, relative } from './approval'
-import { useDecision } from './decision'
+import { MAX_REASON, useDecision } from './decision'
 
 function plural(n: number, one: string): string {
   return n === 1 ? one : `${one}s`
@@ -53,13 +55,36 @@ function Approvals({ approval }: { approval: RunApproval }) {
           <CheckIcon aria-hidden className="size-3 shrink-0 self-center text-status-ok" />
           <span className="min-w-0 break-words">
             <Who entry={a} />
-          </span>
+          </span>{' '}
           <span className="text-muted-foreground">
             <At at={a.at} />
           </span>
         </li>
       ))}
     </ul>
+  )
+}
+
+/** Who denied the run, when, and their reason as they wrote it. */
+function Denial({ denial }: { denial: ApprovalEntry }) {
+  return (
+    <div data-approval-denial className="flex min-w-0 flex-col gap-1 border border-status-err/40 px-2 py-1.5 text-xs">
+      <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+        <ProhibitIcon aria-hidden className="size-3 shrink-0 self-center text-status-err" />
+        <span className="text-status-err">Denied by</span>{' '}
+        <span className="min-w-0 break-words">
+          <Who entry={denial} />
+        </span>{' '}
+        <span className="text-muted-foreground">
+          <At at={denial.at} />
+        </span>
+      </p>
+      {denial.reason && (
+        <p data-approval-reason className="min-w-0 border-l-2 border-border pl-2 break-words whitespace-pre-wrap">
+          {denial.reason}
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -102,6 +127,7 @@ export function ApprovalPanel({ run }: { run: RunInfo }) {
         <TermTip term="approval-policy" />
       </p>
       <Approvals approval={approval} />
+      {approval.denial && <Denial denial={approval.denial} />}
       {waiting && (
         <p data-approval-window className="text-xs text-muted-foreground">
           Window closes <At at={approval.expires_at} /> ({when(approval.expires_at)})
@@ -112,17 +138,30 @@ export function ApprovalPanel({ run }: { run: RunInfo }) {
           {note}
         </p>
       )}
-      {view.kind === 'act' && (
+      {(view.kind === 'act' || view.kind === 'requester') && (
         <div className="flex flex-wrap gap-2">
+          {view.kind === 'act' && (
+            <Button
+              size="sm"
+              data-approve
+              onClick={() => {
+                start('approve', run.id)
+              }}
+            >
+              <FingerprintIcon aria-hidden />
+              Approve
+            </Button>
+          )}
           <Button
             size="sm"
-            data-approve
+            variant="destructive"
+            data-deny
             onClick={() => {
-              start('approve', run.id)
+              start('deny', run.id)
             }}
           >
-            <FingerprintIcon aria-hidden />
-            Approve
+            <ProhibitIcon aria-hidden />
+            Deny
           </Button>
         </div>
       )}
@@ -130,7 +169,38 @@ export function ApprovalPanel({ run }: { run: RunInfo }) {
   )
 }
 
-/** The preview → confirm dialog for an approval, with any refusal in the server's words. */
+/** A deny's optional reason, kept with the denial and shown to everyone who opens the run. */
+function ReasonField() {
+  const reason = useDecision((s) => s.reason)
+  const setReason = useDecision((s) => s.setReason)
+  const busy = useDecision((s) => s.busy)
+  const id = useId()
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <div className="flex items-baseline justify-between gap-2">
+        <label htmlFor={id} className={LABEL}>
+          Reason (optional)
+        </label>
+        <span data-reason-count aria-live="polite" className="text-xs text-muted-foreground tabular-nums">
+          {reason.length}/{MAX_REASON}
+        </span>
+      </div>
+      <textarea
+        id={id}
+        className={`${FIELD} h-auto min-h-16 py-1.5`}
+        placeholder="Why this run should not go ahead. Everyone who opens the run sees it."
+        value={reason}
+        maxLength={MAX_REASON}
+        disabled={busy}
+        onChange={(e) => {
+          setReason(e.target.value)
+        }}
+      />
+    </div>
+  )
+}
+
+/** The preview → confirm dialog for an approval or a denial, with any refusal in the server's words. */
 export function DecisionDialog() {
   const kind = useDecision((s) => s.kind)
   const preview = useDecision((s) => s.preview)
@@ -168,6 +238,7 @@ export function DecisionDialog() {
       }
     >
       {preview && <PreviewDetails preview={preview} />}
+      {kind === 'deny' && !refusal && <ReasonField />}
       {refusal && <RefusalText refusal={refusal} />}
     </Dialog>
   )
