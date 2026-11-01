@@ -25,7 +25,7 @@ The batch-end gate stays `scripts/ci.sh`, run once by the main session.
 5. Expected:
    - the run is queued, then runs;
    - the nav count disappears;
-   - Settings → Audit shows `run_approved` and `run_approval_queued`.
+   - Administration → Audit shows `run_approved` and `run_approval_queued`.
 6. Change the catch-all to two approvals with four-eyes, then start a run by hand. Approve it
    yourself: Keel refuses ("You started this run…"), and the audit log shows
    `run_approval_refused`.
