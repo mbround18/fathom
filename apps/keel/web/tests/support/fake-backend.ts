@@ -487,6 +487,9 @@ export class FakeBackend {
           { type: 'Passkeys', data: { items: this.passkeys } },
         ]
       }
+      case 'CountPendingApprovals':
+        // Nothing waits until a spec installs ./fake-runs.ts, which answers it from its runs.
+        return [{ type: 'PendingApprovals', data: { counts: [] } }]
       default: {
         const answer = this.updates.respond(me, cmd) ?? this.repos.respond(cmd) ?? this.inventories.respond(cmd)
         if (answer) return answer

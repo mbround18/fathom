@@ -7,8 +7,10 @@
  * Operating (enrolling a host, starting a run) needs an instance owner or admin, or a grant of
  * `operator` or `ws_admin`. Administering (receivers, credentials, bindings, inventories, trusted
  * signers, removing a host) needs an owner or admin, or `ws_admin` (keel-core authz
- * `Capability::of`). The server decides again on every command; these only decide whether to
- * offer the button.
+ * `Capability::of`). Approving or denying a held run (spec 064) needs an owner or admin, or an
+ * `approver` or `ws_admin` grant on the whole workspace: a grant scoped to profiles covers hosts,
+ * not the workspace's runs (keel-core authz `effective`). The server decides again on every
+ * command; these only decide whether to offer the button.
  */
 import { useCallback, useEffect } from 'react'
 
@@ -26,6 +28,14 @@ export function canAdminister(me: Me | null, workspace: string): boolean {
   if (!me) return false
   if (me.instance_role === 'owner' || me.instance_role === 'admin') return true
   return me.grants.some((g) => g.workspace === workspace && g.role === 'ws_admin')
+}
+
+export function canApprove(me: Me | null, workspace: string): boolean {
+  if (!me) return false
+  if (me.instance_role === 'owner' || me.instance_role === 'admin') return true
+  return me.grants.some(
+    (g) => g.workspace === workspace && g.profiles.length === 0 && (g.role === 'approver' || g.role === 'ws_admin'),
+  )
 }
 
 export interface Workspaces {
