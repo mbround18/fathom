@@ -23,8 +23,8 @@ use keel_core::run::{RunEvent, RunState, RunStatus, StateReason};
 use keel_core::target::{self, Target};
 use keel_git::Mirror;
 use keel_protocol::{
-    Cmd, Event, FirstFailure, HostStats, JobInfo, PolicyCheck, PolicyInfo, PolicySpec, RunHostInfo,
-    RunInfo, RunPhase, RunSummary,
+    ApprovalEntry, Cmd, Event, FirstFailure, HostStats, JobInfo, PolicyCheck, PolicyInfo,
+    PolicySpec, RunApproval, RunHostInfo, RunInfo, RunPhase, RunSummary,
 };
 use serde_json::{Value, json};
 use sqlx::PgConnection;
@@ -397,10 +397,14 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     sqlx::query(
         "insert into runs (id, workspace_id, job_id, binding_id, job_name, trigger, delivery_id, \
          requested_by, commit, inventory_revision_id, inventory_name, resolved_hosts, run_limit, \
-         policy_id, signed_mode, state, state_reason, queued_at, ended_at, summary, params) \
+         policy_id, signed_mode, state, state_reason, queued_at, ended_at, summary, params, \
+         approvals_needed, four_eyes, approval_expires_at) \
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
          case when $16 = 'queued' then now() end, case when $18 then now() end, \
-         case when $18 then $19 end, $20)",
+         case when $18 then $19 end, $20, \
+         case when $16 = 'pending_approval' then $21 end, \
+         case when $16 = 'pending_approval' then $22 end, \
+         case when $16 = 'pending_approval' then now() + $23 * interval '1 second' end)",
     )
     .bind(id)
     .bind(new.workspace)
@@ -422,6 +426,10 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     .bind(ended)
     .bind(json!(RunSummary::default()))
     .bind(json!(new.params))
+    // The terms a held run keeps, whatever later happens to its policy (spec 064 FR-009).
+    .bind(i32::from(plan.policy.approvals_needed.max(1)))
+    .bind(plan.policy.four_eyes)
+    .bind(i64::from(plan.policy.approval_ttl_secs))
     .execute(&mut *tx)
     .await?;
     if !ended {
@@ -1120,7 +1128,73 @@ const RUN_COLUMNS: &str = "r.id, r.workspace_id, r.binding_id, r.job_id, r.job_n
        on newer.inventory_id = cur.inventory_id and newer.seq > cur.seq \
        where cur.id = r.inventory_revision_id) as newer, \
      r.run_limit, r.resolved_hosts, r.policy_id, r.state, r.state_reason, r.created_at, \
-     r.started_at, r.ended_at, r.summary, r.params";
+     r.started_at, r.ended_at, r.summary, r.params, \
+     r.approvals_needed, r.four_eyes, r.approval_expires_at, \
+     (select coalesce(jsonb_agg(jsonb_build_object( \
+         'user', a.approver_user_id, \
+         'name', case when u.id is null or u.disabled_at is not null then 'Deleted user' \
+           else u.display_name end, \
+         'role', a.approver_role, \
+         'at_us', (extract(epoch from a.at) * 1000000)::bigint, \
+         'decision', a.decision, \
+         'reason', a.comment) order by a.at, a.id), '[]'::jsonb) \
+       from approvals a left join users u on u.id = a.approver_user_id \
+       where a.run_id = r.id and a.kind = 'approval') as answers";
+
+/// One `approvals` row of kind `approval`, as `RUN_COLUMNS` aggregates it.
+#[derive(serde::Deserialize)]
+struct AnswerRow {
+    user: Uuid,
+    name: String,
+    role: Option<String>,
+    at_us: i64,
+    decision: String,
+    reason: Option<String>,
+}
+
+impl AnswerRow {
+    fn entry(self) -> (bool, ApprovalEntry) {
+        let at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(self.at_us) * 1000)
+            .unwrap_or(OffsetDateTime::UNIX_EPOCH);
+        (
+            self.decision == "approve",
+            ApprovalEntry {
+                user: self.user,
+                name: self.name,
+                role: self.role,
+                at: ts(at),
+                reason: self.reason,
+            },
+        )
+    }
+}
+
+/// A held run's terms and answers; `None` for a run that was never held (spec 064 T008).
+fn approval_of(
+    needed: Option<i32>,
+    four_eyes: Option<bool>,
+    expires_at: Option<OffsetDateTime>,
+    answers: Value,
+) -> Option<RunApproval> {
+    let (needed, expires_at) = (needed?, expires_at?);
+    let rows: Vec<AnswerRow> = serde_json::from_value(answers).unwrap_or_default();
+    let mut approvals = Vec::new();
+    let mut denial = None;
+    for (approve, entry) in rows.into_iter().map(AnswerRow::entry) {
+        if approve {
+            approvals.push(entry);
+        } else {
+            denial = Some(entry);
+        }
+    }
+    Some(RunApproval {
+        needed: u16::try_from(needed.max(1)).unwrap_or(u16::MAX),
+        four_eyes: four_eyes.unwrap_or(false),
+        expires_at: ts(expires_at),
+        approvals,
+        denial,
+    })
+}
 
 #[derive(sqlx::FromRow)]
 struct RunRow {
@@ -1145,6 +1219,10 @@ struct RunRow {
     ended_at: Option<OffsetDateTime>,
     summary: Option<Value>,
     params: Value,
+    approvals_needed: Option<i32>,
+    four_eyes: Option<bool>,
+    approval_expires_at: Option<OffsetDateTime>,
+    answers: Value,
 }
 
 impl RunRow {
@@ -1171,7 +1249,12 @@ impl RunRow {
             ended_at: self.ended_at.map(ts),
             summary: self.summary.and_then(|s| serde_json::from_value(s).ok()),
             params: serde_json::from_value(self.params).unwrap_or_default(),
-            approval: None,
+            approval: approval_of(
+                self.approvals_needed,
+                self.four_eyes,
+                self.approval_expires_at,
+                self.answers,
+            ),
         }
     }
 }

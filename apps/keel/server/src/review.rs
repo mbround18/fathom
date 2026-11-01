@@ -1407,9 +1407,20 @@ async fn overridden(
     ) else {
         return Ok(None);
     };
+    // A run that goes on to wait for approval holds its policy's terms, or the catch-all's when
+    // the policy is gone (spec 064 FR-009).
     sqlx::query(
-        "update runs set state = $2, state_reason = $3, \
-         queued_at = case when $2 = 'queued' then now() else queued_at end where id = $1",
+        "update runs r set state = $2, state_reason = $3, \
+         queued_at = case when $2 = 'queued' then now() else r.queued_at end, \
+         approvals_needed = case when $2 = 'pending_approval' \
+           then coalesce(p.approvals_needed, 1) else r.approvals_needed end, \
+         four_eyes = case when $2 = 'pending_approval' \
+           then coalesce(p.four_eyes, false) else r.four_eyes end, \
+         approval_expires_at = case when $2 = 'pending_approval' \
+           then now() + coalesce(p.approval_ttl, interval '24 hours') \
+           else r.approval_expires_at end \
+         from runs r2 left join approval_policies p on p.id = r2.policy_id \
+         where r.id = $1 and r2.id = r.id",
     )
     .bind(run)
     .bind(next.state.as_str())
