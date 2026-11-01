@@ -158,7 +158,7 @@ impl Fx {
             .cmd_as(
                 est,
                 Cmd::Confirm {
-                    preview_id: p.preview_id.clone(),
+                    preview_id: p.preview_id,
                     step_up: None,
                 },
             )
@@ -195,7 +195,8 @@ impl Fx {
         }
     }
 
-    /// A run started by a push: it has no requester.
+    /// A run started by a push that nobody asked for. A manual sync records whoever synced as
+    /// the requester, so the run is then made to look as a polled push does: no requester.
     async fn push_run(&self, content: &str) -> Uuid {
         self.src.commit("playbooks/web.yaml", content, "change");
         self.src.push();
@@ -209,11 +210,13 @@ impl Fx {
             matches!(out.as_slice(), [Event::BindingSynced { .. }]),
             "{out:?}"
         );
-        let (run,): (Uuid,) =
-            sqlx::query_as("select id from runs where requested_by is null order by created_at desc limit 1")
-                .fetch_one(&self.h.db.owner)
-                .await
-                .expect("push run");
+        let (run,): (Uuid,) = sqlx::query_as(
+            "update runs set trigger = 'poll', requested_by = null where id = \
+             (select id from runs order by created_at desc limit 1) returning id",
+        )
+        .fetch_one(&self.h.db.owner)
+        .await
+        .expect("push run");
         run
     }
 
@@ -332,5 +335,200 @@ async fn a_run_that_was_never_held_has_no_approval() {
     let run = f.start(&f.olga).await;
     assert_eq!(f.state(run).await.0, "queued");
     assert_eq!(f.info(run).await.approval, None);
+    f.finish().await;
+}
+
+// ---- US1: approve (T012) ---------------------------------------------------------------------
+
+fn approve(run: Uuid) -> Cmd {
+    Cmd::PreviewRunApprove { run }
+}
+
+fn actions(audit: &[(String, String, Option<String>, Value)]) -> Vec<&str> {
+    audit.iter().map(|(a, ..)| a.as_str()).collect()
+}
+
+#[tokio::test]
+async fn one_approval_queues_a_run_needing_one() {
+    let Some(f) = Fx::new("approval_one_of_one", 1, false).await else {
+        return;
+    };
+    let run = f.start(&f.olga).await;
+    // The preview says what the answer does.
+    let out = f.h.cmd_as(&f.ann, approve(run)).await;
+    let [Event::Preview(p)] = out.as_slice() else {
+        panic!("{out:?}");
+    };
+    assert!(p.summary.contains("queues the run"), "{}", p.summary);
+    assert!(p.step_up);
+    let info = replied(&f.answer(&f.ann, approve(run)).await);
+    assert_eq!(info.state, RunPhase::Queued);
+    let a = info.approval.expect("approval");
+    assert_eq!(a.approvals.len(), 1);
+    assert_eq!(a.approvals[0].user, f.ann.user.id);
+    assert_eq!(a.approvals[0].role.as_deref(), Some("approver"));
+    let (queued,): (bool,) = sqlx::query_as("select queued_at is not null from runs where id = $1")
+        .bind(run)
+        .fetch_one(&f.h.db.owner)
+        .await
+        .expect("queued_at");
+    assert!(queued);
+    let audit = f.audit(run).await;
+    let approved = audit
+        .iter()
+        .find(|(a, ..)| a == "run_approved")
+        .expect("run_approved");
+    assert_eq!(approved.1, "allowed");
+    assert_eq!(approved.3["role"], "approver");
+    assert_eq!(approved.3["approvals"], 1);
+    assert_eq!(approved.3["needed"], 1);
+    assert_eq!(approved.3["policy"], f.policy.to_string());
+    assert!(actions(&audit).contains(&"run_approval_queued"));
+    // A second answer finds it decided.
+    assert_eq!(
+        refusal(&f.answer(&f.ben, approve(run)).await),
+        "run_answered"
+    );
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn two_approvals_are_needed_when_the_policy_says_two() {
+    let Some(f) = Fx::new("approval_two_of_two", 2, false).await else {
+        return;
+    };
+    let run = f.start(&f.olga).await;
+    let out = f.h.cmd_as(&f.ann, approve(run)).await;
+    let [Event::Preview(p)] = out.as_slice() else {
+        panic!("{out:?}");
+    };
+    assert!(p.summary.contains("approval 1 of 2"), "{}", p.summary);
+    let info = replied(&f.answer(&f.ann, approve(run)).await);
+    assert_eq!(info.state, RunPhase::PendingApproval);
+    assert_eq!(info.approval.expect("approval").approvals.len(), 1);
+    let info = replied(&f.answer(&f.ben, approve(run)).await);
+    assert_eq!(info.state, RunPhase::Queued);
+    assert_eq!(info.approval.expect("approval").approvals.len(), 2);
+    let audit = f.audit(run).await;
+    let counts: Vec<&Value> = audit
+        .iter()
+        .filter(|(a, ..)| a == "run_approved")
+        .map(|(.., c)| &c["approvals"])
+        .collect();
+    assert_eq!(counts, [&Value::from(1), &Value::from(2)]);
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn four_eyes_keeps_the_requester_from_approving_their_own_run() {
+    let Some(f) = Fx::new("approval_four_eyes", 1, true).await else {
+        return;
+    };
+    // The owner may approve, but not a run they asked for themselves.
+    let run = f.start(&f.h.owner).await;
+    assert_eq!(
+        refusal(&f.answer(&f.h.owner, approve(run)).await),
+        "four_eyes_requester"
+    );
+    assert_eq!(f.state(run).await.0, "pending_approval");
+    let audit = f.audit(run).await;
+    let refused = audit
+        .iter()
+        .find(|(a, ..)| a == "run_approval_refused")
+        .expect("refusal audited");
+    assert_eq!(refused.1, "denied");
+    assert_eq!(refused.2.as_deref(), Some("four_eyes_requester"));
+    assert_eq!(refused.3["state"], "pending_approval");
+    // Someone else may.
+    assert_eq!(
+        replied(&f.answer(&f.ann, approve(run)).await).state,
+        RunPhase::Queued
+    );
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn four_eyes_lets_anyone_approve_a_run_nobody_requested() {
+    let Some(f) = Fx::new("approval_four_eyes_push", 1, true).await else {
+        return;
+    };
+    let run = f.push_run("- hosts: web\n").await;
+    assert_eq!(f.state(run).await.0, "pending_approval");
+    assert_eq!(
+        replied(&f.answer(&f.h.owner, approve(run)).await).state,
+        RunPhase::Queued
+    );
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn the_same_approver_counts_once() {
+    let Some(f) = Fx::new("approval_counts_once", 2, false).await else {
+        return;
+    };
+    let run = f.start(&f.olga).await;
+    replied(&f.answer(&f.ann, approve(run)).await);
+    assert_eq!(
+        refusal(&f.answer(&f.ann, approve(run)).await),
+        "already_answered"
+    );
+    assert_eq!(f.state(run).await.0, "pending_approval");
+    let (n,): (i64,) = sqlx::query_as("select count(*) from approvals where run_id = $1")
+        .bind(run)
+        .fetch_one(&f.h.db.owner)
+        .await
+        .expect("count");
+    assert_eq!(n, 1);
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn operators_and_viewers_cannot_approve() {
+    let Some(f) = Fx::new("approval_needs_grant", 1, false).await else {
+        return;
+    };
+    let run = f.start(&f.olga).await;
+    assert_eq!(
+        refusal(&f.h.cmd_as(&f.olga, approve(run)).await),
+        "denied:no_grant"
+    );
+    assert_eq!(
+        refusal(&f.h.cmd_as(&f.vic, approve(run)).await),
+        "denied:no_grant"
+    );
+    assert_eq!(f.state(run).await.0, "pending_approval");
+    // An unknown run is not found.
+    assert_eq!(
+        refusal(&f.h.cmd_as(&f.ann, approve(Uuid::now_v7())).await),
+        "not_found"
+    );
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn approving_needs_a_fresh_step_up() {
+    let Some(f) = Fx::new("approval_step_up", 1, false).await else {
+        return;
+    };
+    let run = f.start(&f.olga).await;
+    sqlx::query("update sessions set verified_at = null where id = $1")
+        .bind(&f.ann.session)
+        .execute(&f.h.db.owner)
+        .await
+        .expect("stale");
+    // Ann has no passkey on record, so she is sent to enrol one; either way nothing is written.
+    let out = f.answer(&f.ann, approve(run)).await;
+    assert!(
+        matches!(out.as_slice(), [Event::PasskeyEnrolmentRequired])
+            || refusal(&out) == "step_up_required",
+        "{out:?}"
+    );
+    let (n,): (i64,) = sqlx::query_as("select count(*) from approvals where run_id = $1")
+        .bind(run)
+        .fetch_one(&f.h.db.owner)
+        .await
+        .expect("count");
+    assert_eq!(n, 0);
+    assert_eq!(f.state(run).await.0, "pending_approval");
     f.finish().await;
 }

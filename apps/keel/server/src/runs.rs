@@ -832,7 +832,12 @@ fn preview(app: &AppState, req: &Request<'_>, draft: Draft, op: PendingOp) -> Ve
 }
 
 /// Re-checks `cap` when a confirmed operation runs (grants may have changed since the preview).
-fn recheck(caller: &Caller, action: &str, cap: Capability, ws: Uuid) -> Result<(), Vec<Event>> {
+pub(crate) fn recheck(
+    caller: &Caller,
+    action: &str,
+    cap: Capability,
+    ws: Uuid,
+) -> Result<(), Vec<Event>> {
     let refused = match &caller.token {
         Some(t) if t.workspace.0 != ws => Some("token_scope"),
         _ => authz::require(&subject(caller), cap, WorkspaceId(ws), &[])
