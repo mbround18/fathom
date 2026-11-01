@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { approvalView, waitingText } from '@/features/runs/approval'
+import { approvalView, relative, waitingText } from '@/features/runs/approval'
 import type { ApprovalEntry, Me, RunApproval, RunInfo, TeamRole } from '@/protocol/wire'
 
 const WS = 'ws-1'
@@ -73,5 +73,16 @@ describe('waitingText', () => {
     expect(waitingText(run())).toBe('Waiting · 0 of 1')
     expect(waitingText(run({ state: 'queued' }))).toBeNull()
     expect(waitingText(run({ approval: null }))).toBeNull()
+  })
+})
+
+describe('relative', () => {
+  const now = Date.parse('2026-10-27T12:00:00Z')
+  it('reads the largest whole unit, either way', () => {
+    expect(relative('2026-10-28T11:00:00Z', now)).toBe('in 23 hours')
+    expect(relative('2026-10-29T12:00:00Z', now)).toBe('in 2 days')
+    expect(relative('2026-10-27T11:55:00Z', now)).toBe('5 minutes ago')
+    expect(relative('2026-10-26T12:00:00Z', now)).toBe('yesterday')
+    expect(relative('2026-10-27T12:00:30Z', now)).toBe('just now')
   })
 })

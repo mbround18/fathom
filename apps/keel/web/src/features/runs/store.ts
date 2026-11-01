@@ -35,6 +35,8 @@ export function active(state: RunPhase): boolean {
  */
 const REASON_LABEL: Record<string, string> = {
   params_mismatch: 'Inputs don’t match the job',
+  approval_denied: 'Approval denied',
+  approval_expired: 'Approval expired',
 }
 
 /** `cancelled_by_user` as "cancelled by user". */

@@ -2,7 +2,8 @@
  * One run (spec 055 US2, T072): its state, the live output in a `LogView`, the summary counts and
  * the per-host results with each host’s first failure. The job params it was queued with sit next to
  * its commit (spec 061). A run pinned to an inventory revision that has since been replaced says so.
- * A run that has not ended can be cancelled, previewed first.
+ * A run that has not ended can be cancelled, previewed first. A run held for approval (spec 064) shows
+ * its approval panel above the output.
  */
 import { ArrowLeftIcon, StopIcon } from '@phosphor-icons/react'
 import { LogView } from '@companion/terminal'
@@ -19,6 +20,7 @@ import { H2, LABEL, LINK } from '@/ui/form'
 import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
+import { ApprovalPanel, DecisionDialog } from './ApprovalPanel'
 import { ErrorLine, StateBadge } from './parts'
 import { active, reasonText, short, useRuns } from './store'
 
@@ -218,6 +220,7 @@ export default function RunPage({ params }: { params: Params }) {
       </Link>
       <ErrorLine />
       {run ? <Header run={run} /> : <PageHeader id="run-title" title="Run" description="Loading the run…" />}
+      {run && <ApprovalPanel run={run} />}
       {run?.summary && <Summary summary={run.summary} />}
       <LogView
         role="log"
@@ -239,6 +242,7 @@ export default function RunPage({ params }: { params: Params }) {
       />
       {run && <Hosts hosts={detail?.hosts ?? []} />}
       <CancelDialog />
+      <DecisionDialog />
     </Page>
   )
 }

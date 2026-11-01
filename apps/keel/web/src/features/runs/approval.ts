@@ -32,3 +32,19 @@ export function waitingText(run: RunInfo): string | null {
   if (run.state !== 'pending_approval' || !run.approval) return null
   return `Waiting · ${String(run.approval.approvals.length)} of ${String(run.approval.needed)}`
 }
+
+const RELATIVE = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ['day', 86_400],
+  ['hour', 3_600],
+  ['minute', 60],
+]
+
+/** `rfc3339` against `now`: "in 23 hours", "5 minutes ago", "just now". */
+export function relative(rfc3339: string, now: number = Date.now()): string {
+  const secs = Math.round((Date.parse(rfc3339) - now) / 1000)
+  for (const [unit, size] of UNITS) {
+    if (Math.abs(secs) >= size) return RELATIVE.format(Math.trunc(secs / size), unit)
+  }
+  return 'just now'
+}
