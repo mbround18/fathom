@@ -2,8 +2,8 @@
 
 This guide takes a new Keel from empty to its first run. You create a workspace, give people access
 to it, enrol a host, create a receiver for your Git host, bind a repository, and push. Each step
-links to the guide that covers it in full. The web app cannot approve a run yet, so your first run
-waits for approval; see [Your first run](#your-first-run).
+links to the guide that covers it in full. Your first run waits for approval, and you approve it
+yourself; see [Your first run](#your-first-run).
 
 The first person to sign in becomes the instance **owner**. This guide assumes you are that person,
 or an instance admin.
@@ -38,7 +38,7 @@ role in one workspace.
 |---|---|
 | Viewer | Seeing the workspace |
 | Operator | Also enrolling hosts, syncing bindings, and starting or cancelling runs |
-| Approver | Seeing the workspace, and approving or denying reviews |
+| Approver | Seeing the workspace, and approving or denying runs and reviews |
 | Workspace admin | Everything, including bindings, credentials, receivers and trusted signers |
 
 A grant can be limited to some profiles. It then covers only the hosts with one of those
@@ -131,8 +131,17 @@ A run reaches the hosts in its inventory that the job's `limit` selects, that ar
 workspace, and that serve one of the job's profiles.
 
 Each workspace starts with an approval policy that asks for one approval before a run goes ahead,
-so a new run shows as **pending_approval** and stays there. You cannot approve a run from the web
-app yet; that comes in a later release. Until then, your first run does not reach the hosts.
+so a new run waits for approval. The **Runs** link shows how many runs are waiting for you. To let
+it go ahead:
+
+1. On **Pipelines → Runs**, choose **Waiting for approval** and open the run. It shows the job, the
+   hosts, the commit, **Needs 1 approval**, and when its approval window closes.
+2. Choose **Approve**, check the preview, and choose **Confirm**. Confirm it's you with your
+   passkey if Keel asks.
+3. The run is queued, then runs on its hosts.
+
+To stop it instead, choose **Deny**. A run that nobody answers expires after 24 hours. See
+[Approving a run](runs.md#approving-a-run) for the details.
 
 If the binding is in signed mode and the new commits are not all signed by a trusted signer, the
 run waits for a review instead. See [Reviews and trusted signers](reviews.md#approve-or-deny-a-change).
