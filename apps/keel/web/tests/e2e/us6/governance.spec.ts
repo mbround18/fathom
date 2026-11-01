@@ -121,7 +121,7 @@ test('someone who may not list users sees the refusal in place of the list', asy
   governance(backend, (g) => g.deny.set('ListUsers', 'instance_admin_only'))
   await page.goto('/users')
   await expect(page.locator('[data-pane="users-list"]').getByRole('alert')).toHaveText(
-    'Denied: list_users (instance_admin_only)',
+    'Failed to load people. Denied: list_users (instance_admin_only)',
   )
 })
 
