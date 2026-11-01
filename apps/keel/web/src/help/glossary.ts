@@ -15,6 +15,7 @@ export type TermId =
   | 'trusted-signers'
   | 'early-check'
   | 'review'
+  | 'approval-policy'
   | 'base-profile'
   | 'enrolment-token'
   | 'fingerprint'
@@ -59,6 +60,11 @@ export const GLOSSARY: Readonly<Record<TermId, GlossaryEntry>> = {
     term: 'Review',
     text: 'A change the early check held back, which someone must approve or deny with a comment. Approving signs it with your passkey, and some changes need more than one approver.',
     guide: { guide: 'reviews' },
+  },
+  'approval-policy': {
+    term: 'Approval policy',
+    text: 'Decides whether a run waits for approval, how many approvals it needs, whether its starter may approve it, and how long it may wait. Every workspace has a catch-all that asks for one approval.',
+    guide: { guide: 'runs', anchor: 'how-an-approval-policy-holds-a-run' },
   },
   'base-profile': {
     term: 'Base profile',
