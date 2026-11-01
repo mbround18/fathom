@@ -13,6 +13,8 @@ use keel_core::{InstanceRole, TeamRole, WorkspaceId};
 use keel_protocol::{Cmd, Event};
 use serde_json::json;
 use sqlx::PgConnection;
+use std::time::Duration;
+use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use crate::audit::{self, Decision, Entry};
@@ -145,6 +147,13 @@ async fn refuse(
     refusal: Refusal,
     state: RunState,
 ) -> Vec<Event> {
+    // Found overdue before the sweeper got to it: expire it now.
+    if refusal == Refusal::Expired
+        && state == RunState::PendingApproval
+        && let Err(e) = expire_overdue(app, run).await
+    {
+        tracing::error!(error = %e, run = %run, "expiring a held run failed");
+    }
     let result = async {
         let mut tx = app.db.begin().await?;
         audit::record(
@@ -169,6 +178,22 @@ async fn refuse(
     op_error(refusal.code(), &refusal.message())
 }
 
+/// Expires `run` if it is still held past its window.
+async fn expire_overdue(app: &AppState, run: Uuid) -> Result<(), sqlx::Error> {
+    let mut tx = app.db.begin().await?;
+    let Some(h) = held(&mut tx, run, true).await? else {
+        return Ok(());
+    };
+    if !h.expired() {
+        return Ok(());
+    }
+    let ws = h.workspace_id;
+    let next = expire(&mut tx, run, ws, &h).await?;
+    tx.commit().await?;
+    crate::queue::push_state(app, ws, run, next);
+    Ok(())
+}
+
 /// Expires a held run whose window has closed, inside the caller's transaction.
 async fn expire(
     tx: &mut PgConnection,
@@ -176,8 +201,7 @@ async fn expire(
     ws: Uuid,
     h: &Held,
 ) -> Result<RunStatus, sqlx::Error> {
-    let next = keel_core::run::transition(RunState::PendingApproval, &RunEvent::Expired)
-        .map_err(|e| sqlx::Error::Protocol(format!("expire: {e:?}")))?;
+    let next = expired()?;
     sqlx::query("update runs set state = $2, state_reason = $3, ended_at = now() where id = $1")
         .bind(run)
         .bind(next.state.as_str())
@@ -185,19 +209,7 @@ async fn expire(
         .execute(&mut *tx)
         .await?;
     cancel_hosts(tx, run).await?;
-    audit::record(
-        &mut *tx,
-        Entry {
-            actor: &audit::Actor::System,
-            action: "run_approval_expired",
-            workspace: Some(WorkspaceId(ws)),
-            target: json!({ "run": run }),
-            decision: Decision::Allowed,
-            reason: None,
-            context: json!({ "policy": h.policy_id, "expires_at": h.expires_at }),
-        },
-    )
-    .await?;
+    audit_expired(tx, run, ws, h.policy_id, h.expires_at).await?;
     Ok(next)
 }
 
@@ -416,6 +428,81 @@ async fn approve(app: &AppState, caller: &Caller, run: Uuid) -> Result<Outcome, 
         crate::queue::kick(app);
     }
     Ok(Ok(()))
+}
+
+// ---- expiring --------------------------------------------------------------------------------
+
+/// Sweeps once now, then every `period`, so runs whose window closed while Keel was down expire
+/// on start-up rather than a period later.
+pub fn spawn_approval_sweeper(app: AppState, period: Duration) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(period);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tick.tick().await;
+            if let Err(e) = sweep(&app).await {
+                tracing::error!(error = %e, "expiring held runs failed");
+            }
+        }
+    })
+}
+
+/// Expires every held run whose approval window has closed; returns how many.
+///
+/// # Errors
+///
+/// The database failed; nothing is expired then.
+pub async fn sweep(app: &AppState) -> Result<usize, sqlx::Error> {
+    let next = expired()?;
+    let mut tx = app.db.begin().await?;
+    let expired: Vec<(Uuid, Uuid, Option<Uuid>, Option<i64>)> = sqlx::query_as(
+        "update runs set state = $1, state_reason = $2, ended_at = now() \
+         where state = 'pending_approval' and approval_expires_at <= now() \
+         returning id, workspace_id, policy_id, \
+           floor(extract(epoch from approval_expires_at))::bigint",
+    )
+    .bind(next.state.as_str())
+    .bind(next.reason.map(|r| r.as_str()))
+    .fetch_all(&mut *tx)
+    .await?;
+    for (run, ws, policy, expires_at) in &expired {
+        cancel_hosts(&mut tx, *run).await?;
+        audit_expired(&mut tx, *run, *ws, *policy, *expires_at).await?;
+    }
+    tx.commit().await?;
+    for (run, ws, ..) in &expired {
+        crate::queue::push_state(app, *ws, *run, next);
+    }
+    Ok(expired.len())
+}
+
+/// What a held run becomes when its window closes.
+fn expired() -> Result<RunStatus, sqlx::Error> {
+    keel_core::run::transition(RunState::PendingApproval, &RunEvent::Expired)
+        .map_err(|e| sqlx::Error::Protocol(format!("expire: {e:?}")))
+}
+
+async fn audit_expired(
+    tx: &mut PgConnection,
+    run: Uuid,
+    ws: Uuid,
+    policy: Option<Uuid>,
+    expires_at: Option<i64>,
+) -> Result<(), sqlx::Error> {
+    audit::record(
+        tx,
+        Entry {
+            actor: &audit::Actor::System,
+            action: "run_approval_expired",
+            workspace: Some(WorkspaceId(ws)),
+            target: json!({ "run": run }),
+            decision: Decision::Allowed,
+            reason: None,
+            context: json!({ "policy": policy, "expires_at": expires_at }),
+        },
+    )
+    .await
+    .map(|_| ())
 }
 
 // ---- denying ---------------------------------------------------------------------------------

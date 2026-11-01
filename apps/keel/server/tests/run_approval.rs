@@ -692,3 +692,139 @@ async fn an_approve_and_a_deny_racing_decide_the_run_once() {
     }
     f.finish().await;
 }
+
+// ---- US3: expiry (T020) ----------------------------------------------------------------------
+
+impl Fx {
+    /// Moves `run`'s approval window into the past.
+    async fn overdue(&self, run: Uuid) {
+        sqlx::query(
+            "update runs set approval_expires_at = now() - interval '1 minute' where id = $1",
+        )
+        .bind(run)
+        .execute(&self.h.db.owner)
+        .await
+        .expect("overdue");
+    }
+
+    /// `(actor, ended)` for the run's `run_approval_expired` entries, and whether it ended.
+    async fn expiry(&self, run: Uuid) -> (Vec<String>, bool) {
+        let actors: Vec<(String,)> = sqlx::query_as(
+            "select actor from audit_event where target ->> 'run' = $1::text \
+             and action = 'run_approval_expired' order by seq",
+        )
+        .bind(run)
+        .fetch_all(&self.h.db.owner)
+        .await
+        .expect("audit");
+        let (ended,): (bool,) =
+            sqlx::query_as("select ended_at is not null from runs where id = $1")
+                .bind(run)
+                .fetch_one(&self.h.db.owner)
+                .await
+                .expect("ended");
+        (actors.into_iter().map(|(a,)| a).collect(), ended)
+    }
+}
+
+#[tokio::test]
+async fn a_sweep_expires_held_runs_past_their_window() {
+    let Some(f) = Fx::new("approval_sweep", 1, false).await else {
+        return;
+    };
+    let late = f.start(&f.olga).await;
+    let fresh = f.start(&f.olga).await;
+    // A run waiting on review is not held for approval, and the sweeper leaves it alone (FR-023).
+    let review = f.start(&f.olga).await;
+    sqlx::query(
+        "update runs set state = 'needs_review', approval_expires_at = now() - interval '1 hour' \
+         where id = $1",
+    )
+    .bind(review)
+    .execute(&f.h.db.owner)
+    .await
+    .expect("needs review");
+    f.overdue(late).await;
+    assert_eq!(
+        keel_server::approvals::sweep(&f.h.app)
+            .await
+            .expect("sweep"),
+        1
+    );
+    assert_eq!(
+        f.state(late).await,
+        ("expired".to_owned(), Some("approval_expired".to_owned()))
+    );
+    assert_eq!(f.expiry(late).await, (vec!["system".to_owned()], true));
+    assert_eq!(f.host_states(late).await, ["cancelled"]);
+    assert_eq!(f.state(fresh).await.0, "pending_approval");
+    assert_eq!(f.state(review).await.0, "needs_review");
+    // A second sweep finds nothing more.
+    assert_eq!(
+        keel_server::approvals::sweep(&f.h.app)
+            .await
+            .expect("sweep"),
+        0
+    );
+    assert_eq!(f.info(late).await.state, RunPhase::Expired);
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn answering_an_overdue_run_expires_it() {
+    let Some(f) = Fx::new("approval_answer_overdue", 1, false).await else {
+        return;
+    };
+    let run = f.start(&f.olga).await;
+    f.overdue(run).await;
+    assert_eq!(
+        refusal(&f.answer(&f.ann, approve(run)).await),
+        "approval_expired"
+    );
+    assert_eq!(f.state(run).await.0, "expired");
+    assert_eq!(f.expiry(run).await, (vec!["system".to_owned()], true));
+    // Overdue between the preview and the confirmation, too.
+    let run = f.start(&f.olga).await;
+    let out = f.h.cmd_as(&f.ben, deny(run, None)).await;
+    let [Event::Preview(p)] = out.as_slice() else {
+        panic!("{out:?}");
+    };
+    f.overdue(run).await;
+    let out =
+        f.h.cmd_as(
+            &f.ben,
+            Cmd::Confirm {
+                preview_id: p.preview_id,
+                step_up: None,
+            },
+        )
+        .await;
+    assert_eq!(refusal(&out), "approval_expired");
+    assert_eq!(f.state(run).await.0, "expired");
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn the_sweeper_catches_up_on_start() {
+    let Some(f) = Fx::new("approval_sweeper_start", 1, false).await else {
+        return;
+    };
+    let run = f.start(&f.olga).await;
+    f.overdue(run).await;
+    // A period far longer than the test: only the first, immediate sweep can expire it.
+    let sweeper = keel_server::approvals::spawn_approval_sweeper(
+        f.h.app.clone(),
+        std::time::Duration::from_secs(3600),
+    );
+    let mut state = String::new();
+    for _ in 0..50 {
+        state = f.state(run).await.0;
+        if state == "expired" {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    sweeper.abort();
+    assert_eq!(state, "expired");
+    f.finish().await;
+}
