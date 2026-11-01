@@ -14,6 +14,7 @@
 import { create } from 'zustand'
 
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
+import { loadList, type Refusal } from '@/app/load'
 import type {
   Cmd,
   InventoryChange,
@@ -65,6 +66,8 @@ export interface InventoryState {
   items: InventoryInfo[]
   /** Whether `items` has answered for this workspace, so an empty list means none. */
   loaded: boolean
+  /** Why the list failed to load, until it loads. */
+  failed: Refusal | null
   opened: Opened | null
   /** The text waiting for, or holding, the newest check. */
   checking: string | null
@@ -108,6 +111,7 @@ export const useInventory = create<InventoryState>()((set, get) => ({
   workspace: null,
   items: [],
   loaded: false,
+  failed: null,
   opened: null,
   checking: null,
   validation: null,
@@ -121,7 +125,20 @@ export const useInventory = create<InventoryState>()((set, get) => ({
     if (get().workspace !== workspace) {
       set({ workspace, items: [], loaded: false, opened: null, diff: null, validation: null, checking: null, schemaValidation: null, checkingSchema: null })
     }
-    send({ type: 'ListInventories', data: { workspace } })
+    set({ failed: null })
+    loadList(
+      { type: 'ListInventories', data: { workspace } },
+      // The list itself lands in `onServerEvent`, which also takes pushed `Inventories`.
+      (event) => (event.type === 'Inventories' ? true : undefined),
+      {
+        loaded: () => {
+          if (get().workspace === workspace) set({ failed: null })
+        },
+        failed: (failed) => {
+          if (get().workspace === workspace) set({ failed })
+        },
+      },
+    )
   },
   open: (inventory, seq = null) => {
     if (inventory === null) {

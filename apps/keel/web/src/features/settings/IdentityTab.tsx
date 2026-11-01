@@ -7,7 +7,6 @@ import { IdentificationCardIcon, WarningIcon } from '@phosphor-icons/react'
 import { Badge } from '@companion/ui'
 import { useEffect } from 'react'
 
-import { RefusalText } from '@/features/teams/parts'
 import type { RoleMappingInfo } from '@/protocol/wire'
 import { EmptyState } from '@/ui/EmptyState'
 import { LoadState } from '@/ui/LoadState'
@@ -65,7 +64,7 @@ export function IdentityTab() {
     load()
   }, [load])
   return (
-    <LoadState loading={value === null} error={refusal && <RefusalText refusal={refusal} />} label="Loading settings…">
+    <LoadState loading={value === null} failed={refusal} what="settings" onRetry={load} label="Loading settings…">
       {value && (
         <div className="flex min-w-0 flex-col gap-3">
           {value.warnings.length > 0 && (

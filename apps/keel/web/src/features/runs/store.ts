@@ -14,6 +14,7 @@
 import { create } from 'zustand'
 
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
+import { loadList, type Refusal } from '@/app/load'
 import type { Cmd, Preview, RequestId, RunHostInfo, RunInfo, RunPhase } from '@/protocol/wire'
 
 /** A commit, shortened for a table cell. */
@@ -56,6 +57,8 @@ export interface RunsState {
   runs: RunInfo[]
   /** Whether `runs` has answered for this workspace, so an empty list means no runs. */
   loaded: boolean
+  /** Why the list failed to load, until it loads. */
+  failed: Refusal | null
   /** The run open, by id, once `Run` answers. */
   open: string | null
   detail: RunDetail | null
@@ -113,6 +116,7 @@ export const useRuns = create<RunsState>()((set, get) => ({
   workspace: null,
   runs: [],
   loaded: false,
+  failed: null,
   open: null,
   detail: null,
   lines: [],
@@ -124,10 +128,19 @@ export const useRuns = create<RunsState>()((set, get) => ({
 
   load: (workspace) => {
     if (get().workspace !== workspace) set({ workspace, runs: [], loaded: false })
-    send({
-      type: 'ListRuns',
-      data: { workspace, binding: null, host: null, actor: null, state: null, from: null, to: null },
-    })
+    set({ failed: null })
+    loadList(
+      { type: 'ListRuns', data: { workspace, binding: null, host: null, actor: null, state: null, from: null, to: null } },
+      (event) => (event.type === 'Runs' ? event.data.items : undefined),
+      {
+        loaded: (runs) => {
+          if (get().workspace === workspace) set({ runs, loaded: true, failed: null })
+        },
+        failed: (failed) => {
+          if (get().workspace === workspace) set({ failed })
+        },
+      },
+    )
   },
   watch: (run) => {
     const was = get().open
@@ -164,9 +177,6 @@ onServerEvent(({ reply_to, event }) => {
   const s = useRuns.getState()
   const ours = reply_to !== undefined && mine.has(reply_to)
   switch (event.type) {
-    case 'Runs':
-      if (ours) useRuns.setState({ runs: event.data.items, loaded: true })
-      break
     case 'Run': {
       const { run, hosts } = event.data
       if (s.workspace !== null && run.workspace !== s.workspace && s.open !== run.id) break

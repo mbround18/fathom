@@ -15,6 +15,7 @@ import { TermTip } from '@/help/TermTip'
 import type { BindingInfo, CredentialInfo, CredentialKind, JobSummary, Transport } from '@/protocol/wire'
 import { DataTable } from '@/ui/DataTable'
 import { EmptyState } from '@/ui/EmptyState'
+import { LoadFailed } from '@/ui/LoadFailed'
 import { LoadState } from '@/ui/LoadState'
 import { emptyVariant } from '@/ui/empty-variant'
 import { useReveal } from '@/ui/reveal'
@@ -345,6 +346,8 @@ function Credentials({ canAct }: { canAct: boolean }) {
   const workspace = useRepos((s) => s.workspace)
   const credentials = useRepos((s) => s.credentials)
   const loaded = useRepos((s) => s.loaded.credentials)
+  const failed = useRepos((s) => s.failed.credentials)
+  const load = useRepos((s) => s.load)
   const propose = useRepos((s) => s.propose)
   const nameRef = useRef<HTMLInputElement>(null)
   const [name, setName] = useState('')
@@ -373,7 +376,15 @@ function Credentials({ canAct }: { canAct: boolean }) {
           Secrets a binding uses to fetch or run.
         </SectionIntro>
       </div>
-      {loaded && credentials.length === 0 ? (
+      {workspace && failed ? (
+        <LoadFailed
+          what="credentials"
+          refusal={failed}
+          onRetry={() => {
+            load(workspace)
+          }}
+        />
+      ) : loaded && credentials.length === 0 ? (
         <NoCredentials
           canAct={canAct}
           onAdd={() => {
@@ -433,13 +444,15 @@ export default function BindingsPage() {
   const workspace = useRepos((s) => s.workspace)
   const open = useRepos((s) => s.open)
   const loaded = useRepos((s) => s.loaded.bindings)
+  const failed = useRepos((s) => s.failed.bindings)
+  const load = useRepos((s) => s.load)
   const me = useSession((s) => s.me)
   const [adding, setAdding] = useState(false)
   const variant = emptyVariant({ filtered: false, canAct: workspace !== null && canAdminister(me, workspace) })
   const canAct = variant === 'guided'
   const canSync = workspace !== null && canOperate(me, workspace)
   // The guided state stands in for the table once the list has answered empty, until the form opens.
-  const empty = loaded && bindings.length === 0 && !adding
+  const empty = !failed && loaded && bindings.length === 0 && !adding
   const current = detail ? (bindings.find((b) => b.id === detail.binding.id) ?? detail.binding) : null
 
   return (
@@ -492,7 +505,16 @@ export default function BindingsPage() {
           guide={{ guide: 'bindings', anchor: 'bind-a-repository' }}
         />
       )}
-      {workspace && !empty && (
+      {workspace && failed && (
+        <LoadFailed
+          what="bindings"
+          refusal={failed}
+          onRetry={() => {
+            load(workspace)
+          }}
+        />
+      )}
+      {workspace && !failed && !empty && (
         <DataTable<BindingInfo>
           label="Bindings"
           rows={bindings}

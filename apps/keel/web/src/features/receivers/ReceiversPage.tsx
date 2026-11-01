@@ -17,6 +17,7 @@ import type { DeliveryInfo, ReceiverInfo, ReceiverProvider } from '@/protocol/wi
 import { CopyBlock } from '@/ui/CopyBlock'
 import { DataTable } from '@/ui/DataTable'
 import { EmptyState } from '@/ui/EmptyState'
+import { LoadFailed } from '@/ui/LoadFailed'
 import { emptyVariant } from '@/ui/empty-variant'
 import { FIELD, H2, LABEL, STATUS } from '@/ui/form'
 import { Page } from '@/ui/Page'
@@ -263,10 +264,12 @@ export default function ReceiversPage() {
   const workspace = useRepos((s) => s.workspace)
   const receivers = useRepos((s) => s.receivers)
   const loaded = useRepos((s) => s.loaded.receivers)
+  const failed = useRepos((s) => s.failed.receivers)
+  const load = useRepos((s) => s.load)
   const me = useSession((s) => s.me)
   const nameRef = useRef<HTMLInputElement>(null)
   const variant = emptyVariant({ filtered: false, canAct: workspace !== null && canAdminister(me, workspace) })
-  const empty = loaded && receivers.length === 0
+  const empty = !failed && loaded && receivers.length === 0
   return (
     <Page name="receivers" labelledBy="receivers-title">
       <PageHeader
@@ -285,7 +288,15 @@ export default function ReceiversPage() {
           {variant === 'guided' && (
             <NewReceiver workspace={workspace} nameRef={nameRef} quiet={empty} />
           )}
-          {empty ? (
+          {failed ? (
+            <LoadFailed
+              what="receivers"
+              refusal={failed}
+              onRetry={() => {
+                load(workspace)
+              }}
+            />
+          ) : empty ? (
             <NoReceivers
               canAct={variant === 'guided'}
               onCreate={() => {

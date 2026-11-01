@@ -15,8 +15,9 @@
  */
 import { create } from 'zustand'
 
-import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
-import { useGovernance, type Refusal } from '@/features/teams/store'
+import { onReconnected, onServerEvent } from '@/app/connection'
+import { loadList, type Refusal } from '@/app/load'
+import { useGovernance } from '@/features/teams/store'
 import type {
   AdminApiTokenInfo,
   ApiTokenState,
@@ -24,7 +25,6 @@ import type {
   EnrollmentInfo,
   EnrollmentState,
   Event,
-  RequestId,
 } from '@/protocol/wire'
 
 export type SettingsInfo = Extract<Event, { type: 'Settings' }>['data']
@@ -65,20 +65,12 @@ export interface SettingsState {
   removeSystem: () => void
 }
 
-const OFFLINE: Refusal = {
-  kind: 'error',
-  code: 'offline',
-  message: 'Keel is not connected. Wait for it to reconnect, then try again.',
-}
-
 type Key = 'settings' | 'enrollments' | 'apiTokens' | 'system'
 
-const handlers = new Map<RequestId, (event: Event) => void>()
 /** What has been asked for, so a reconnect asks again. */
 const asked = new Set<Key>()
 
-onServerEvent(({ reply_to, event }) => {
-  if (reply_to !== undefined) handlers.get(reply_to)?.(event)
+onServerEvent(({ event }) => {
   // A conflict can answer the preview or the confirm; either way the tab shows the banner.
   if (event.type === 'OpError') {
     if (event.data.code === SETTINGS_CONFLICT) useSettings.setState({ settingsConflict: true })
@@ -94,32 +86,19 @@ onReconnected(() => {
   if (asked.has('system')) s.loadSystem()
 })
 
-function refusalOf(event: Event): Refusal | null {
-  if (event.type === 'Denied') return { kind: 'denied', action: event.data.action, reason: event.data.reason }
-  if (event.type === 'OpError') return { kind: 'error', code: event.data.code, message: event.data.message }
-  return null
-}
-
-/** Sends a read; its answer (or refusal) lands in `key`. */
+/** Sends a read through `loadList`; its answer (or refusal) lands in `key`. */
 function read<K extends Key>(key: K, cmd: Cmd, pick: (event: Event) => SettingsState[K]['value'] | undefined): void {
   asked.add(key)
-  const id = sendCmd(cmd)
-  if (id === null) {
-    useSettings.setState({ [key]: { value: useSettings.getState()[key].value, refusal: OFFLINE } })
-    return
-  }
-  handlers.set(id, (event) => {
-    const value = pick(event)
-    if (value !== undefined) {
-      handlers.delete(id)
+  // Clear an earlier refusal, so a retry reads as loading.
+  const was = useSettings.getState()[key]
+  if (was.refusal) useSettings.setState({ [key]: { value: was.value, refusal: null } })
+  loadList(cmd, pick, {
+    loaded: (value) => {
       useSettings.setState({ [key]: { value, refusal: null } })
-      return
-    }
-    const refusal = refusalOf(event)
-    if (refusal) {
-      handlers.delete(id)
-      useSettings.setState({ [key]: { value: null, refusal } })
-    }
+    },
+    failed: (refusal) => {
+      useSettings.setState({ [key]: { value: useSettings.getState()[key].value, refusal } })
+    },
   })
 }
 

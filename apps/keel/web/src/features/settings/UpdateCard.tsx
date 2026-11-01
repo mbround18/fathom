@@ -340,13 +340,17 @@ function Card({ status }: { status: UpdateStatus }) {
 export function UpdateCard() {
   const status = useUpdates((s) => s.status)
   const refusal = useUpdates((s) => s.refusal)
+  const load = useUpdates((s) => s.loadStatus)
   return (
     <section
       aria-label="Updates"
       data-update-card={status ? cardState(status) : 'loading'}
       className="flex min-w-0 flex-col gap-2 border border-border p-3"
     >
-      <LoadState loading={status === null} error={refusal && <RefusalText refusal={refusal} />} label="Reading the update status…">
+      <LoadState loading={status === null} failed={refusal}
+        what="the update status"
+        onRetry={load}
+        label="Reading the update status…">
         {status && <Card status={status} />}
       </LoadState>
     </section>

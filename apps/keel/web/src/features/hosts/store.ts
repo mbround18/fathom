@@ -17,6 +17,7 @@
 import { create } from 'zustand'
 
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
+import { loadList, type Refusal } from '@/app/load'
 import { useSession } from '@/app/session-store'
 import { usePasskeys } from '@/features/passkeys/store'
 import type { Cmd, HostDetail, HostInfo, Preview, RequestId, SshCaInfo } from '@/protocol/wire'
@@ -39,6 +40,8 @@ export interface HostsState {
   hosts: HostInfo[]
   /** Whether `hosts` has answered for this workspace, so an empty list means no hosts. */
   loaded: boolean
+  /** Why the list failed to load, until it loads. */
+  failed: Refusal | null
   ssh: SshCa | null
   preview: Preview | null
   error: string | null
@@ -71,13 +74,26 @@ function send(cmd: Cmd): boolean {
 
 function list(workspace: string): void {
   const changed_outside = useHosts.getState().changedOnly ? true : null
-  send({ type: 'ListHosts', data: { workspace, profile: null, drift: null, changed_outside } })
+  useHosts.setState({ failed: null })
+  loadList(
+    { type: 'ListHosts', data: { workspace, profile: null, drift: null, changed_outside } },
+    (event) => (event.type === 'Hosts' ? event.data.items : undefined),
+    {
+      loaded: (hosts) => {
+        if (useHosts.getState().workspace === workspace) useHosts.setState({ hosts, loaded: true, failed: null })
+      },
+      failed: (failed) => {
+        if (useHosts.getState().workspace === workspace) useHosts.setState({ failed })
+      },
+    },
+  )
 }
 
 export const useHosts = create<HostsState>()((set, get) => ({
   workspace: null,
   hosts: [],
   loaded: false,
+  failed: null,
   ssh: null,
   preview: null,
   error: null,
@@ -132,9 +148,6 @@ onServerEvent(({ reply_to, event }) => {
   const s = useHosts.getState()
   const ours = reply_to !== undefined && mine.has(reply_to)
   switch (event.type) {
-    case 'Hosts':
-      if (ours) useHosts.setState({ hosts: event.data.items, loaded: true })
-      break
     case 'Host': {
       const { host } = event.data
       if (host.workspace !== s.workspace) break

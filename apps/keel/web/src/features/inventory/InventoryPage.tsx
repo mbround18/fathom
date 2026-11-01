@@ -24,6 +24,7 @@ import { EmptyState } from '@/ui/EmptyState'
 import { emptyVariant } from '@/ui/empty-variant'
 import { ErrorLine as Alert } from '@/ui/ErrorLine'
 import { Field as FormField, H2, LABEL, LINK, Select } from '@/ui/form'
+import { LoadFailed } from '@/ui/LoadFailed'
 import { LoadState } from '@/ui/LoadState'
 import { Page } from '@/ui/Page'
 import { useReveal } from '@/ui/reveal'
@@ -470,6 +471,8 @@ function NoInventory({ canAct, onCreate }: { canAct: boolean; onCreate: () => vo
 export default function InventoryPage() {
   const items = useInventory((s) => s.items)
   const loaded = useInventory((s) => s.loaded)
+  const failed = useInventory((s) => s.failed)
+  const load = useInventory((s) => s.load)
   const workspace = useInventory((s) => s.workspace)
   const opened = useInventory((s) => s.opened)
   const open = useInventory((s) => s.open)
@@ -477,7 +480,7 @@ export default function InventoryPage() {
   const [creating, setCreating] = useState(false)
   const variant = emptyVariant({ filtered: false, canAct: workspace !== null && canAdminister(me, workspace) })
   const canAct = variant === 'guided'
-  const empty = loaded && items.length === 0
+  const empty = !failed && loaded && items.length === 0
 
   return (
     <Page name="inventory" labelledBy="inventory-title">
@@ -511,7 +514,16 @@ export default function InventoryPage() {
           }}
         />
       )}
-      {workspace && !empty && (
+      {workspace && failed && (
+        <LoadFailed
+          what="inventories"
+          refusal={failed}
+          onRetry={() => {
+            load(workspace)
+          }}
+        />
+      )}
+      {workspace && !failed && !empty && (
         <DataTable<Item>
           label="Inventories"
           rows={items}

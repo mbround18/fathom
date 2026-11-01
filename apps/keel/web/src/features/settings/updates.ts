@@ -17,8 +17,9 @@
 import { create } from 'zustand'
 
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
+import { loadList, OFFLINE, refusalOf, type Refusal } from '@/app/load'
 import { useSession } from '@/app/session-store'
-import { useGovernance, type Refusal } from '@/features/teams/store'
+import { useGovernance } from '@/features/teams/store'
 import type {
   Cmd,
   Event,
@@ -125,21 +126,10 @@ export interface UpdatesState extends Held {
   update: (digest: string) => void
 }
 
-const OFFLINE: Refusal = {
-  kind: 'error',
-  code: 'offline',
-  message: 'Keel is not connected. Wait for it to reconnect, then try again.',
-}
 
 const handlers = new Map<RequestId, (event: Event) => void>()
 let askedBuild = false
 let askedStatus = false
-
-function refusalOf(event: Event): Refusal | null {
-  if (event.type === 'Denied') return { kind: 'denied', action: event.data.action, reason: event.data.reason }
-  if (event.type === 'OpError') return { kind: 'error', code: event.data.code, message: event.data.message }
-  return null
-}
 
 /** Sends `cmd`; `handle` sees each answer until it returns `true`. `false` when offline. */
 function ask(cmd: Cmd, handle: (event: Event) => boolean): boolean {
@@ -197,28 +187,31 @@ export const useUpdates = create<UpdatesState>()((set) => ({
 
   loadBuild: () => {
     askedBuild = true
-    const sent = ask({ type: 'GetKeelBuild' }, (event) => {
-      if (event.type === 'KeelBuild') {
-        set({ build: event.data, buildRefusal: null })
-        return true
-      }
-      const refusal = refusalOf(event)
-      if (refusal) set({ buildRefusal: refusal })
-      return refusal !== null
+    set({ buildRefusal: null })
+    loadList({ type: 'GetKeelBuild' }, (event) => (event.type === 'KeelBuild' ? event.data : undefined), {
+      loaded: (build) => {
+        set({ build, buildRefusal: null })
+      },
+      failed: (buildRefusal) => {
+        set({ buildRefusal })
+      },
     })
-    if (!sent) set({ buildRefusal: OFFLINE })
   },
 
   loadStatus: () => {
     askedStatus = true
+    set({ refusal: null })
     // The answer is an `UpdateStatus` or `UpdateStatusLine`, which every event handler applies.
-    const sent = ask({ type: 'GetUpdateStatus' }, (event) => {
-      if (event.type === 'UpdateStatus' || event.type === 'UpdateStatusLine') return true
-      const refusal = refusalOf(event)
-      if (refusal) set({ refusal })
-      return refusal !== null
-    })
-    if (!sent) set({ refusal: OFFLINE })
+    loadList(
+      { type: 'GetUpdateStatus' },
+      (event) => (event.type === 'UpdateStatus' || event.type === 'UpdateStatusLine' ? true : undefined),
+      {
+        loaded: () => undefined,
+        failed: (refusal) => {
+          set({ refusal })
+        },
+      },
+    )
   },
 
   checkNow: () => {

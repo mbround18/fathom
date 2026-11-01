@@ -20,6 +20,7 @@
 import { create } from 'zustand'
 
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
+import { loadList, type Refusal } from '@/app/load'
 import { useSession } from '@/app/session-store'
 import { signChallenge, usePasskeys } from '@/features/passkeys/store'
 import type {
@@ -104,6 +105,8 @@ export interface ReviewsState {
   items: ReviewInfo[]
   /** Whether `items` has answered for this workspace and filter, so an empty list means none. */
   loaded: boolean
+  /** Why the list failed to load, until it loads. */
+  failed: Refusal | null
   selected: string | null
   detail: ReviewDetail | null
   files: DiffFile[]
@@ -141,7 +144,24 @@ function send(cmd: Cmd, purpose: Purpose = 'read'): boolean {
 
 function list(): void {
   const { workspace, filter } = useReviews.getState()
-  if (workspace) send({ type: 'ListReviews', data: { workspace, state: filter } })
+  if (!workspace) return
+  useReviews.setState({ failed: null })
+  const current = (): boolean => {
+    const s = useReviews.getState()
+    return s.workspace === workspace && s.filter === filter
+  }
+  loadList(
+    { type: 'ListReviews', data: { workspace, state: filter } },
+    (event) => (event.type === 'Reviews' ? event.data.items : undefined),
+    {
+      loaded: (items) => {
+        if (current()) useReviews.setState({ items, loaded: true, failed: null })
+      },
+      failed: (failed) => {
+        if (current()) useReviews.setState({ failed })
+      },
+    },
+  )
 }
 
 export const useReviews = create<ReviewsState>()((set, get) => ({
@@ -149,6 +169,7 @@ export const useReviews = create<ReviewsState>()((set, get) => ({
   filter: 'open',
   items: [],
   loaded: false,
+  failed: null,
   selected: null,
   detail: null,
   files: [],
@@ -247,9 +268,6 @@ onServerEvent(({ reply_to, event }) => {
   const purpose = reply_to === undefined ? undefined : mine.get(reply_to)
   const ours = purpose !== undefined
   switch (event.type) {
-    case 'Reviews':
-      if (ours) useReviews.setState({ items: event.data.items, loaded: true })
-      break
     case 'ReviewRequested':
       if (event.data.workspace === s.workspace) list()
       break

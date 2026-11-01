@@ -23,7 +23,6 @@ import { ErrorLine, PreviewDialog } from '@/features/bindings/parts'
 import { useRepos } from '@/features/bindings/store'
 import { useSession } from '@/app/session-store'
 import { useEnroll } from '@/features/hosts/enroll-store'
-import { RefusalText } from '@/features/teams/parts'
 import { EmptyState } from '@/ui/EmptyState'
 import { LoadState } from '@/ui/LoadState'
 
@@ -243,7 +242,10 @@ function SystemWorkspace() {
   return (
     <div id="system-workspace" className="flex min-w-0 scroll-mt-2 flex-col gap-3">
       {conflict && <ConflictBanner what="the System workspace" onReload={load} />}
-      <LoadState loading={value === null} error={refusal && <RefusalText refusal={refusal} />} label="Loading the System workspace…">
+      <LoadState loading={value === null} failed={refusal}
+        what="the System workspace"
+        onRetry={load}
+        label="Loading the System workspace…">
         {value &&
           (value.configured ? (
             <Configured system={value} />

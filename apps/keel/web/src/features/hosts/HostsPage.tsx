@@ -9,7 +9,6 @@ import { useEffect, useId, useMemo } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { WorkspaceSelect } from '@/app/WorkspacePicker'
-import { RefusalText } from '@/features/teams/parts'
 import { TermTip } from '@/help/TermTip'
 import type { HostInfo, HostStatus } from '@/protocol/wire'
 import { ConfirmDialog as Confirm } from '@/ui/ConfirmDialog'
@@ -19,6 +18,7 @@ import { EmptyState } from '@/ui/EmptyState'
 import { emptyVariant } from '@/ui/empty-variant'
 import { ErrorLine as Alert } from '@/ui/ErrorLine'
 import { H2, LABEL, LINK, SectionIntro, STATUS } from '@/ui/form'
+import { LoadFailed } from '@/ui/LoadFailed'
 import { LoadState } from '@/ui/LoadState'
 import { NoMatch } from '@/ui/NoMatch'
 import { Page } from '@/ui/Page'
@@ -148,7 +148,7 @@ function ErrorLine() {
  * workspace is listed only once it exists, since the server sends it only then.
  */
 function WorkspacePicker() {
-  const { all, refusal } = useWorkspaces()
+  const { all, refusal, retry } = useWorkspaces()
   const workspace = useHosts((s) => s.workspace)
   const load = useHosts((s) => s.load)
   const first = all?.[0]?.id ?? null
@@ -159,7 +159,7 @@ function WorkspacePicker() {
     if (current) load(current)
   }, [known, workspace, first, load])
 
-  if (refusal) return <RefusalText refusal={refusal} />
+  if (refusal) return <LoadFailed what="workspaces" refusal={refusal} onRetry={retry} />
   if (all === null) return null
   return (
     <WorkspaceSelect
@@ -280,6 +280,8 @@ export default function HostsPage() {
   const changedOnly = useHosts((s) => s.changedOnly)
   const setChangedOnly = useHosts((s) => s.setChangedOnly)
   const loaded = useHosts((s) => s.loaded)
+  const failed = useHosts((s) => s.failed)
+  const load = useHosts((s) => s.load)
   const me = useSession((s) => s.me)
   const mintedCount = useEnroll((s) => s.mintedCount)
   // Profiles already in use here, offered as chips in the Enroll dialog.
@@ -326,7 +328,7 @@ export default function HostsPage() {
 
   const variant = emptyVariant({ filtered: changedOnly, canAct: workspace !== null && canOperate(me, workspace) })
   // The guided state replaces the table only once the list has answered empty and unfiltered.
-  const guided = loaded && hosts.length === 0 && variant !== 'no-match'
+  const guided = !failed && loaded && hosts.length === 0 && variant !== 'no-match'
   // Revoking a host needs Administer (keel-server hosts.rs), more than enrolling one.
   const canRevoke = workspace !== null && canAdminister(me, workspace)
 
@@ -342,8 +344,17 @@ export default function HostsPage() {
         <WorkspacePicker />
       </PageHeader>
       <ErrorLine />
+      {workspace && failed && (
+        <LoadFailed
+          what="hosts"
+          refusal={failed}
+          onRetry={() => {
+            load(workspace)
+          }}
+        />
+      )}
       {workspace && guided && <NoHosts workspace={workspace} canAct={variant === 'guided'} />}
-      {workspace && !guided && (
+      {workspace && !failed && !guided && (
         <>
           <DataTable
             label="Hosts"

@@ -11,7 +11,7 @@ import { Badge, Button } from '@companion/ui'
 import { useEffect, useId } from 'react'
 
 import { useEnroll } from '@/features/hosts/enroll-store'
-import { NativeSelect, RefusalText } from '@/features/teams/parts'
+import { NativeSelect } from '@/features/teams/parts'
 import type { AdminApiTokenInfo, ApiTokenState, EnrollmentInfo, EnrollmentState } from '@/protocol/wire'
 import { DataTable, type Column } from '@/ui/DataTable'
 import { LoadState } from '@/ui/LoadState'
@@ -125,7 +125,12 @@ function Enrollments() {
       <h2 id="enrollment-tokens-h" className={H2}>
         Enrolment tokens
       </h2>
-      <LoadState loading={value === null && !refusal} error={refusal && <RefusalText refusal={refusal} />} label="Loading tokens…">
+      <LoadState loading={value === null && !refusal} failed={refusal}
+        what="enrolment tokens"
+        onRetry={() => {
+          load()
+        }}
+        label="Loading tokens…">
         <DataTable
           label="Enrolment tokens"
           columns={ENROLLMENT_COLUMNS}
@@ -202,7 +207,12 @@ function ApiTokens() {
       <h2 id="api-tokens-h" className={H2}>
         API tokens
       </h2>
-      <LoadState loading={value === null && !refusal} error={refusal && <RefusalText refusal={refusal} />} label="Loading tokens…">
+      <LoadState loading={value === null && !refusal} failed={refusal}
+        what="API tokens"
+        onRetry={() => {
+          load()
+        }}
+        label="Loading tokens…">
         <DataTable
           label="API tokens"
           columns={API_TOKEN_COLUMNS}

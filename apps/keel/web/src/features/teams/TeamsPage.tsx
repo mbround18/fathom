@@ -142,6 +142,7 @@ function useCanAdminister(): boolean {
 function Workspaces() {
   const workspaces = useGovernance((s) => s.workspaces)
   const refusal = useGovernance((s) => s.refused.workspaces)
+  const load = useGovernance((s) => s.load)
   const canAct = useCanAdminister()
   const [creating, setCreating] = useState(false)
   return (
@@ -162,6 +163,10 @@ function Workspaces() {
         <ListState
           items={workspaces}
           refusal={refusal}
+          what="workspaces"
+          onRetry={() => {
+            load('workspaces')
+          }}
           empty={
             <EmptyState
               page="workspaces"
@@ -346,6 +351,7 @@ function TeamRow({ team, knownProfiles }: { team: TeamInfo; knownProfiles: reado
 function Teams() {
   const teams = useGovernance((s) => s.teams)
   const refusal = useGovernance((s) => s.refused.teams)
+  const load = useGovernance((s) => s.load)
   const canAct = useCanAdminister()
   const [creating, setCreating] = useState(false)
   const knownProfiles = [...new Set((teams ?? []).flatMap((t) => t.grants.flatMap((g) => g.profiles)))].sort()
@@ -367,6 +373,10 @@ function Teams() {
         <ListState
           items={teams}
           refusal={refusal}
+          what="teams"
+          onRetry={() => {
+            load('teams')
+          }}
           empty={
             <EmptyState
               page="teams"

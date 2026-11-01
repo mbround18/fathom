@@ -10,7 +10,7 @@
  * `Capability::of`). The server decides again on every command; these only decide whether to
  * offer the button.
  */
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { useGovernance, type Refusal } from '@/features/teams/store'
@@ -33,6 +33,8 @@ export interface Workspaces {
   all: WorkspaceInfo[] | null
   operable: WorkspaceInfo[]
   refusal: Refusal | undefined
+  /** Asks for the workspaces again, after a failed load. */
+  retry: () => void
 }
 
 export function useWorkspaces(): Workspaces {
@@ -44,5 +46,8 @@ export function useWorkspaces(): Workspaces {
     load('workspaces')
   }, [load])
   const all = items?.filter((w) => !w.archived) ?? null
-  return { all, operable: (all ?? []).filter((w) => canOperate(me, w.id)), refusal }
+  const retry = useCallback(() => {
+    load('workspaces')
+  }, [load])
+  return { all, operable: (all ?? []).filter((w) => canOperate(me, w.id)), refusal, retry }
 }

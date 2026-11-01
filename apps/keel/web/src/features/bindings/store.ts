@@ -14,6 +14,7 @@
 import { create } from 'zustand'
 
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
+import { loadList, type Refusal } from '@/app/load'
 import { useSession } from '@/app/session-store'
 import { usePasskeys } from '@/features/passkeys/store'
 import type {
@@ -21,6 +22,7 @@ import type {
   Cmd,
   CredentialInfo,
   DeliveryInfo,
+  Event,
   JobSummary,
   Preview,
   ReceiverInfo,
@@ -44,6 +46,8 @@ export interface ReposState {
   credentials: CredentialInfo[]
   /** Which lists have answered for this workspace, so an empty one means none rather than not yet. */
   loaded: { bindings: boolean; receivers: boolean; credentials: boolean }
+  /** Why each list failed to load, until it loads. */
+  failed: Record<ListName, Refusal | null>
   preview: Preview | null
   /** A receiver's secret, shown once. */
   secret: { url: string; secret: string } | null
@@ -80,6 +84,23 @@ function upsert<T extends { id: string }>(items: T[], item: T, front = false): T
 }
 
 const NOT_LOADED = { bindings: false, receivers: false, credentials: false }
+const NOT_FAILED = { bindings: null, receivers: null, credentials: null }
+
+type ListName = keyof typeof NOT_LOADED
+
+/** Lists one of the workspace's lists. The list itself lands in `onServerEvent`, which takes pushes too. */
+function list(workspace: string, name: ListName, cmd: Cmd, answer: Event['type']): void {
+  const settle = (failed: Refusal | null) => {
+    if (useRepos.getState().workspace === workspace) useRepos.setState((s) => ({ failed: { ...s.failed, [name]: failed } }))
+  }
+  settle(null)
+  loadList(cmd, (event) => (event.type === answer ? true : undefined), {
+    loaded: () => {
+      settle(null)
+    },
+    failed: settle,
+  })
+}
 
 export const useRepos = create<ReposState>()((set, get) => ({
   workspace: null,
@@ -89,6 +110,7 @@ export const useRepos = create<ReposState>()((set, get) => ({
   deliveries: [],
   credentials: [],
   loaded: NOT_LOADED,
+  failed: NOT_FAILED,
   preview: null,
   secret: null,
   error: null,
@@ -103,11 +125,12 @@ export const useRepos = create<ReposState>()((set, get) => ({
         deliveries: [],
         credentials: [],
         loaded: NOT_LOADED,
+        failed: NOT_FAILED,
       })
     }
-    send({ type: 'ListBindings', data: { workspace } })
-    send({ type: 'ListReceivers', data: { workspace } })
-    send({ type: 'ListCredentials', data: { workspace } })
+    list(workspace, 'bindings', { type: 'ListBindings', data: { workspace } }, 'Bindings')
+    list(workspace, 'receivers', { type: 'ListReceivers', data: { workspace } }, 'Receivers')
+    list(workspace, 'credentials', { type: 'ListCredentials', data: { workspace } }, 'Credentials')
     send({
       type: 'ListDeliveries',
       data: { workspace, receiver: null, binding: null, decision: null, from: null, to: null },

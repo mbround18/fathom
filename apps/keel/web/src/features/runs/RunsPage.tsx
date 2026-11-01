@@ -13,6 +13,7 @@ import { DataTable } from '@/ui/DataTable'
 import { EmptyState } from '@/ui/EmptyState'
 import { emptyVariant } from '@/ui/empty-variant'
 import { LINK } from '@/ui/form'
+import { LoadFailed } from '@/ui/LoadFailed'
 import { LoadState } from '@/ui/LoadState'
 import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
@@ -45,6 +46,7 @@ function NoRuns({ canAct }: { canAct: boolean }) {
 export default function RunsPage() {
   const runs = useRuns((s) => s.runs)
   const loaded = useRuns((s) => s.loaded)
+  const failed = useRuns((s) => s.failed)
   const workspace = useRuns((s) => s.workspace)
   const load = useRuns((s) => s.load)
   const me = useSession((s) => s.me)
@@ -56,8 +58,17 @@ export default function RunsPage() {
         <GrantWorkspacePicker workspace={workspace} load={load} />
       </PageHeader>
       <ErrorLine />
-      {workspace && loaded && runs.length === 0 && <NoRuns canAct={variant === 'guided'} />}
-      {workspace && !(loaded && runs.length === 0) && (
+      {workspace && failed && (
+        <LoadFailed
+          what="runs"
+          refusal={failed}
+          onRetry={() => {
+            load(workspace)
+          }}
+        />
+      )}
+      {workspace && !failed && loaded && runs.length === 0 && <NoRuns canAct={variant === 'guided'} />}
+      {workspace && !failed && !(loaded && runs.length === 0) && (
         <DataTable<RunInfo>
           label="Runs"
           rows={runs}

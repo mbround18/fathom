@@ -1,22 +1,31 @@
 /**
- * Loading, failed or loaded (spec 060 R10). While `loading`, a quiet status line; with `error`,
- * that instead (a refusal is shown as the server sent it); otherwise the children.
+ * Loading, failed or loaded (spec 060 R10). While `loading`, a quiet status line; when `failed`,
+ * `LoadFailed` instead, naming `what` and offering `onRetry`; otherwise the children.
  */
 import { CircleNotchIcon } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
 
+import type { Refusal } from '@/app/load'
+
+import { LoadFailed } from './LoadFailed'
+
 export function LoadState({
   loading,
-  error,
+  failed,
+  what = 'this',
+  onRetry,
   label = 'Loading…',
   children,
 }: {
   loading: boolean
-  error?: ReactNode
+  failed?: Refusal | null | undefined
+  /** What failed to load, for "Failed to load {what}." */
+  what?: string
+  onRetry?: (() => void) | undefined
   label?: string
   children?: ReactNode
 }) {
-  if (error !== undefined && error !== null && error !== false) return <>{error}</>
+  if (failed) return <LoadFailed what={what} refusal={failed} onRetry={onRetry} />
   if (loading)
     return (
       <p role="status" data-pane-state="loading" className="flex items-center gap-1.5 py-2 text-xs text-muted-foreground">

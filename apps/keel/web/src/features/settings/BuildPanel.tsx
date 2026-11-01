@@ -7,7 +7,6 @@
 import { CubeIcon } from '@phosphor-icons/react'
 import { useEffect } from 'react'
 
-import { RefusalText } from '@/features/teams/parts'
 import { H2 } from '@/ui/form'
 import { LoadState } from '@/ui/LoadState'
 import type { KeelBuild } from '@/protocol/wire'
@@ -63,7 +62,7 @@ export function BuildPanel() {
         <CubeIcon aria-hidden className="size-3.5 text-accent-neon" />
         Running build
       </h2>
-      <LoadState loading={build === null} error={refusal && <RefusalText refusal={refusal} />} label="Reading the running build…">
+      <LoadState loading={build === null} failed={refusal} what="the running build" onRetry={load} label="Reading the running build…">
         {build && <Values build={build} />}
       </LoadState>
     </section>

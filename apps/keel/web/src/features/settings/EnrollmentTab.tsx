@@ -11,7 +11,6 @@ import { ArrowCounterClockwiseIcon, ArrowsClockwiseIcon, WarningIcon } from '@ph
 import { Badge, Button } from '@companion/ui'
 import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react'
 
-import { RefusalText } from '@/features/teams/parts'
 import { LoadState } from '@/ui/LoadState'
 import { Tabs } from '@/ui/Tabs'
 
@@ -247,7 +246,7 @@ export function EnrollmentTab() {
   return (
     <div className="flex min-w-0 flex-col gap-3">
       {conflict && <ConflictBanner what="these settings" onReload={load} />}
-      <LoadState loading={value === null} error={refusal && <RefusalText refusal={refusal} />} label="Loading settings…">
+      <LoadState loading={value === null} failed={refusal} what="settings" onRetry={load} label="Loading settings…">
         {/* A new version (saved here, or reloaded) starts the editor over from it. */}
         {value && <Editor key={value.version} settings={value} />}
       </LoadState>

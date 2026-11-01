@@ -1,38 +1,16 @@
 /**
- * Pieces the governance pages share (spec 055 US6 T038): a refusal shown as the server sent it,
- * a dense list pane, and a native select styled like the inputs (dense, keyboard and touch
+ * Pieces the governance pages share (spec 055 US6 T038): a dense list pane, its loading, failed or
+ * empty state, and a native select styled like the inputs (dense, keyboard and touch
  * friendly, and what Playwright's `selectOption` drives).
  */
-import { WarningOctagonIcon } from '@phosphor-icons/react'
 import type { ComponentProps, ReactNode } from 'react'
 
+import type { Refusal } from '@/app/load'
 import { FORM_WIDTH, H2, LABEL, Select } from '@/ui/form'
+import { LoadFailed } from '@/ui/LoadFailed'
 import { LoadState } from '@/ui/LoadState'
 
-import type { Refusal } from './store'
-
-/** A `Denied` or `OpError`, verbatim: the action and the reason code, or the server's message. */
-export function RefusalText({ refusal }: { refusal: Refusal }) {
-  return (
-    <p
-      role="alert"
-      data-refusal={refusal.kind}
-      className="flex min-w-0 items-start gap-1.5 border border-status-err/40 px-2 py-1.5 text-sm text-status-err"
-    >
-      <WarningOctagonIcon aria-hidden className="mt-0.5 size-4 shrink-0" />
-      {refusal.kind === 'denied' ? (
-        <span className="min-w-0 break-words">
-          Denied: <code data-denied-action>{refusal.action}</code> (
-          <code data-denied-reason>{refusal.reason}</code>)
-        </span>
-      ) : (
-        <span className="min-w-0 break-words">
-          <span className="whitespace-pre-wrap">{refusal.message}</span> (<code data-error-code>{refusal.code}</code>)
-        </span>
-      )}
-    </p>
-  )
-}
+export { RefusalText } from '@/ui/RefusalText'
 
 /** A titled list pane: a header row with actions, then the body. */
 export function Pane({
@@ -69,21 +47,26 @@ export function Pane({
   )
 }
 
-/** Loading, refused or empty, for a list that has nothing to show yet. */
+/** Loading, failed or empty, for a list that has nothing to show yet. */
 export function ListState({
   items,
   refusal,
+  what,
+  onRetry,
   empty,
 }: {
   items: readonly unknown[] | null
   refusal: Refusal | undefined
+  /** The list, for "Failed to load {what}." */
+  what: string
+  onRetry: () => void
   /** A line, or a guided `EmptyState`. */
   empty: ReactNode
 }) {
   if (refusal)
     return (
       <div className="p-4">
-        <RefusalText refusal={refusal} />
+        <LoadFailed what={what} refusal={refusal} onRetry={onRetry} />
       </div>
     )
   if (items === null)

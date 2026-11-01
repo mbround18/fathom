@@ -116,9 +116,18 @@ function UserRow({ user }: { user: UserInfo }) {
 function Users() {
   const users = useGovernance((s) => s.users)
   const refusal = useGovernance((s) => s.refused.users)
+  const load = useGovernance((s) => s.load)
   return (
     <Pane id="users-list" title="People" count={users?.length}>
-      <ListState items={users} refusal={refusal} empty="No users yet." />
+      <ListState
+        items={users}
+        refusal={refusal}
+        what="people"
+        onRetry={() => {
+          load('users')
+        }}
+        empty="No users yet."
+      />
       {users && users.length > 0 && (
         <ul aria-label="People" className="min-w-0">
           {users.map((u) => (
@@ -227,6 +236,7 @@ function TokenRow({ token }: { token: ApiTokenInfo }) {
 function Tokens() {
   const tokens = useGovernance((s) => s.tokens)
   const refusal = useGovernance((s) => s.refused.tokens)
+  const load = useGovernance((s) => s.load)
   const [creating, setCreating] = useState(false)
   return (
     <Pane
@@ -241,7 +251,14 @@ function Tokens() {
       }
     >
       {creating && <NewToken onDone={() => setCreating(false)} />}
-      <ListState items={tokens} refusal={refusal} empty="No API tokens. Create one for a script or CI job that talks to Keel." />
+      <ListState
+        items={tokens}
+        refusal={refusal}
+        what="your API tokens"
+        onRetry={() => {
+          load('tokens')
+        }}
+        empty="No API tokens. Create one for a script or CI job that talks to Keel." />
       {tokens && tokens.length > 0 && (
         <ul aria-label="API tokens" className="min-w-0">
           {tokens.map((t) => (

@@ -22,6 +22,7 @@ import { EmptyState } from '@/ui/EmptyState'
 import { emptyVariant } from '@/ui/empty-variant'
 import { ErrorLine as Alert } from '@/ui/ErrorLine'
 import { FIELD, H2, LABEL, LINK, SectionIntro, Select, STATUS } from '@/ui/form'
+import { LoadFailed } from '@/ui/LoadFailed'
 import { LoadState } from '@/ui/LoadState'
 import { NoMatch } from '@/ui/NoMatch'
 import { Page } from '@/ui/Page'
@@ -123,6 +124,8 @@ function NoReviews({ canAct }: { canAct: boolean }) {
 function ReviewList() {
   const items = useReviews((s) => s.items)
   const loaded = useReviews((s) => s.loaded)
+  const failed = useReviews((s) => s.failed)
+  const load = useReviews((s) => s.load)
   const filter = useReviews((s) => s.filter)
   const setFilter = useReviews((s) => s.setFilter)
   const workspace = useReviews((s) => s.workspace)
@@ -135,6 +138,16 @@ function ReviewList() {
     // The action leads to the trusted signers, which need Administer (keel-server review.rs).
     canAct: workspace !== null && canAdminister(me, workspace),
   })
+  if (workspace && failed)
+    return (
+      <LoadFailed
+        what="reviews"
+        refusal={failed}
+        onRetry={() => {
+          load(workspace)
+        }}
+      />
+    )
   if (loaded && items.length === 0 && variant !== 'no-match') return <NoReviews canAct={variant === 'guided'} />
   return (
     <DataTable<ReviewInfo>

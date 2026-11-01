@@ -2,8 +2,9 @@
  * Governance state (spec 055 US6 T038): workspaces, teams, users and API tokens, and the one
  * preview → confirm flow every change to them goes through.
  *
- * - `load(kind)` asks for a list. A refusal (`Denied`, `OpError`) is kept per list and shown as
- *   the server sent it; the page never decides on its own who may see what.
+ * - `load(kind)` asks for a list through `loadList`. A refusal (`Denied`, `OpError`, or Keel not
+ *   connected) is kept per list and shown as the server sent it; the page never decides on its
+ *   own who may see what.
  * - `propose(title, cmd)` sends a `Preview*` command. The reply is a `Preview` (summary, the
  *   affected users and objects, whether it needs a passkey) or a refusal, shown verbatim.
  * - `confirm()` sends `Confirm`. A preview that needs step-up asks the passkey store for a fresh
@@ -16,6 +17,7 @@
 import { create } from 'zustand'
 
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
+import { loadList, OFFLINE, refusalOf as listRefusalOf, type Refusal } from '@/app/load'
 import { useSession } from '@/app/session-store'
 import { usePasskeys } from '@/features/passkeys/store'
 import type {
@@ -40,10 +42,7 @@ const LIST_CMD: Record<ListKind, Cmd> = {
   tokens: { type: 'ListApiTokens' },
 }
 
-/** A refusal as the server sent it. */
-export type Refusal =
-  | { kind: 'denied'; action: string; reason: string }
-  | { kind: 'error'; code: string; message: string }
+export type { Refusal } from '@/app/load'
 
 export type ChangePhase = 'asking' | 'preview' | 'stepping' | 'confirming' | 'refused' | 'done'
 
@@ -74,11 +73,6 @@ export interface GovernanceState {
   dismiss: () => void
 }
 
-const OFFLINE: Refusal = {
-  kind: 'error',
-  code: 'offline',
-  message: 'Keel is not connected. Wait for it to reconnect, then try again.',
-}
 const ENROL_FIRST: Refusal = {
   kind: 'error',
   code: 'passkey_required',
@@ -105,10 +99,17 @@ onReconnected(() => {
 })
 
 function refusalOf(event: Event): Refusal | null {
-  if (event.type === 'Denied') return { kind: 'denied', action: event.data.action, reason: event.data.reason }
-  if (event.type === 'OpError') return { kind: 'error', code: event.data.code, message: event.data.message }
   if (event.type === 'PasskeyEnrolmentRequired') return ENROL_FIRST
-  return null
+  return listRefusalOf(event)
+}
+
+/** The list `kind` asked for, as a patch, when `event` is it. */
+function listOf(kind: ListKind, event: Event): Partial<GovernanceState> | undefined {
+  if (event.type === 'Workspaces' && kind === 'workspaces') return { workspaces: event.data.items }
+  if (event.type === 'Teams' && kind === 'teams') return { teams: event.data.items }
+  if (event.type === 'Users' && kind === 'users') return { users: event.data.items }
+  if (event.type === 'ApiTokens' && kind === 'tokens') return { tokens: event.data.items }
+  return undefined
 }
 
 function loadedKinds(s: GovernanceState): ListKind[] {
@@ -146,25 +147,16 @@ export const useGovernance = create<GovernanceState>()((set, get) => {
     change: null,
 
     load: (kind) => {
-      const id = sendCmd(LIST_CMD[kind])
-      if (id === null) return
-      replies.set(id, (event) => {
-        replies.delete(id)
-        const refused = Object.fromEntries(
-          Object.entries(get().refused).filter(([k]) => k !== kind),
-        ) as GovernanceState['refused']
-        if (event.type === 'Workspaces' && kind === 'workspaces') set({ workspaces: event.data.items, refused })
-        else if (event.type === 'Teams' && kind === 'teams') set({ teams: event.data.items, refused })
-        else if (event.type === 'Users' && kind === 'users') set({ users: event.data.items, refused })
-        else if (event.type === 'ApiTokens' && kind === 'tokens') set({ tokens: event.data.items, refused })
-        else {
-          const r = refusalOf(event) ?? {
-            kind: 'error',
-            code: 'unexpected',
-            message: `Unexpected answer from the server (${event.type}).`,
-          }
-          set({ [kind]: null, refused: { ...refused, [kind]: r } })
-        }
+      const without = (): GovernanceState['refused'] =>
+        Object.fromEntries(Object.entries(get().refused).filter(([k]) => k !== kind))
+      set({ refused: without() })
+      loadList(LIST_CMD[kind], (event) => listOf(kind, event), {
+        loaded: (patch) => {
+          set({ ...patch, refused: without() })
+        },
+        failed: (r) => {
+          set({ [kind]: null, refused: { ...without(), [kind]: r } })
+        },
       })
     },
 
