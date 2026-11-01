@@ -23,11 +23,16 @@ use crate::preview::Draft;
 use crate::serve::AppState;
 
 const APPROVE: &str = "preview_run_approve";
+const DENY: &str = "preview_run_deny";
 
 /// Handles the run-approval commands.
 pub async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
     match cmd {
         Cmd::PreviewRunApprove { run } => preview_run_approve(app, req, run).await,
+        Cmd::PreviewRunDeny { run, reason } => {
+            let reason = reason.map(|r| r.as_str().trim().to_owned());
+            preview_run_deny(app, req, run, reason).await
+        }
         _ => internal(),
     }
 }
@@ -410,5 +415,142 @@ async fn approve(app: &AppState, caller: &Caller, run: Uuid) -> Result<Outcome, 
         crate::queue::push_state(app, ws, run, next);
         crate::queue::kick(app);
     }
+    Ok(Ok(()))
+}
+
+// ---- denying ---------------------------------------------------------------------------------
+
+async fn preview_run_deny(
+    app: &AppState,
+    req: &Request<'_>,
+    run: Uuid,
+    reason: Option<String>,
+) -> Vec<Event> {
+    let mut conn = match app.db.acquire().await {
+        Ok(c) => c,
+        Err(e) => return db_failed(&e),
+    };
+    let h = match held(&mut conn, run, false).await {
+        Ok(Some(h)) => h,
+        Ok(None) => return not_found("run"),
+        Err(e) => return db_failed(&e),
+    };
+    let ws = h.workspace_id;
+    if let Err(d) = require(app, req, DENY, Capability::Approve, ws).await {
+        return d;
+    }
+    let caller = req.caller;
+    let already = match answered(&mut conn, run, caller.user.id).await {
+        Ok(a) => a,
+        Err(e) => return db_failed(&e),
+    };
+    drop(conn);
+    if let Err(r) = approval::check_deny(h.state(), &h.terms(), h.now, already) {
+        return refuse(app, caller, run, ws, r, h.state()).await;
+    }
+    let op = pending(move |app, caller| async move {
+        if let Err(d) = crate::runs::recheck(&caller, DENY, Capability::Approve, ws) {
+            return d;
+        }
+        match deny(&app, &caller, run, reason.as_deref()).await {
+            Ok(Ok(())) => reply(&app, run).await,
+            Ok(Err((refusal, state))) => refuse(&app, &caller, run, ws, refusal, state).await,
+            Err(e) => db_failed(&e),
+        }
+    });
+    let hosts = h.resolved_hosts.len();
+    crate::bindings::preview(
+        app,
+        req,
+        Draft {
+            action: DENY.to_owned(),
+            summary: format!(
+                "Deny run of job {} at {} on {} host(s) from inventory {}: it will not run.",
+                h.job_name,
+                short(&h.commit),
+                hosts,
+                h.inventory_name
+            ),
+            affected: h.resolved_hosts,
+            step_up: true,
+        },
+        op,
+    )
+}
+
+/// Records `caller`'s denial of `run`, which ends it.
+async fn deny(
+    app: &AppState,
+    caller: &Caller,
+    run: Uuid,
+    reason: Option<&str>,
+) -> Result<Outcome, sqlx::Error> {
+    let mut tx = app.db.begin().await?;
+    let Some(h) = held(&mut tx, run, true).await? else {
+        return Ok(Err((
+            Refusal::NotPending(RunState::Failed),
+            RunState::Failed,
+        )));
+    };
+    let ws = h.workspace_id;
+    if h.expired() {
+        let next = expire(&mut tx, run, ws, &h).await?;
+        tx.commit().await?;
+        crate::queue::push_state(app, ws, run, next);
+        return Ok(Err((Refusal::Expired, RunState::Expired)));
+    }
+    let already = answered(&mut tx, run, caller.user.id).await?;
+    if let Err(r) = approval::check_deny(h.state(), &h.terms(), h.now, already) {
+        return Ok(Err((r, h.state())));
+    }
+    let role = effective_role(caller, ws);
+    let inserted = sqlx::query(
+        "insert into approvals (id, run_id, approver_user_id, kind, decision, comment, \
+         step_up_at, approver_role) values ($1, $2, $3, 'approval', 'deny', $4, now(), $5)",
+    )
+    .bind(Uuid::now_v7())
+    .bind(run)
+    .bind(caller.user.id)
+    .bind(reason)
+    .bind(role)
+    .execute(&mut *tx)
+    .await;
+    match inserted {
+        Ok(_) => {}
+        Err(e) if unique_violation(&e) => {
+            return Ok(Err((Refusal::AlreadyAnswered, h.state())));
+        }
+        Err(e) => return Err(e),
+    }
+    let next = keel_core::run::transition(RunState::PendingApproval, &RunEvent::Denied)
+        .map_err(|e| sqlx::Error::Protocol(format!("deny: {e:?}")))?;
+    sqlx::query("update runs set state = $2, state_reason = $3, ended_at = now() where id = $1")
+        .bind(run)
+        .bind(next.state.as_str())
+        .bind(next.reason.map(|r| r.as_str()))
+        .execute(&mut *tx)
+        .await?;
+    cancel_hosts(&mut tx, run).await?;
+    audit::record(
+        &mut tx,
+        Entry {
+            actor: &caller.actor(),
+            action: "run_denied",
+            workspace: Some(WorkspaceId(ws)),
+            target: json!({ "run": run }),
+            decision: Decision::Allowed,
+            reason: None,
+            context: json!({
+                "policy": h.policy_id,
+                "role": role,
+                "approvals": h.approvals,
+                "needed": h.needed(),
+                "reason": reason,
+            }),
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    crate::queue::push_state(app, ws, run, next);
     Ok(Ok(()))
 }

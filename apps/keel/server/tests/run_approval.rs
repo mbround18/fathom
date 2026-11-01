@@ -10,7 +10,7 @@
 mod common;
 mod repos;
 
-use keel_protocol::{Cmd, Event, RunApproval, RunInfo, RunPhase};
+use keel_protocol::{ApprovalReason, Cmd, Event, RunApproval, RunInfo, RunPhase, RunReason};
 use keel_server::signin::Established;
 use repos::{Harness, Source, bind, preview, sign_in};
 use serde_json::Value;
@@ -530,5 +530,165 @@ async fn approving_needs_a_fresh_step_up() {
         .expect("count");
     assert_eq!(n, 0);
     assert_eq!(f.state(run).await.0, "pending_approval");
+    f.finish().await;
+}
+
+// ---- US2: deny (T016) ------------------------------------------------------------------------
+
+fn deny(run: Uuid, reason: Option<&str>) -> Cmd {
+    Cmd::PreviewRunDeny {
+        run,
+        reason: reason.map(|r| ApprovalReason::new(r).expect("reason")),
+    }
+}
+
+impl Fx {
+    /// The states of `run`'s hosts.
+    async fn host_states(&self, run: Uuid) -> Vec<String> {
+        let rows: Vec<(String,)> =
+            sqlx::query_as("select state from run_hosts where run_id = $1 order by host_name")
+                .bind(run)
+                .fetch_all(&self.h.db.owner)
+                .await
+                .expect("run hosts");
+        rows.into_iter().map(|(s,)| s).collect()
+    }
+}
+
+#[tokio::test]
+async fn a_denied_run_ends_with_its_reason() {
+    let Some(f) = Fx::new("approval_deny", 1, false).await else {
+        return;
+    };
+    let run = f.start(&f.olga).await;
+    assert_eq!(f.host_states(run).await, ["queued"]);
+    let info = replied(
+        &f.answer(
+            &f.ann,
+            deny(run, Some("  Not during the freeze.\nRetry Monday.  ")),
+        )
+        .await,
+    );
+    assert_eq!(info.state, RunPhase::Denied);
+    assert_eq!(info.reason, Some(RunReason::ApprovalDenied));
+    assert!(info.ended_at.is_some());
+    let denial = info.approval.expect("approval").denial.expect("denial");
+    assert_eq!(denial.user, f.ann.user.id);
+    assert_eq!(
+        denial.reason.as_deref(),
+        Some("Not during the freeze.\nRetry Monday.")
+    );
+    assert_eq!(
+        f.state(run).await,
+        ("denied".to_owned(), Some("approval_denied".to_owned()))
+    );
+    assert_eq!(f.host_states(run).await, ["cancelled"]);
+    let audit = f.audit(run).await;
+    let denied = audit
+        .iter()
+        .find(|(a, ..)| a == "run_denied")
+        .expect("run_denied");
+    assert_eq!(denied.1, "allowed");
+    assert_eq!(denied.3["reason"], "Not during the freeze.\nRetry Monday.");
+    // Nothing more can be said about it.
+    assert_eq!(
+        refusal(&f.answer(&f.ben, approve(run)).await),
+        "run_answered"
+    );
+    assert_eq!(
+        refusal(&f.answer(&f.ben, deny(run, None)).await),
+        "run_answered"
+    );
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn one_denial_ends_a_run_part_way_approved() {
+    let Some(f) = Fx::new("approval_deny_after_one", 2, false).await else {
+        return;
+    };
+    let run = f.start(&f.olga).await;
+    replied(&f.answer(&f.ann, approve(run)).await);
+    let info = replied(&f.answer(&f.ben, deny(run, None)).await);
+    assert_eq!(info.state, RunPhase::Denied);
+    let a = info.approval.expect("approval");
+    assert_eq!(a.approvals.len(), 1);
+    assert_eq!(a.denial.expect("denial").reason, None);
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn the_requester_may_deny_under_four_eyes() {
+    let Some(f) = Fx::new("approval_deny_four_eyes", 1, true).await else {
+        return;
+    };
+    let run = f.start(&f.h.owner).await;
+    let info = replied(&f.answer(&f.h.owner, deny(run, Some("Wrong commit."))).await);
+    assert_eq!(info.state, RunPhase::Denied);
+    // Operators and viewers can't.
+    let run = f.start(&f.olga).await;
+    assert_eq!(
+        refusal(&f.h.cmd_as(&f.olga, deny(run, None)).await),
+        "denied:no_grant"
+    );
+    assert_eq!(
+        refusal(&f.h.cmd_as(&f.vic, deny(run, None)).await),
+        "denied:no_grant"
+    );
+    f.finish().await;
+}
+
+#[test]
+fn a_reason_over_500_characters_is_refused() {
+    assert!(ApprovalReason::new("x".repeat(500)).is_ok());
+    assert!(ApprovalReason::new("x".repeat(501)).is_err());
+}
+
+#[tokio::test]
+async fn an_approve_and_a_deny_racing_decide_the_run_once() {
+    let Some(f) = Fx::new("approval_race", 2, false).await else {
+        return;
+    };
+    for _ in 0..20 {
+        let run = f.start(&f.olga).await;
+        replied(&f.answer(&f.ann, approve(run)).await);
+        let previewed = |out: Vec<Event>| match out.as_slice() {
+            [Event::Preview(p)] => p.preview_id,
+            other => panic!("preview: {other:?}"),
+        };
+        let yes = previewed(f.h.cmd_as(&f.ben, approve(run)).await);
+        let no = previewed(f.h.cmd_as(&f.h.owner, deny(run, None)).await);
+        let confirm = |preview_id| Cmd::Confirm {
+            preview_id,
+            step_up: None,
+        };
+        let (a, d) = tokio::join!(
+            f.h.cmd_as(&f.ben, confirm(yes)),
+            f.h.cmd_as(&f.h.owner, confirm(no))
+        );
+        let decided = |out: &[Event]| matches!(out, [Event::Confirmed { .. }, Event::Run { .. }]);
+        let (state, _) = f.state(run).await;
+        match (decided(&a), decided(&d)) {
+            (true, false) => {
+                assert_eq!(state, "queued");
+                assert_eq!(refusal(&d), "run_answered");
+            }
+            (false, true) => {
+                assert_eq!(state, "denied");
+                assert_eq!(refusal(&a), "run_answered");
+            }
+            other => panic!("{other:?}: {a:?} / {d:?}"),
+        }
+        let audit = f.audit(run).await;
+        let acts = actions(&audit);
+        assert!(acts.contains(&"run_approval_refused"), "{acts:?}");
+        assert_eq!(
+            acts.iter()
+                .filter(|a| **a == "run_approved" || **a == "run_denied")
+                .count(),
+            2,
+            "{acts:?}"
+        );
+    }
     f.finish().await;
 }
