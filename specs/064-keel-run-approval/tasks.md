@@ -30,7 +30,7 @@ contracts/protocol.md, contracts/ui.md and quickstart.md.
 - [ ] T001 Add Playwright project `s064` to `web/playwright.config.ts`, with
   `testDir: './tests/e2e/s064'` and Desktop Chrome. Create `web/tests/e2e/s064/`. Never name a spec
   there `enroll.spec.ts` or `settings-*.spec.ts`.
-- [ ] T002 [P] Create `server/tests/run_approval.rs` as an empty harness on `tests/common`, like
+- [X] T002 [P] Create `server/tests/run_approval.rs` as an empty harness on `tests/common`, like
   `tests/runs.rs`. It should seed:
   - a workspace;
   - an owner;
@@ -45,7 +45,7 @@ contracts/protocol.md, contracts/ui.md and quickstart.md.
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T003 [P] Write unit tests in `core/approval.rs` (`#[cfg(test)]`). They should cover:
+- [X] T003 [P] Write unit tests in `core/approval.rs` (`#[cfg(test)]`). They should cover:
   - `check_approve` refuses:
     - `NotPending` for every state except `pending_approval`;
     - `Expired` when `now >= expires_at`;
@@ -54,14 +54,14 @@ contracts/protocol.md, contracts/ui.md and quickstart.md.
     - `AlreadyAnswered`.
   - `after_approve` returns `Some(RunEvent::Approved)` exactly when `approvals >= needed`.
   - Each `Refusal::code()` and `message()` matches the data-model.md table verbatim.
-- [ ] T004 Implement `core/approval.rs`, replacing the placeholder:
+- [X] T004 Implement `core/approval.rs`, replacing the placeholder:
   - `HeldTerms { needed: u16, four_eyes: bool, expires_at: i64 }`;
   - `Refusal { NotPending(RunState), Expired, FourEyesRequester, AlreadyAnswered }`, with
     `code()` and `message()`;
   - `check_approve(...)`, `check_deny(...)` (it skips four-eyes), and `after_approve(...)`.
 
   Make T003 pass with `cargo test -p keel-core approval`.
-- [ ] T005 Write migration `server/migrations/0013_run_approval.sql`, per data-model.md:
+- [X] T005 Write migration `server/migrations/0013_run_approval.sql`, per data-model.md:
   - **On `runs`**:
     - add `approvals_needed integer check (approvals_needed >= 1)`, `four_eyes boolean` and
       `approval_expires_at timestamptz`;
@@ -76,7 +76,7 @@ contracts/protocol.md, contracts/ui.md and quickstart.md.
     `revoke update, delete, truncate on approvals from keel_app`. First check that the code never
     updates or deletes `approvals`; if it does, keep only what is safe and note it.
   - Check `server/tests/migrate.rs` still passes.
-- [ ] T006 [P] Add the protocol types, per contracts/protocol.md:
+- [X] T006 [P] Add the protocol types, per contracts/protocol.md:
   - in `proto/run.rs`: `ApprovalReason` (1–500 characters, trimmed, validated like
     `ReviewComment`), `RunApproval`, `ApprovalEntry`, and
     `RunInfo.approval: Option<RunApproval>` with `#[serde(default)]`;
@@ -87,7 +87,7 @@ contracts/protocol.md, contracts/ui.md and quickstart.md.
 
   Regenerate the ts-rs output into `web/src/protocol/generated/` the way the repo already does.
   Find out how by grepping for `export_to` or the generator script.
-- [ ] T007 Hold the terms when a run enters `pending_approval`:
+- [X] T007 Hold the terms when a run enters `pending_approval`:
   - in `server/src/runs.rs` `create_run`, set `approvals_needed`, `four_eyes` and
     `approval_expires_at = now() + ttl` from the resolved policy. A nil or synthetic policy uses
     the catch-all terms;
@@ -96,7 +96,7 @@ contracts/protocol.md, contracts/ui.md and quickstart.md.
 
   Add a test to T002's file showing that editing and removing the policy after the hold leaves the
   run's columns unchanged (FR-009).
-- [ ] T008 Fill `RunInfo.approval` in `server/src/runs.rs` (`RunRow`, `list_runs`, `get_run`) for
+- [X] T008 Fill `RunInfo.approval` in `server/src/runs.rs` (`RunRow`, `list_runs`, `get_run`) for
   runs whose `approvals_needed` is not null:
   - `approvals`: `kind = 'approval'`, `decision = 'approve'`, joined to `users` for the display
     name, with "Deleted user" if the user is gone;
@@ -133,7 +133,7 @@ queued → it runs. The audit log has `run_approved` and `run_approval_queued`.
 
 ### Tests for US1
 
-- [ ] T012 [P] [US1] In `server/tests/run_approval.rs`, cover:
+- [X] T012 [P] [US1] In `server/tests/run_approval.rs`, cover:
   - approve 1 of 1 → `queued`, with `queued_at` set, and the dispatcher kicked;
   - 2 of 2: the first approval keeps it `pending_approval`, and a second, different approver
     queues it;
@@ -152,7 +152,7 @@ queued → it runs. The audit log has `run_approved` and `run_approval_queued`.
 
 ### Implementation for US1
 
-- [ ] T014 [US1] Create `server/src/approvals.rs`, and register it in `lib.rs` and in the command
+- [X] T014 [US1] Create `server/src/approvals.rs`, and register it in `lib.rs` and in the command
   router where `PreviewCancel` is routed. It provides:
   - **`preview_run_approve`**:
     - `require(Approve)`;
@@ -197,7 +197,7 @@ reason. No `run_hosts` row passes `cancelled`, and the audit log has `run_denied
 
 ### Tests for US2
 
-- [ ] T016 [P] [US2] In `server/tests/run_approval.rs`, cover:
+- [X] T016 [P] [US2] In `server/tests/run_approval.rs`, cover:
   - deny with a reason → `denied` / `approval_denied`, the queued `run_hosts` `cancelled`, and the
     reason stored and shown in `RunInfo.approval.denial`;
   - deny after 1 of 2 approvals → `denied`;
@@ -213,7 +213,7 @@ reason. No `run_hosts` row passes `cancelled`, and the audit log has `run_denied
 
 ### Implementation for US2
 
-- [ ] T018 [US2] In `server/src/approvals.rs`, add `preview_run_deny` and `deny()`:
+- [X] T018 [US2] In `server/src/approvals.rs`, add `preview_run_deny` and `deny()`:
   - the same lock, expiry and state checks as approve;
   - `check_deny` (no four-eyes);
   - insert `decision 'deny'` with `comment` set to the reason;
@@ -238,7 +238,7 @@ has `run_approval_expired` by Keel, and a later approve is refused `approval_exp
 
 ### Tests for US3
 
-- [ ] T020 [P] [US3] In `server/tests/run_approval.rs`, cover:
+- [X] T020 [P] [US3] In `server/tests/run_approval.rs`, cover:
   - one sweeper tick, with the run's `approval_expires_at` set in the past (an SQL update in the
     test) → `expired` / `approval_expired`, `ended_at` set, and a `System` audit entry;
   - approve after expiry and before a tick → refused `approval_expired`, and the run is now
@@ -252,7 +252,7 @@ has `run_approval_expired` by Keel, and a later approve is refused `approval_exp
 
 ### Implementation for US3
 
-- [ ] T022 [US3] In `server/src/approvals.rs`, add `pub fn spawn_approval_sweeper(app: AppState,
+- [X] T022 [US3] In `server/src/approvals.rs`, add `pub fn spawn_approval_sweeper(app: AppState,
   period: Duration) -> JoinHandle<()>`:
   - sweep once immediately, then every `period`;
   - each sweep runs the guarded `update … returning`, then audits each run as
@@ -273,7 +273,7 @@ oldest first. As a viewer → "An approver or workspace admin can approve this."
 
 ### Tests for US4
 
-- [ ] T023 [P] [US4] In `server/tests/run_approval.rs`, cover `CountPendingApprovals`:
+- [X] T023 [P] [US4] In `server/tests/run_approval.rs`, cover `CountPendingApprovals`:
   - it counts only workspaces where the caller has `Approve`;
   - it excludes runs the caller answered;
   - it excludes four-eyes runs the caller started;
@@ -293,7 +293,7 @@ oldest first. As a viewer → "An approver or workspace admin can approve this."
 
 ### Implementation for US4
 
-- [ ] T026 [US4] Server work:
+- [X] T026 [US4] Server work:
   - in `server/src/approvals.rs`, `count_pending_approvals`, one query grouped by workspace and
     filtered to `Approve` workspaces;
   - in `server/src/runs.rs` `list_runs`, `order by created_at asc` when `state = pending_approval`.
