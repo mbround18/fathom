@@ -336,12 +336,12 @@ oldest first. As a viewer → "An approver or workspace admin can approve this."
   (`web/src/help/glossary.ts`) to the `runs` guide (FR-022). `guide-links.test.ts` must pass.
 - [X] T033 Extend `web/tests/e2e/polish-screens.spec.ts` with a held run's panel (the act and
   restricted variants), and the Runs nav chip. Check 360 and 1280 px, light and dark.
-- [ ] T034 Targeted checks, one at a time:
+- [X] T034 Targeted checks, one at a time:
   - `cargo clippy -p keel-core -p keel-protocol -p keel-server --all-targets -- -D warnings`;
   - `cargo fmt --check`;
   - web typecheck, lint and Vitest;
   - `--project=s064`, `--project=s063` and `--project=s060`.
-- [ ] T035 The main session runs `scripts/ci.sh` once on the combined branch, and reports the
+- [X] T035 The main session runs `scripts/ci.sh` once on the combined branch, and reports the
   timing (the wall time, the slowest steps, and the delta against the last pass).
 - [ ] T036 With the owner: the quickstart manual walk-through, which also closes 063 T053.
 
