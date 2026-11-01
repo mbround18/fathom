@@ -15,6 +15,7 @@ export const GUIDE_SLUGS = [
   'hosts',
   'receivers',
   'bindings',
+  'runs',
   'reviews',
   'inventory',
   'enrollment-template',
