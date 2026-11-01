@@ -256,7 +256,7 @@ export class FakeRuns {
       // The server expires it on the spot rather than wait for the sweeper.
       this.overdue.delete(run.id)
       this.finish(run.id, 'expired', 'approval_expired')
-      return opError('approval_expired', 'This run’s approval window has closed.')
+      return opError('approval_expired', "This run's approval window has closed.")
     }
     if (kind === 'approve' && run.approval?.four_eyes && run.requested_by === me?.id) {
       return opError('four_eyes_requester', 'You started this run, so someone else must approve it.')

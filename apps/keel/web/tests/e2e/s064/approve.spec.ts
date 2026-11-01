@@ -3,6 +3,8 @@
  * policy needs; Approve previews what the approval does, then confirms it (with a passkey when the
  * session has not just verified). One approval of one queues the run; one of two leaves it waiting
  * and the panel says the person approved. A refusal shows in the dialog in the server's words.
+ * US3 (T021): a run whose window closes, by the sweeper or on answering, reads expired and loses
+ * its buttons.
  */
 import { expect, fixtures, test } from '../../support/fake-backend'
 import { HEAD } from '../../support/fake-repos'
@@ -129,4 +131,41 @@ test('a viewer sees the panel without buttons', async ({ page, backend }) => {
   await expect(panel).toHaveAttribute('data-approval-panel', 'restricted')
   await expect(panel.locator('[data-approval-note]')).toHaveText('An approver or workspace admin can approve this.')
   await expect(panel.getByRole('button', { name: 'Approve' })).toHaveCount(0)
+})
+
+test('a window that closes while the page is open expires the run, and the buttons go away', async ({ page, backend }) => {
+  const runs = signIn(backend, 'approver')
+  runs.add(hold({ id: 'run-0006' }))
+  const panel = await openRun(page, 'run-0006')
+  await expect(panel.locator('[data-approve]')).toBeVisible()
+
+  // The sweeper expires it and pushes the transition.
+  runs.finish('run-0006', 'expired', 'approval_expired')
+
+  await expect(page.locator('[data-run-state]')).toHaveAttribute('data-run-state', 'expired')
+  await expect(page.getByText('Approval expired', { exact: true })).toBeVisible()
+  await expect(panel).toHaveAttribute('data-approval-panel', 'closed')
+  await expect(panel.locator('[data-approve]')).toHaveCount(0)
+  await expect(panel.locator('[data-deny]')).toHaveCount(0)
+  await expect(panel.locator('[data-approval-window]')).toHaveCount(0)
+})
+
+test('approving a run past its window is refused, and the run reads expired', async ({ page, backend }) => {
+  const runs = signIn(backend, 'approver')
+  runs.add(hold({ id: 'run-0007' }))
+
+  const panel = await openRun(page, 'run-0007')
+  await panel.locator('[data-approve]').click()
+  const dialog = decision(page, 'approve')
+  await expect(dialog.locator('[data-preview-summary]')).toBeVisible()
+  // The window closes while the person reads the preview, before the sweeper reaches the run.
+  runs.overdue.add('run-0007')
+  await dialog.getByRole('button', { name: 'Confirm' }).click()
+
+  await expect(dialog.locator('[data-refusal="error"]')).toContainText("This run's approval window has closed.")
+  await expect(dialog.locator('[data-error-code]')).toHaveText('approval_expired')
+  await expect(page.locator('[data-run-state]')).toHaveAttribute('data-run-state', 'expired')
+  await dialog.getByRole('button', { name: 'Done' }).click()
+  await expect(panel).toHaveAttribute('data-approval-panel', 'closed')
+  await expect(page.getByText('Approval expired', { exact: true })).toBeVisible()
 })
