@@ -51,6 +51,7 @@ fn run_info() -> RunInfo {
             ..RunSummary::default()
         }),
         params: Default::default(),
+        approval: None,
     }
 }
 

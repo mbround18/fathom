@@ -20,7 +20,7 @@ use crate::inventory::InventoryText;
 use crate::governance::{ApiTokenState, GrantProfiles, Label, Slug, TokenActions};
 use crate::types::{InstanceRole, TeamRole};
 // Runs (US2)
-use crate::run::{Pattern, PolicySpec, RunPhase};
+use crate::run::{ApprovalReason, Pattern, PolicySpec, RunPhase};
 // Hosts and the SSH CAs (US7)
 use crate::governance::ProfileName;
 use crate::host::{EnrollmentState, HostName, HostProfiles, SshCaKind};
@@ -442,6 +442,22 @@ pub enum Cmd {
         #[ts(type = "string")]
         run: Uuid,
     },
+    /// `Preview` (step-up) of approving a run held for approval (spec 064). `Confirm` replies
+    /// `Run`. Needs `Approve` in the run's workspace.
+    PreviewRunApprove {
+        #[ts(type = "string")]
+        run: Uuid,
+    },
+    /// `Preview` (step-up) of denying a run held for approval (spec 064). `Confirm` replies `Run`.
+    /// Needs `Approve` in the run's workspace.
+    PreviewRunDeny {
+        #[ts(type = "string")]
+        run: Uuid,
+        #[serde(default)]
+        reason: Option<ApprovalReason>,
+    },
+    /// `PendingApprovals`: per workspace, the held runs the caller could approve now (spec 064).
+    CountPendingApprovals,
     /// `Jobs`: the binding's current jobs.
     ListJobs {
         #[ts(type = "string")]
@@ -750,6 +766,9 @@ impl Cmd {
             Cmd::UnsubscribeRun { .. } => "unsubscribe_run",
             Cmd::PreviewRunStart { .. } => "preview_run_start",
             Cmd::PreviewCancel { .. } => "preview_cancel",
+            Cmd::PreviewRunApprove { .. } => "preview_run_approve",
+            Cmd::PreviewRunDeny { .. } => "preview_run_deny",
+            Cmd::CountPendingApprovals => "count_pending_approvals",
             Cmd::ListJobs { .. } => "list_jobs",
             Cmd::ListPolicies { .. } => "list_policies",
             Cmd::PreviewPolicyUpsert(_) => "preview_policy_upsert",
@@ -862,6 +881,9 @@ impl Cmd {
             | Cmd::GetRun { .. }
             | Cmd::PreviewRunStart { .. }
             | Cmd::PreviewCancel { .. }
+            | Cmd::PreviewRunApprove { .. }
+            | Cmd::PreviewRunDeny { .. }
+            | Cmd::CountPendingApprovals
             | Cmd::ListJobs { .. }
             | Cmd::ListPolicies { .. }
             | Cmd::PreviewPolicyUpsert(_)

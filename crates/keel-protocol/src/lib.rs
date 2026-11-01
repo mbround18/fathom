@@ -48,8 +48,9 @@ pub use governance::{
 // Runs (US2)
 pub mod run;
 pub use run::{
-    FirstFailure, HostPhase, HostStats, JobInfo, LogStream, Pattern, PolicyCheck, PolicyInfo,
-    PolicySpec, RunHostInfo, RunInfo, RunPhase, RunReason, RunSummary, RunTrigger,
+    ApprovalEntry, ApprovalReason, FirstFailure, HostPhase, HostStats, JobInfo, LogStream,
+    MAX_APPROVAL_REASON_CHARS, Pattern, PolicyCheck, PolicyInfo, PolicySpec, RunApproval,
+    RunHostInfo, RunInfo, RunPhase, RunReason, RunSummary, RunTrigger, WorkspaceCount,
 };
 
 /// The version a client states in `Hello.protocol_version`.

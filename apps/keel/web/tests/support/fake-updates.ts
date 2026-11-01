@@ -162,6 +162,7 @@ export const updateFixtures = {
     ended_at: null,
     summary: null,
     params: { keel_server_image_digest: digest },
+    approval: null,
   }),
 }
 

@@ -28,6 +28,7 @@ use crate::review::{
 // Runs (US2)
 use crate::run::{
     JobInfo, LogStream, PolicyCheck, PolicyInfo, RunHostInfo, RunInfo, RunPhase, RunReason,
+    WorkspaceCount,
 };
 // Build identity and the update notice (spec 061)
 use crate::update::{KeelBuild, UpdateStatus, UpdateStatusLine};
@@ -194,6 +195,8 @@ pub enum Event {
         workspace: Uuid,
         items: Vec<PolicyInfo>,
     },
+    /// Reply to `CountPendingApprovals` (spec 064).
+    PendingApprovals { counts: Vec<WorkspaceCount> },
     /// Reply to `ExplainPolicy`.
     PolicyExplanation {
         #[ts(type = "string")]

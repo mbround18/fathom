@@ -251,6 +251,7 @@ fn run_info_carries_params() {
         ended_at: None,
         summary: None,
         params: BTreeMap::new(),
+        approval: None,
     };
     // Empty when there are none, and still on the wire.
     assert_eq!(round_trip(&run)["params"], json!({}));

@@ -2,6 +2,7 @@
 //! the integration tests in `tests/` drive it directly.
 
 pub mod api;
+pub mod approvals;
 pub mod audit;
 pub mod bindings;
 pub mod config;

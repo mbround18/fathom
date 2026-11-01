@@ -1171,6 +1171,7 @@ impl RunRow {
             ended_at: self.ended_at.map(ts),
             summary: self.summary.and_then(|s| serde_json::from_value(s).ok()),
             params: serde_json::from_value(self.params).unwrap_or_default(),
+            approval: None,
         }
     }
 }

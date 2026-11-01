@@ -30,6 +30,64 @@ impl fmt::Debug for Pattern {
     }
 }
 
+/// The longest reason a person may give for denying a held run (spec 064 FR-002).
+pub const MAX_APPROVAL_REASON_CHARS: usize = 500;
+
+checked_string!(
+    /// Why an approver denies a held run: 1 to 500 characters, not only spaces. Newlines and tabs
+    /// are allowed; other control characters are not. The server stores it trimmed.
+    ApprovalReason,
+    "reason",
+    |v| {
+        let n = v.chars().count();
+        if n == 0 || n > MAX_APPROVAL_REASON_CHARS {
+            return Err("must be 1 to 500 characters");
+        }
+        if v.trim().is_empty() {
+            return Err("must not be blank");
+        }
+        if v.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+            return Err("control character");
+        }
+        Ok(())
+    }
+);
+
+impl fmt::Debug for ApprovalReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "ApprovalReason({:?})", self.0)
+    }
+}
+
+/// One person's answer to a held run (spec 064).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ApprovalEntry {
+    #[ts(type = "string")]
+    pub user: Uuid,
+    /// Their display name; "Deleted user" when they are gone.
+    pub name: String,
+    /// Their effective role in the workspace when they answered (`approver`, `ws_admin`,
+    /// `owner`, `admin`); absent on answers recorded before spec 064.
+    pub role: Option<String>,
+    pub at: String,
+    /// A denial's reason.
+    pub reason: Option<String>,
+}
+
+/// A held run's terms and answers (spec 064). The terms are the ones the run was held with, not
+/// the live policy's (FR-009).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct RunApproval {
+    pub needed: u16,
+    pub four_eyes: bool,
+    /// When the approval window closes (RFC 3339).
+    pub expires_at: String,
+    /// Approvals so far, oldest first.
+    pub approvals: Vec<ApprovalEntry>,
+    /// The denial that ended the run, with its reason.
+    pub denial: Option<ApprovalEntry>,
+}
+
 /// A run's state (data-model "runs").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -160,6 +218,9 @@ pub struct RunInfo {
     pub summary: Option<RunSummary>,
     /// The job params the run was queued with; empty when there are none (spec 061).
     pub params: BTreeMap<String, String>,
+    /// Present once the run has been held for approval (spec 064).
+    #[serde(default)]
+    pub approval: Option<RunApproval>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -244,4 +305,12 @@ pub struct PolicyCheck {
     pub priority: i32,
     pub matched: bool,
     pub why: String,
+}
+
+/// How many held runs in one workspace the caller could approve now (spec 064).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct WorkspaceCount {
+    #[ts(type = "string")]
+    pub workspace: Uuid,
+    pub count: u32,
 }
