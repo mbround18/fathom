@@ -27,7 +27,7 @@ contracts/protocol.md, contracts/ui.md and quickstart.md.
 
 ## Phase 1: Setup
 
-- [ ] T001 Add Playwright project `s064` to `web/playwright.config.ts`, with
+- [X] T001 Add Playwright project `s064` to `web/playwright.config.ts`, with
   `testDir: './tests/e2e/s064'` and Desktop Chrome. Create `web/tests/e2e/s064/`. Never name a spec
   there `enroll.spec.ts` or `settings-*.spec.ts`.
 - [X] T002 [P] Create `server/tests/run_approval.rs` as an empty harness on `tests/common`, like
@@ -102,17 +102,17 @@ contracts/protocol.md, contracts/ui.md and quickstart.md.
     name, with "Deleted user" if the user is gone;
   - `denial`: the `deny` row.
   - Timestamps are RFC 3339, via the existing `governance::ts`.
-- [ ] T009 [P] Add `canApprove(me, ws)` to `web/src/features/hosts/workspaces.ts`, mirroring
+- [X] T009 [P] Add `canApprove(me, ws)` to `web/src/features/hosts/workspaces.ts`, mirroring
   `crates/keel-core/src/authz.rs`: Approver, WsAdmin, instance owner and admin. Add its cases to
   `web/tests/unit/workspaces.test.ts`.
-- [ ] T010 [P] Write `web/tests/unit/approval.test.ts`, then implement
+- [X] T010 [P] Write `web/tests/unit/approval.test.ts`, then implement
   `web/src/features/runs/approval.ts` `approvalView({ run, me })`. It returns:
   - `act`;
   - `requester` (a four-eyes run, and `me` is `requested_by`);
   - `answered` (`me` is in `approvals`);
   - `restricted`;
   - `closed` (the state is not `pending_approval`).
-- [ ] T011 Extend `web/tests/support/fake-backend.ts`. It needs:
+- [X] T011 Extend `web/tests/support/fake-backend.ts`. It needs:
   - held runs, with `approval` set;
   - `preview_run_approve` and `preview_run_deny`, with the preview text, step-up, and confirm,
     which replies `Run` and pushes `RunState`;
@@ -143,7 +143,7 @@ queued → it runs. The audit log has `run_approved` and `run_approval_queued`.
   - an operator or viewer → `forbidden`;
   - confirm without step-up → `step_up_required`, with no row written;
   - the audit rows and their contexts, per data-model.md.
-- [ ] T013 [P] [US1] Write `web/tests/e2e/s064/approve.spec.ts`:
+- [X] T013 [P] [US1] Write `web/tests/e2e/s064/approve.spec.ts`:
   - **As an approver**: open a held run, and check the panel shows the job, inventory, hosts,
     commit, "Needs 1 approval" and when the window closes. Then Approve → the preview → confirm
     (fake step-up) → the run shows Queued.
@@ -174,7 +174,7 @@ queued → it runs. The audit log has `run_approved` and `run_approval_queued`.
     `queue::kick` if the run was queued. Reply `get_run`.
 
   Make T012 pass.
-- [ ] T015 [US1] Build `web/src/features/runs/ApprovalPanel.tsx` per contracts/ui.md, and render it
+- [X] T015 [US1] Build `web/src/features/runs/ApprovalPanel.tsx` per contracts/ui.md, and render it
   in `RunPage.tsx` above the hosts when `run.approval` is set. It needs:
   - the terms, "k of N", the approvals list and the window close time (relative and absolute);
   - Approve (primary), through the existing preview and confirm hook used by Cancel;
@@ -206,7 +206,7 @@ reason. No `run_hosts` row passes `cancelled`, and the audit log has `run_denied
   - a race: `tokio::join!` an approve (as the last approval) and a deny on the same run, 20 times
     → each time exactly one decided state, the other refused `run_answered`, and both audited
     (SC-004).
-- [ ] T017 [P] [US2] Write `web/tests/e2e/s064/deny.spec.ts`:
+- [X] T017 [P] [US2] Write `web/tests/e2e/s064/deny.spec.ts`:
   - Deny with a reason → the run shows Approval denied and the reason;
   - the reason field counts up to 500;
   - a refusal from the server shows its message in the dialog.
@@ -223,7 +223,7 @@ reason. No `run_hosts` row passes `cancelled`, and the audit log has `run_denied
   - `push_state`.
 
   Make T016 pass.
-- [ ] T019 [US2] Add Deny (destructive, with an optional "Reason" textarea, `maxLength` 500, and a
+- [X] T019 [US2] Add Deny (destructive, with an optional "Reason" textarea, `maxLength` 500, and a
   counter) to `ApprovalPanel.tsx`, and show the denial in the panel's history. Make T017 pass.
 
 ---
@@ -246,7 +246,7 @@ has `run_approval_expired` by Keel, and a later approve is refused `approval_exp
   - start-up catch-up: start the sweeper on a database with an overdue run → it expires on the
     first tick, without waiting a period;
   - `needs_review` runs and `review_groups` are untouched (FR-023).
-- [ ] T021 [P] [US3] Extend `web/tests/e2e/s064/approve.spec.ts`: with the panel open, the fake
+- [X] T021 [P] [US3] Extend `web/tests/e2e/s064/approve.spec.ts`: with the panel open, the fake
   backend pushes `RunState expired` → the page shows Approval expired and the buttons go away.
   Approving a run the fake marks expired shows "This run's approval window has closed."
 
@@ -280,9 +280,9 @@ oldest first. As a viewer → "An approver or workspace admin can approve this."
   - a viewer gets an empty list.
 
   Also check that `ListRuns { state: pending_approval }` comes back oldest first.
-- [ ] T024 [P] [US4] Write `web/tests/unit/approvals-store.test.ts`: refetch on connect, debounce
+- [X] T024 [P] [US4] Write `web/tests/unit/approvals-store.test.ts`: refetch on connect, debounce
   `RunState` events by 500 ms, and a total of 0 hides the chip.
-- [ ] T025 [P] [US4] Write `web/tests/e2e/s064/waiting.spec.ts`:
+- [X] T025 [P] [US4] Write `web/tests/e2e/s064/waiting.spec.ts`:
   - the approver's nav chip `[data-nav-badge="runs"]` reads 2, then 1 after one approval, then is
     gone;
   - the filter `?state=pending_approval` lists the held runs oldest first;
@@ -299,14 +299,14 @@ oldest first. As a viewer → "An approver or workspace admin can approve this."
   - in `server/src/runs.rs` `list_runs`, `order by created_at asc` when `state = pending_approval`.
 
   Make T023 pass.
-- [ ] T027 [US4] Implement `web/src/features/runs/approvals-store.ts` (zustand), `useApprovals()`
+- [X] T027 [US4] Implement `web/src/features/runs/approvals-store.ts` (zustand), `useApprovals()`
   per contracts/ui.md. Wire it into `web/src/app/connection.ts`, or wherever `RunState` events
   fan out. Make T024 pass.
-- [ ] T028 [US4] Show the count chip on the Runs nav item in `web/src/app/Shell.tsx`, through an
+- [X] T028 [US4] Show the count chip on the Runs nav item in `web/src/app/Shell.tsx`, through an
   optional per-section badge in `web/src/app/nav.ts`:
   - neutral `bg-muted`;
   - `aria-label` "{n} runs waiting for your approval".
-- [ ] T029 [US4] Add the "All / Waiting for approval" filter to `web/src/features/runs/RunsPage.tsx`
+- [X] T029 [US4] Add the "All / Waiting for approval" filter to `web/src/features/runs/RunsPage.tsx`
   (`data-runs-filter`, synced to `?state=`):
   - the held row's state cell reads "Waiting · k of N";
   - an empty filtered list shows `NoMatch`.
@@ -334,7 +334,7 @@ oldest first. As a viewer → "An approver or workspace admin can approve this."
   approved in the web app with the real steps (FR-020), linking to `runs.md#approving-a-run`.
 - [X] T032 Link the Runs empty state and the run-related glossary entries
   (`web/src/help/glossary.ts`) to the `runs` guide (FR-022). `guide-links.test.ts` must pass.
-- [ ] T033 Extend `web/tests/e2e/polish-screens.spec.ts` with a held run's panel (the act and
+- [X] T033 Extend `web/tests/e2e/polish-screens.spec.ts` with a held run's panel (the act and
   restricted variants), and the Runs nav chip. Check 360 and 1280 px, light and dark.
 - [ ] T034 Targeted checks, one at a time:
   - `cargo clippy -p keel-core -p keel-protocol -p keel-server --all-targets -- -D warnings`;
