@@ -318,7 +318,7 @@ oldest first. As a viewer → "An approver or workspace admin can approve this."
 
 ## Phase 7: Polish & cross-cutting
 
-- [ ] T030 [P] Write `docs/guides/keel/runs.md`, covering:
+- [X] T030 [P] Write `docs/guides/keel/runs.md`, covering:
   - run states;
   - how approval policies hold a run;
   - approving;
@@ -330,9 +330,9 @@ oldest first. As a viewer → "An approver or workspace admin can approve this."
 
   Add it to `docs/guides/keel/README.md`. Add `'runs'` to `GuideSlug` in `web/src/help/guides.ts`
   (and the test's list).
-- [ ] T031 [P] In `docs/guides/keel/getting-started.md`, replace the note that runs can't be
+- [X] T031 [P] In `docs/guides/keel/getting-started.md`, replace the note that runs can't be
   approved in the web app with the real steps (FR-020), linking to `runs.md#approving-a-run`.
-- [ ] T032 Link the Runs empty state and the run-related glossary entries
+- [X] T032 Link the Runs empty state and the run-related glossary entries
   (`web/src/help/glossary.ts`) to the `runs` guide (FR-022). `guide-links.test.ts` must pass.
 - [ ] T033 Extend `web/tests/e2e/polish-screens.spec.ts` with a held run's panel (the act and
   restricted variants), and the Runs nav chip. Check 360 and 1280 px, light and dark.
