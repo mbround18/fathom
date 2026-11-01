@@ -51,13 +51,13 @@ function Approvals({ approval }: { approval: RunApproval }) {
   return (
     <ul aria-label="Approvals" className="flex min-w-0 flex-col border border-border text-xs">
       {approval.approvals.map((a) => (
-        <li key={a.user} data-approval={a.user} className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 border-t border-border px-2 py-1 first:border-t-0">
-          <CheckIcon aria-hidden className="size-3 shrink-0 self-center text-status-ok" />
+        <li key={a.user} data-approval={a.user} className="flex min-w-0 items-start gap-1.5 border-t border-border px-2 py-1 first:border-t-0">
+          <CheckIcon aria-hidden className="mt-0.5 size-3 shrink-0 text-status-ok" />
           <span className="min-w-0 break-words">
-            <Who entry={a} />
-          </span>{' '}
-          <span className="text-muted-foreground">
-            <At at={a.at} />
+            <Who entry={a} />{' '}
+            <span className="text-muted-foreground">
+              <At at={a.at} />
+            </span>
           </span>
         </li>
       ))}

@@ -62,7 +62,7 @@ const SEGMENT =
 /** "All" or "Waiting for approval" (spec 064 US4), kept in `?state=` so the view can be linked. */
 function RunsFilter({ value }: { value: Filter }) {
   return (
-    <div role="group" aria-label="Show runs" data-runs-filter={value} className="inline-flex shrink-0 border border-border">
+    <div role="group" aria-label="Show runs" data-runs-filter={value} className="inline-flex shrink-0 self-start border border-border">
       {FILTERS.map((f) => (
         <button
           key={f.value}
