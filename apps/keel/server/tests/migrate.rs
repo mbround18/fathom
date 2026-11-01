@@ -121,3 +121,45 @@ async fn update_columns_and_build_seen() {
     assert!(err.to_string().contains("check constraint"), "{err}");
     t.drop().await;
 }
+
+#[tokio::test]
+async fn run_approval_columns_and_insert_only_answers() {
+    let Some(t) = TestDb::new("run_approval_columns").await else {
+        return;
+    };
+    // A held run must carry its terms (spec 064).
+    let (checks, index): (i64, i64) = sqlx::query_as(
+        "select (select count(*) from pg_constraint \
+           where conrelid = 'runs'::regclass and conname = 'runs_held_terms'), \
+         (select count(*) from pg_indexes \
+           where schemaname = current_schema() and indexname = 'runs_pending_approval')",
+    )
+    .fetch_one(&t.owner)
+    .await
+    .unwrap();
+    assert_eq!((checks, index), (1, 1));
+    let cols: Vec<(String,)> = sqlx::query_as(
+        "select column_name::text from information_schema.columns \
+         where table_schema = current_schema() and table_name = 'runs' \
+           and column_name in ('approvals_needed', 'four_eyes', 'approval_expires_at') \
+         order by 1",
+    )
+    .fetch_all(&t.owner)
+    .await
+    .unwrap();
+    assert_eq!(cols.len(), 3, "{cols:?}");
+    // Answers record the approver's role, and keel_app can only add them.
+    let (role_col, upd, del, ins): (i64, bool, bool, bool) = sqlx::query_as(
+        "select (select count(*) from information_schema.columns \
+           where table_schema = current_schema() and table_name = 'approvals' \
+             and column_name = 'approver_role'), \
+         has_table_privilege('keel_app', 'approvals', 'UPDATE'), \
+         has_table_privilege('keel_app', 'approvals', 'DELETE'), \
+         has_table_privilege('keel_app', 'approvals', 'INSERT')",
+    )
+    .fetch_one(&t.owner)
+    .await
+    .unwrap();
+    assert_eq!((role_col, upd, del, ins), (1, false, false, true));
+    t.drop().await;
+}
