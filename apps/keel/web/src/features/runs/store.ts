@@ -56,6 +56,8 @@ export interface RunDetail {
 
 export interface RunsState {
   workspace: string | null
+  /** The state the list is filtered to (spec 064: `pending_approval`), or `null` for all. */
+  state: RunPhase | null
   runs: RunInfo[]
   /** Whether `runs` has answered for this workspace, so an empty list means no runs. */
   loaded: boolean
@@ -72,7 +74,7 @@ export interface RunsState {
   seq: number
   preview: Preview | null
   error: string | null
-  load: (workspace: string) => void
+  load: (workspace: string, state?: RunPhase | null) => void
   /** Opens a run (or closes it with `null`): reads it and subscribes to its output. */
   watch: (run: string | null) => void
   propose: (cmd: Cmd) => void
@@ -116,6 +118,7 @@ function eventLine(kind: string, host: string | null, task: string | null): stri
 
 export const useRuns = create<RunsState>()((set, get) => ({
   workspace: null,
+  state: null,
   runs: [],
   loaded: false,
   failed: null,
@@ -128,18 +131,19 @@ export const useRuns = create<RunsState>()((set, get) => ({
   preview: null,
   error: null,
 
-  load: (workspace) => {
-    if (get().workspace !== workspace) set({ workspace, runs: [], loaded: false })
+  load: (workspace, state = null) => {
+    if (get().workspace !== workspace || get().state !== state) set({ workspace, state, runs: [], loaded: false })
     set({ failed: null })
+    const current = () => get().workspace === workspace && get().state === state
     loadList(
-      { type: 'ListRuns', data: { workspace, binding: null, host: null, actor: null, state: null, from: null, to: null } },
+      { type: 'ListRuns', data: { workspace, binding: null, host: null, actor: null, state, from: null, to: null } },
       (event) => (event.type === 'Runs' ? event.data.items : undefined),
       {
         loaded: (runs) => {
-          if (get().workspace === workspace) set({ runs, loaded: true, failed: null })
+          if (current()) set({ runs, loaded: true, failed: null })
         },
         failed: (failed) => {
-          if (get().workspace === workspace) set({ failed })
+          if (current()) set({ failed })
         },
       },
     )
@@ -200,7 +204,7 @@ onServerEvent(({ reply_to, event }) => {
       else if (s.workspace && !s.runs.some((r) => r.id === run)) {
         sendCmd({
           type: 'ListRuns',
-          data: { workspace: s.workspace, binding: null, host: null, actor: null, state: null, from: null, to: null },
+          data: { workspace: s.workspace, binding: null, host: null, actor: null, state: s.state, from: null, to: null },
         })
       }
       break
@@ -237,8 +241,8 @@ onServerEvent(({ reply_to, event }) => {
 })
 
 onReconnected(() => {
-  const { workspace, open, seq, load } = useRuns.getState()
-  if (workspace) load(workspace)
+  const { workspace, state, open, seq, load } = useRuns.getState()
+  if (workspace) load(workspace, state)
   if (open) {
     send({ type: 'GetRun', data: { run: open } })
     send({ type: 'SubscribeRun', data: { run: open, from_seq: seq } })

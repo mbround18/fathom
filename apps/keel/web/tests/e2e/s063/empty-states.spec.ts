@@ -38,7 +38,7 @@ const PAGES = [
   { path: '/receivers', page: 'receivers', guide: '/help/receivers#create-a-receiver', needs: 'administer' },
   { path: '/bindings', page: 'bindings', guide: '/help/bindings#bind-a-repository', needs: 'administer' },
   { path: '/bindings', page: 'credentials', guide: '/help/bindings#credentials', needs: 'administer' },
-  { path: '/runs', page: 'runs', guide: '/help/getting-started#your-first-run', needs: 'operate' },
+  { path: '/runs', page: 'runs', guide: '/help/runs', needs: 'operate' },
   { path: '/reviews', page: 'reviews', guide: '/help/reviews#trusted-signers', needs: 'administer' },
   { path: '/inventory', page: 'inventory', guide: '/help/inventory', needs: 'administer' },
 ] as const

@@ -21,7 +21,9 @@ import {
 import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react'
 
 import { BRAND_GLYPH, BRAND_NAME } from '@/brand'
+import { approvesSomewhere } from '@/features/hosts/workspaces'
 import { usePasskeys } from '@/features/passkeys/store'
+import { useApprovals } from '@/features/runs/approvals-store'
 import { canSeeSettings } from '@/features/settings/tabs'
 import { showDot, useUpdates } from '@/features/settings/updates'
 import { LABEL } from '@/ui/form'
@@ -49,12 +51,15 @@ function NavLink({
   path,
   className = '',
   dot = false,
+  badge = 0,
 }: {
   section: Section
   path: string
   className?: string
   /** A newer Keel is available (spec 061 FR-012); owners only, see `showDot`. */
   dot?: boolean
+  /** A count beside the label, hidden at 0. Neutral, never the accent: it is not where you are. */
+  badge?: number
 }) {
   const current = path === to || path.startsWith(`${to}/`)
   const dotRef = useRef<HTMLSpanElement>(null)
@@ -68,6 +73,21 @@ function NavLink({
       {label}
       {/* The link is `relative` so the sr-only text stays inside the phone's scrolling strip
           instead of widening the page from wherever the strip scrolled it to. */}
+      {badge > 0 && (
+        <>
+          <span
+            aria-hidden
+            data-nav-badge={to.slice(1)}
+            className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center bg-muted px-1 text-[0.6875rem] leading-none font-medium text-foreground tabular-nums"
+          >
+            {badge}
+          </span>
+          <span className="sr-only">
+            {' '}
+            ({badge} {badge === 1 ? 'run' : 'runs'} waiting for your approval)
+          </span>
+        </>
+      )}
       {dot && (
         <>
           <span ref={dotRef} aria-hidden data-update-dot className="size-1.5 shrink-0 rounded-full bg-accent-neon shadow-[var(--glow)]" />
@@ -85,6 +105,8 @@ function NavLink({
  */
 function NavGroupLinks({ group, first, path }: { group: NavGroup; first: boolean; path: string }) {
   const headingId = `nav-group-${group.id}`
+  const me = useSession((s) => s.me)
+  const waiting = useApprovals((s) => (approvesSomewhere(me) ? s.total : 0))
   return (
     <div
       role="group"
@@ -98,7 +120,7 @@ function NavGroupLinks({ group, first, path }: { group: NavGroup; first: boolean
         {group.label}
       </span>
       {group.sections.map((section) => (
-        <NavLink key={section.path} section={section} path={path} />
+        <NavLink key={section.path} section={section} path={path} badge={section.badge === 'approvals' ? waiting : 0} />
       ))}
     </div>
   )

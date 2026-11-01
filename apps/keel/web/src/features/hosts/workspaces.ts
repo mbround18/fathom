@@ -38,6 +38,13 @@ export function canApprove(me: Me | null, workspace: string): boolean {
   )
 }
 
+/** Whether `me` may approve held runs in any workspace (spec 064 US4: the Runs nav chip). */
+export function approvesSomewhere(me: Me | null): boolean {
+  if (!me) return false
+  if (me.instance_role === 'owner' || me.instance_role === 'admin') return true
+  return me.grants.some((g) => canApprove(me, g.workspace))
+}
+
 export interface Workspaces {
   /** `null` while loading. Archived ones are left out. */
   all: WorkspaceInfo[] | null

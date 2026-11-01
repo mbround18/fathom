@@ -22,8 +22,9 @@ function tone(state: RunPhase | HostPhase): string {
   }
 }
 
-export function StateBadge({ state }: { state: RunPhase | HostPhase }) {
-  return <span className={`${STATUS} ${tone(state)}`}>{state.replace(/_/g, ' ')}</span>
+/** A state, in words; `label` replaces them (spec 064: "Waiting · 1 of 2" for a held run). */
+export function StateBadge({ state, label }: { state: RunPhase | HostPhase; label?: string | null }) {
+  return <span className={`${STATUS} ${tone(state)}`}>{label ?? state.replace(/_/g, ' ')}</span>
 }
 
 export function ErrorLine() {

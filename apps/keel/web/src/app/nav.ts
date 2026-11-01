@@ -26,6 +26,8 @@ export interface Section {
   icon: Icon
   /** Whether this person sees the section; absent means everyone does (FR-004). */
   visible?: (me: Me) => boolean
+  /** A count chip beside the label, by what it counts (spec 064 US4). */
+  badge?: 'approvals'
 }
 
 export interface NavGroup {
@@ -41,7 +43,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     id: 'pipelines',
     label: 'Pipelines',
     sections: [
-      { path: '/runs', label: 'Runs', icon: PlayIcon },
+      { path: '/runs', label: 'Runs', icon: PlayIcon, badge: 'approvals' },
       { path: '/reviews', label: 'Reviews', icon: SealCheckIcon },
       { path: '/bindings', label: 'Bindings', icon: TreeStructureIcon },
       { path: '/receivers', label: 'Receivers', icon: WebhooksLogoIcon },

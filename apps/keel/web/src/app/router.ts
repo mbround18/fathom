@@ -46,6 +46,15 @@ export function usePath(): string {
   return useSyncExternalStore(subscribe, currentPath, () => '/')
 }
 
+/** The current `?query`, as parsed params, re-rendering on navigation. */
+export function useSearchParam(name: string): string | null {
+  return useSyncExternalStore(
+    subscribe,
+    () => new URLSearchParams(globalThis.location.search).get(name),
+    () => null,
+  )
+}
+
 function subscribeHash(onChange: () => void): () => void {
   const off = subscribe(onChange)
   globalThis.addEventListener('hashchange', onChange)
