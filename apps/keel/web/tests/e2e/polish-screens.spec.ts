@@ -6,6 +6,9 @@
  *
  * Spec 063 T051 adds the guided empty states, the grouped nav and an open glossary tip (SC-005,
  * FR-032): they fit too, and a nav group heading never takes the accent.
+ *
+ * Spec 064 T033 adds a held run's approval panel, as someone who may answer it and as someone who
+ * may not, and the Runs nav chip: they fit, and the chip is never the accent.
  */
 import type { Page } from '@playwright/test'
 
@@ -14,7 +17,7 @@ import { governance, people } from '../support/fake-governance'
 import { FakeHosts } from '../support/fake-hosts'
 import { HEAD, NOW, PROJECT, WORKSPACE } from '../support/fake-repos'
 import { FakeReviews } from '../support/fake-reviews'
-import { FakeRuns, runInfo, stats } from '../support/fake-runs'
+import { approvalEntry, FakeRuns, hold, runInfo, stats } from '../support/fake-runs'
 import { FakeSettings } from '../support/fake-settings'
 import { AVAILABLE_DIGEST, updateFixtures } from '../support/fake-updates'
 import type { LastUpdateRun, UpdateStatus } from '../../src/protocol/wire'
@@ -339,6 +342,27 @@ const NAV_GROUPS = ['pipelines', 'infrastructure', 'administration'] as const
 // A glossary term the guided Hosts state shows (src/help/glossary.ts; the e2e build can't import it).
 const OPEN_TIP = 'base-profile'
 
+/** A held run with long names, one approval of two under four-eyes, as `role` on the ops workspace. */
+function seedHeld(backend: FakeBackend, role: 'approver' | 'viewer'): void {
+  backend.me = fixtures.me({
+    instance_role: 'user',
+    grants: [{ workspace: WORKSPACE, workspace_slug: 'ops', role, profiles: [] }],
+    verification: fixtures.verification({ verified: true, enrolled: true, at: '2026-10-27T11:59:00Z' }),
+  })
+  const runs = new FakeRuns(backend)
+  runs.add(
+    hold(
+      { id: 'run-0009', job_name: 'database-maintenance-with-a-deliberately-long-job-name', inventory: 'production-eu-west-primary-inventory' },
+      {
+        needed: 2,
+        four_eyes: true,
+        approvals: [approvalEntry({ name: 'Bartholomew Montgomery-Fitzwilliam the Third', role: 'ws_admin' })],
+      },
+    ),
+  )
+  runs.add(hold({ id: 'run-0010', created_at: '2026-10-27T11:00:00Z' }))
+}
+
 const WIDTHS = [360, 1280] as const
 const THEMES = ['dark', 'light'] as const
 
@@ -409,6 +433,37 @@ for (const theme of THEMES) {
           expect(await heading.evaluate((el) => getComputedStyle(el).color), `${id} heading`).not.toBe(current)
         }
         await expectFits(page, 'the grouped nav')
+      })
+
+      for (const role of ['approver', 'viewer'] as const) {
+        const variant = role === 'approver' ? 'act' : 'restricted'
+        test(`a held run's ${variant} panel fits the viewport`, async ({ page, backend }) => {
+          seedHeld(backend, role)
+          await page.clock.setFixedTime(new Date(NOW))
+          await page.goto('/runs/run-0009')
+          await setTheme(page, theme)
+          await expect(page.locator('[data-approval-panel]')).toHaveAttribute('data-approval-panel', variant)
+          await page.evaluate(() => document.fonts.ready)
+          if (process.env.KEEL_SHOTS) await page.screenshot({ path: `${process.env.KEEL_SHOTS}/approval-${variant}-${theme}-${String(width)}.png`, fullPage: true })
+          await expectFits(page, `the ${variant} approval panel`)
+        })
+      }
+
+      test('the Runs nav chip fits, and never takes the accent', async ({ page, backend }) => {
+        seedHeld(backend, 'approver')
+        await page.goto('/runs?state=pending_approval')
+        await setTheme(page, theme)
+        const chip = page.locator('[data-nav-badge="runs"]')
+        await expect(chip).toHaveText('2')
+        await expect(page.locator('[data-run-state="pending_approval"]')).toHaveCount(2)
+        const current = page.locator('nav a[aria-current="page"]')
+        const color = (el: Element) => getComputedStyle(el).color
+        expect(await chip.evaluate(color)).not.toBe(await current.evaluate(color))
+        // On a phone the strip scrolls; the chip is still inside its link.
+        const [c, l] = await Promise.all([chip.boundingBox(), current.boundingBox()])
+        expect((c?.x ?? 0) + (c?.width ?? 0)).toBeLessThanOrEqual((l?.x ?? 0) + (l?.width ?? 0))
+        if (process.env.KEEL_SHOTS) await page.screenshot({ path: `${process.env.KEEL_SHOTS}/runs-waiting-${theme}-${String(width)}.png`, fullPage: true })
+        await expectFits(page, 'the Runs nav chip')
       })
     })
   }

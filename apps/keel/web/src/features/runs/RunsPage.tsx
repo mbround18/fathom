@@ -102,7 +102,15 @@ export default function RunsPage() {
 
   return (
     <Page name="runs" labelledBy="runs-title">
-      <PageHeader id="runs-title" title="Runs" description="Every job run in the workspace, newest first, with its live output.">
+      <PageHeader
+        id="runs-title"
+        title="Runs"
+        description={
+          held
+            ? 'Runs waiting for approval, the longest-waiting first.'
+            : 'Every job run in the workspace, newest first, with its live output.'
+        }
+      >
         <GrantWorkspacePicker workspace={workspace} load={load} />
       </PageHeader>
       <RunsFilter value={filter} />
