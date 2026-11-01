@@ -5,6 +5,8 @@
  */
 import { lazy, Suspense, useEffect, type ComponentType, type LazyExoticComponent } from 'react'
 
+import { PageErrorBoundary } from '@/ui/PageErrorBoundary'
+
 import { ACCOUNT_PASSKEYS, HOME } from './nav'
 import { matchPath, navigate, usePath, type Params } from './router'
 
@@ -50,8 +52,7 @@ function GoHome() {
   return <PageFallback />
 }
 
-export function AppRoutes() {
-  const path = usePath()
+function Routed({ path }: { path: string }) {
   if (path === '/') return <GoHome />
   for (const { pattern, page: Page } of ROUTES) {
     const params = matchPath(pattern, path)
@@ -66,5 +67,15 @@ export function AppRoutes() {
     <Suspense fallback={<PageFallback />}>
       <NotFound />
     </Suspense>
+  )
+}
+
+/** The page for the current path. A page that throws shows the error there; another path clears it. */
+export function AppRoutes() {
+  const path = usePath()
+  return (
+    <PageErrorBoundary key={path}>
+      <Routed path={path} />
+    </PageErrorBoundary>
   )
 }
