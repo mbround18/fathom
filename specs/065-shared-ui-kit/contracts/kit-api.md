@@ -23,7 +23,7 @@ Keel files are under `apps/keel/web/src`.
 | `error-line` | `ErrorLine` | `ui/ErrorLine.tsx` | none | `message`, `onDismiss` | moved |
 | `page` | `Page` | `ui/Page.tsx` | `data-page` | `name`, `labelledBy` | moved |
 | `page-header` | `PageHeader` | `ui/PageHeader.tsx` | `data-page-intro`; pane: `data-pane-header`, `data-pane-count` | title, intro, guide, actions | adds `size?: 'page' \| 'pane'`; pane takes `id?`, `title`, `tip?`, `lead?`, `count?`, `actions?`, `rootProps?` and renders an `h2` (R9) |
-| `page-error-boundary` | `PageErrorBoundary` | `ui/PageErrorBoundary.tsx` | `data-pane-state="crashed"`, `data-error-message` | none | adds `resetKey?` (pane reset) |
+| `page-error-boundary` | `PageErrorBoundary` | `ui/PageErrorBoundary.tsx` | `data-pane-state="error"`, `data-error-message` | none | adds `resetKey?` (pane reset) |
 | `empty-state` | `EmptyState`, `emptyVariant`, type `EmptyVariant` | `ui/EmptyState.tsx`, `ui/empty-variant.ts` | `data-empty`, `data-empty-page`, `data-empty-action`, `data-who-can`, `data-pane-state` | text, steps, who-can, guide | moved |
 | `no-match` | `NoMatch` | `ui/NoMatch.tsx` | `data-empty`, `data-pane-state` | `what`, `message`, `onClear` | moved |
 | `dialog` | `Dialog` | `ui/Dialog.tsx` | `data-summary` | as today | moved |
