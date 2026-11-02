@@ -1,5 +1,6 @@
 /**
- * A `Denied` or `OpError`, verbatim: the action and the reason code, or the server's message and
+ * A `Denied` or `OpError`, verbatim: the action (when the app's denial names one) and the reason
+ * code, or the server's message and
  * its code. The app not being connected is not the server's answer, so it reads as a plain sentence.
  * `lead` goes in front, in the same alert, so it is read out with the reason.
  */
@@ -19,10 +20,16 @@ export function RefusalText({ refusal, lead }: { refusal: Refusal; lead?: ReactN
       <span className="min-w-0 break-words">
         {lead !== undefined && <span className="font-medium">{lead} </span>}
         {refusal.kind === 'denied' ? (
-          <>
-            Denied: <code data-denied-action>{refusal.action}</code> (
-            <code data-denied-reason>{refusal.reason}</code>)
-          </>
+          refusal.action === undefined ? (
+            <>
+              Denied (<code data-denied-reason>{refusal.reason}</code>)
+            </>
+          ) : (
+            <>
+              Denied: <code data-denied-action>{refusal.action}</code> (
+              <code data-denied-reason>{refusal.reason}</code>)
+            </>
+          )
         ) : isTransportFailure(refusal) ? (
           <span className="whitespace-pre-wrap">{refusal.message}</span>
         ) : (

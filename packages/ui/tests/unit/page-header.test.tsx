@@ -37,6 +37,16 @@ describe('PageHeader', () => {
     expect(screen.getByRole('link', { name: 'Learn more' })).toHaveAttribute('href', '/help/widgets')
   })
 
+  it('leaves out slots given false or null, as from `cond && <X />`', () => {
+    const page = render(<PageHeader id="t" title="Widgets" description={null} actions={false} />)
+    expect(page.container.querySelector('header')?.innerHTML).toBe(
+      render(<PageHeader id="u" title="Widgets" />).container.querySelector('header')?.innerHTML.replace('id="u"', 'id="t"'),
+    )
+    const pane = render(<PageHeader size="pane" title="Pods" count={null} actions={false} />)
+    expect(pane.container.querySelector('[data-pane-count]')).toBeNull()
+    expect(pane.container.querySelector('header')?.children).toHaveLength(1)
+  })
+
   it('keeps the tip outside the heading, so the heading’s name stays the title', () => {
     render(<PageHeader id="t" title="Widgets" tip={<button aria-label="About widgets" />} />)
     expect(screen.getByRole('heading', { level: 1 })).toHaveAccessibleName('Widgets')

@@ -48,6 +48,11 @@ interface PaneProps {
   rootProps?: HTMLAttributes<HTMLElement> & { [data: `data-${string}`]: string | undefined }
 }
 
+/** Whether a slot has something to show: `cond && <X />` passes `false`, and that is nothing. */
+function shown(slot: ReactNode): boolean {
+  return slot !== undefined && slot !== null && slot !== false
+}
+
 export function PageHeader(props: PageProps | PaneProps) {
   if (props.size === 'pane') return <PaneHeader {...props} />
   const { id, title, tip, description, guide, actions, children } = props
@@ -61,7 +66,7 @@ export function PageHeader(props: PageProps | PaneProps) {
             </h1>
             {tip}
           </div>
-          {description !== undefined &&
+          {shown(description) &&
             (guide === undefined ? (
               <p className="max-w-prose text-sm text-muted-foreground">{description}</p>
             ) : (
@@ -71,9 +76,9 @@ export function PageHeader(props: PageProps | PaneProps) {
               </div>
             ))}
         </div>
-        {actions !== undefined && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+        {shown(actions) && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
       </div>
-      {children !== undefined && <div className="flex min-w-0 flex-wrap items-center gap-2">{children}</div>}
+      {shown(children) && <div className="flex min-w-0 flex-wrap items-center gap-2">{children}</div>}
     </header>
   )
 }
@@ -90,12 +95,12 @@ function PaneHeader({ id, title, tip, lead, count, actions, rootProps }: PanePro
         {title}
       </h2>
       {tip}
-      {count !== undefined && (
+      {shown(count) && (
         <span data-pane-count className="shrink-0 text-xs text-muted-foreground tabular-nums">
           {count}
         </span>
       )}
-      {actions !== undefined && <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div>}
+      {shown(actions) && <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div>}
     </header>
   )
 }

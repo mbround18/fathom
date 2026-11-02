@@ -6,7 +6,7 @@
 
 /** A refusal as the server sent it, or the app's `OFFLINE`. */
 export type Refusal =
-  | { kind: 'denied'; action: string; reason: string }
+  | { kind: 'denied'; action?: string; reason: string }
   | { kind: 'error'; code: string; message: string }
 
 /** A failure on the app's side of the connection rather than a refusal from the server. */

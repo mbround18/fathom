@@ -23,6 +23,14 @@ describe('RefusalText', () => {
     expect(alert.querySelector('[data-denied-reason]')).toHaveTextContent('no_grant')
   })
 
+  it('shows a denial without an action as its reason code alone', () => {
+    render(<RefusalText refusal={{ kind: 'denied', reason: 'not_permitted' }} />)
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent(/^Denied \(not_permitted\)$/)
+    expect(alert.querySelector('[data-denied-action]')).toBeNull()
+    expect(alert.querySelector('[data-denied-reason]')).toHaveTextContent('not_permitted')
+  })
+
   it('shows an error’s message and code', () => {
     render(<RefusalText refusal={{ kind: 'error', code: 'conflict', message: 'The widget changed.' }} />)
     const alert = screen.getByRole('alert')
