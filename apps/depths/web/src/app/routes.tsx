@@ -6,7 +6,7 @@
  * says nothing about what is there. The server refuses their commands regardless (FR-032).
  */
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react'
-import { matchPath, type Params, usePath } from '@companion/ui/kit'
+import { matchPath, PageErrorBoundary, usePath, type Params } from '@companion/ui/kit'
 
 import { useSession } from './session-store'
 
@@ -61,14 +61,20 @@ export function AppRoutes() {
     const params = matchPath(pattern, path)
     if (params)
       return (
-        <Suspense fallback={<PageFallback />}>
-          <Page key={group ?? pattern} params={params} />
-        </Suspense>
+        // A page that throws shows the crash state in place, with the navigation still up (spec 065
+        // FR-010). Keyed like the page, so another page clears it but a stack's own tabs share it.
+        <PageErrorBoundary key={group ?? pattern}>
+          <Suspense fallback={<PageFallback />}>
+            <Page params={params} />
+          </Suspense>
+        </PageErrorBoundary>
       )
   }
   return (
-    <Suspense fallback={<PageFallback />}>
-      <NotFound />
-    </Suspense>
+    <PageErrorBoundary key="not-found">
+      <Suspense fallback={<PageFallback />}>
+        <NotFound />
+      </Suspense>
+    </PageErrorBoundary>
   )
 }

@@ -1,3 +1,4 @@
+import { KitProvider, type KitContext } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect } from 'react'
 
 import { AppRoutes, PageFallback } from './routes'
@@ -7,11 +8,22 @@ import { Shell } from './Shell'
 const SignIn = lazy(() => import('@/pages/SignIn'))
 const NoAccess = lazy(() => import('@/pages/NoAccess'))
 
+/** What Depths hands the shared kit (spec 065): nothing yet. It has no guides and no glossary. */
+const DEPTHS_KIT: KitContext = {}
+
+export function App() {
+  return (
+    <KitProvider value={DEPTHS_KIT}>
+      <Gate />
+    </KitProvider>
+  )
+}
+
 /**
  * Bootstraps from `GET /api/v1/me`, then shows exactly one of: sign-in, no-access, or the shell.
  * The gate is the session state, not the URL, so no path reaches a page the session cannot see.
  */
-export function App() {
+function Gate() {
   const status = useSession((s) => s.status)
   const bootstrap = useSession((s) => s.bootstrap)
 

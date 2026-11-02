@@ -177,7 +177,7 @@ test('narrow screens show each entry as a labelled card', async ({ page, backend
 test('the admin nav reaches both views', async ({ page, backend }) => {
   seed(backend)
   await page.goto('/')
-  const nav = page.getByRole('navigation', { name: 'Admin' })
+  const nav = page.getByRole('group', { name: 'Admin' })
   await nav.getByRole('link', { name: 'Audit' }).click()
   await expect(page.getByRole('heading', { name: 'Audit log' })).toBeVisible()
   await expect(nav.getByRole('link', { name: 'Audit' })).toHaveAttribute('aria-current', 'page')

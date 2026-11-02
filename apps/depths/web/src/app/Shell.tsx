@@ -1,7 +1,17 @@
-import { ArrowsClockwiseIcon, ClipboardTextIcon, DevicesIcon, MoonIcon, RowsIcon, SignOutIcon, SunIcon, UsersIcon } from '@phosphor-icons/react'
+import {
+  ArrowsClockwiseIcon,
+  ClipboardTextIcon,
+  DevicesIcon,
+  MoonIcon,
+  RowsIcon,
+  SignOutIcon,
+  StackIcon,
+  SunIcon,
+  UsersIcon,
+} from '@phosphor-icons/react'
 import { BrandMark } from '@companion/theme'
 import { Button, ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@companion/ui'
-import { Link, usePath } from '@companion/ui/kit'
+import { Link, NavShell, usePath, type NavGroup, type NavItem } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 
 import { BRAND_GLYPH, BRAND_NAME } from '@/brand'
@@ -22,57 +32,51 @@ const CONNECTION_LABEL = {
   closed: 'Disconnected',
 } as const
 
-function AdminLink({
-  to,
-  label,
-  icon,
-  badge,
-  ariaLabel,
-}: {
-  to: string
-  label: string
-  icon: ReactNode
-  badge?: ReactNode
-  ariaLabel?: string
-}) {
-  const current = usePath().startsWith(to)
-  return (
-    <Link
-      to={to}
-      aria-label={ariaLabel ?? label}
-      aria-current={current ? 'page' : undefined}
-      className="inline-flex h-7 items-center gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground aria-[current=page]:text-primary"
-    >
-      {icon}
-      <span className="hidden sm:inline">{label}</span>
-      {badge}
-    </Link>
-  )
+const STACKS = '/'
+
+/** Stacks with a newer image (spec 062): a count on the Updates item, hidden at zero. */
+function updatesItem(count: number | null): NavItem {
+  const n = count ?? 0
+  return {
+    path: '/admin/updates',
+    label: 'Updates',
+    icon: ArrowsClockwiseIcon,
+    badge: { count: n, label: `${String(n)} ${n === 1 ? 'stack has' : 'stacks have'} an update` },
+  }
 }
 
-/** Stacks with a newer image (spec 062): a count on the Updates link, hidden at zero. */
-function UpdatesLink() {
+/**
+ * The sections this person sees (spec 065 T020): stacks and their own sessions, and for an admin
+ * the admin pages, with Updates only while the server has that feature on.
+ */
+function useNav(): NavGroup[] {
+  const isAdmin = useSession((s) => s.me?.role === 'admin')
+  const updates = useSession((s) => s.me?.features.updates === true)
   const count = useUpdatesBadge((s) => s.count)
-  const shown = count !== null && count > 0
-  return (
-    <AdminLink
-      to="/admin/updates"
-      label="Updates"
-      ariaLabel={shown ? `Updates: ${String(count)} ${count === 1 ? 'stack has' : 'stacks have'} an update` : 'Updates'}
-      icon={<ArrowsClockwiseIcon aria-hidden className="size-3.5" />}
-      badge={
-        shown ? (
-          <span
-            data-testid="updates-badge"
-            aria-hidden
-            className="inline-flex h-4 min-w-4 items-center justify-center border border-primary px-0.5 text-[10px] leading-none text-primary tabular-nums"
-          >
-            {count}
-          </span>
-        ) : undefined
-      }
-    />
-  )
+  const groups: NavGroup[] = [
+    { id: 'stacks', label: 'Stacks', items: [{ path: STACKS, label: 'Stacks', icon: StackIcon }] },
+    {
+      id: 'account',
+      label: 'Account',
+      items: [{ path: '/account/sessions', label: 'Your sessions', icon: DevicesIcon }],
+    },
+  ]
+  if (isAdmin)
+    groups.push({
+      id: 'admin',
+      label: 'Admin',
+      items: [
+        { path: '/admin/users', label: 'Users', icon: UsersIcon },
+        { path: '/admin/audit', label: 'Audit', icon: ClipboardTextIcon },
+        ...(updates ? [updatesItem(count)] : []),
+      ],
+    })
+  return groups
+}
+
+/** A stack's pages (its detail, files and editor) and the new-stack page all sit under Stacks. */
+function navPath(path: string): string {
+  return path.startsWith('/stacks/') || path === '/new' ? STACKS : path
 }
 
 function Dock() {
@@ -86,9 +90,10 @@ function Dock() {
 }
 
 /**
- * The signed-in frame: a dense top bar, then the routed page and, once a tab is open, the tab dock
- * (logs, shells, stats). Wide screens split the page and the dock with a draggable divider; narrow
- * ones show one or the other, switched from the top bar. Mobile first.
+ * The signed-in frame: the kit's `NavShell` (a dense top bar, the grouped section navigation and the
+ * routed page) with Depths' sections, the tab toggle, the theme and sign-out. Once a tab is open,
+ * the tab dock (logs, shells, stats) sits under the page. Wide screens split the page and the dock
+ * with a draggable divider; narrow ones show one or the other, switched from the top bar.
  */
 export function Shell({ children }: { children: ReactNode }) {
   const me = useSession((s) => s.me)
@@ -102,6 +107,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const setOpen = useTabs((s) => s.setOpen)
   const setSizes = useTabs((s) => s.setSizes)
   const wide = useWide()
+  const path = usePath()
+  const groups = useNav()
 
   // Streams run from the first tab on, whether or not the dock is showing.
   useEffect(() => {
@@ -113,105 +120,94 @@ export function Shell({ children }: { children: ReactNode }) {
   const page = <div className="h-full min-h-0 overflow-auto">{children}</div>
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-2">
-        <Link to="/" aria-label="Stacks" className="flex items-center">
+    <NavShell
+      brand={
+        <Link to={STACKS} aria-label="Stacks" className="flex items-center">
           <BrandMark name={BRAND_NAME} glyph={BRAND_GLYPH} className="text-sm" />
         </Link>
-        {me?.role === 'admin' && (
-          <nav aria-label="Admin" className="flex items-center gap-0.5">
-            <AdminLink to="/admin/users" label="Users" icon={<UsersIcon aria-hidden className="size-3.5" />} />
-            <AdminLink to="/admin/audit" label="Audit" icon={<ClipboardTextIcon aria-hidden className="size-3.5" />} />
-            {me.features.updates === true && <UpdatesLink />}
-          </nav>
-        )}
-        <span className="flex-1" />
-        {connection !== 'open' && (
-          <span
-            role="status"
-            data-connection={connection}
-            className="text-xs text-status-warn"
-          >
-            {CONNECTION_LABEL[connection]}…
-          </span>
-        )}
-        {count > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-pressed={open}
-            aria-label={open ? `Hide tabs (${String(count)})` : `Show tabs (${String(count)})`}
-            data-testid="tabs-toggle"
-            onClick={() => setOpen(!open)}
-          >
-            <RowsIcon aria-hidden />
-            <span className="tabular-nums">{count}</span>
-          </Button>
-        )}
-        {me && (
-          <Link
-            to="/account/sessions"
-            aria-label="Your sessions"
-            title="Your sessions"
-            className="inline-flex h-7 min-w-0 items-center gap-1 px-1.5 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <DevicesIcon aria-hidden className="size-3.5 shrink-0" />
-            <span data-testid="whoami" className="hidden max-w-40 truncate sm:inline">
+      }
+      groups={groups}
+      path={navPath(path)}
+      headerEnd={
+        <>
+          {connection !== 'open' && (
+            <span role="status" data-connection={connection} className="text-xs text-status-warn">
+              {CONNECTION_LABEL[connection]}…
+            </span>
+          )}
+          {count > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-pressed={open}
+              aria-label={open ? `Hide tabs (${String(count)})` : `Show tabs (${String(count)})`}
+              data-testid="tabs-toggle"
+              onClick={() => setOpen(!open)}
+            >
+              <RowsIcon aria-hidden />
+              <span className="tabular-nums">{count}</span>
+            </Button>
+          )}
+          {me && (
+            <span data-testid="whoami" className="hidden max-w-40 truncate text-xs text-muted-foreground sm:inline">
               {me.identity.username}
             </span>
-          </Link>
-        )}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={mode === 'dark' ? 'Use light theme' : 'Use dark theme'}
-          onClick={toggleMode}
-        >
-          {mode === 'dark' ? <SunIcon /> : <MoonIcon />}
-        </Button>
-        <Button variant="ghost" size="icon-sm" aria-label="Sign out" onClick={() => void signOut()}>
-          <SignOutIcon />
-        </Button>
-      </header>
-      {gate && (
-        <Suspense fallback={null}>
-          <NetworkGate />
-        </Suspense>
-      )}
-      {me && (
-        <Suspense fallback={null}>
-          <PasskeyGate />
-        </Suspense>
-      )}
-      <main className="min-h-0 flex-1">
-        {wide ? (
-          // One group throughout, so opening the dock never remounts the page.
-          <ResizablePanelGroup
-            orientation="vertical"
-            onLayoutChanged={(l, meta) => {
-              const dock = l.dock
-              if (meta.isUserInteraction && dock !== undefined) setSizes({ dock })
-            }}
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={mode === 'dark' ? 'Use light theme' : 'Use dark theme'}
+            onClick={toggleMode}
           >
-            <ResizablePanel id="page" minSize="15">
-              {page}
-            </ResizablePanel>
-            {showDock && (
-              <>
-                <ResizableHandle withHandle aria-label="Resize tabs" />
-                <ResizablePanel id="dock" defaultSize={String(dockSize ?? 45)} minSize="15">
-                  <Dock />
-                </ResizablePanel>
-              </>
-            )}
-          </ResizablePanelGroup>
-        ) : (
-          <>
-            <div className={showDock ? 'hidden' : 'h-full min-h-0'}>{page}</div>
-            {showDock && <Dock />}
-          </>
-        )}
-      </main>
-    </div>
+            {mode === 'dark' ? <SunIcon /> : <MoonIcon />}
+          </Button>
+          <Button variant="ghost" size="icon-sm" aria-label="Sign out" onClick={() => void signOut()}>
+            <SignOutIcon />
+          </Button>
+        </>
+      }
+      banner={
+        <>
+          {gate && (
+            <Suspense fallback={null}>
+              <NetworkGate />
+            </Suspense>
+          )}
+          {me && (
+            <Suspense fallback={null}>
+              <PasskeyGate />
+            </Suspense>
+          )}
+        </>
+      }
+    >
+      {wide ? (
+        // One group throughout, so opening the dock never remounts the page.
+        <ResizablePanelGroup
+          orientation="vertical"
+          onLayoutChanged={(l, meta) => {
+            const dock = l.dock
+            if (meta.isUserInteraction && dock !== undefined) setSizes({ dock })
+          }}
+        >
+          <ResizablePanel id="page" minSize="15">
+            {page}
+          </ResizablePanel>
+          {showDock && (
+            <>
+              <ResizableHandle withHandle aria-label="Resize tabs" />
+              <ResizablePanel id="dock" defaultSize={String(dockSize ?? 45)} minSize="15">
+                <Dock />
+              </ResizablePanel>
+            </>
+          )}
+        </ResizablePanelGroup>
+      ) : (
+        <div className="h-full min-h-0">
+          <div className={showDock ? 'hidden' : 'h-full min-h-0'}>{page}</div>
+          {showDock && <Dock />}
+        </div>
+      )}
+    </NavShell>
   )
 }

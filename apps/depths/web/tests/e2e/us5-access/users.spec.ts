@@ -60,7 +60,7 @@ test('a user on x sees x only: no other stack, no foreign group, no admin views'
   await expect(page.locator('[data-stack]')).toHaveCount(1)
   await expect(page.locator('[data-stack="x"]')).toBeVisible()
   await expect(page.locator('[data-foreign], [data-standalone]')).toHaveCount(0)
-  await expect(page.getByRole('navigation', { name: 'Admin' })).toHaveCount(0)
+  await expect(page.locator('[data-nav-group="admin"]')).toHaveCount(0)
 
   // The admin pages do not exist for a user, and ask the server nothing.
   for (const path of ['/admin/users', '/admin/audit']) {

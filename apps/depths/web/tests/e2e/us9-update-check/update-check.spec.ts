@@ -113,15 +113,15 @@ test('the badge counts stacks with an update and follows the feed', async ({ pag
   await page.goto('/')
 
   const link = page.getByRole('link', { name: /^Updates/ })
-  await expect(link).toHaveAccessibleName('Updates: 2 stacks have an update')
-  await expect(page.getByTestId('updates-badge')).toHaveText('2')
+  await expect(link).toHaveAccessibleName('Updates (2 stacks have an update)')
+  await expect(page.locator('[data-nav-badge="admin/updates"]')).toHaveText('2')
 
   const services = f.updatesView().services.map((s) => (s.stack === 'blog' && s.state === 'available' ? { ...s, state: 'up_to_date' as const, available: null } : s))
   backend.pushUpdates(services)
-  await expect(page.getByTestId('updates-badge')).toHaveText('1')
+  await expect(page.locator('[data-nav-badge="admin/updates"]')).toHaveText('1')
 
   backend.pushUpdates(services.map((s) => (s.state === 'available' ? { ...s, state: 'up_to_date' as const, available: null } : s)))
-  await expect(page.getByTestId('updates-badge')).toHaveCount(0)
+  await expect(page.locator('[data-nav-badge="admin/updates"]')).toHaveCount(0)
   await expect(link).toHaveAccessibleName('Updates')
 })
 
@@ -150,7 +150,7 @@ test('a user sees no Updates page, and states only on their own stack', async ({
   await page.goto('/admin/updates')
   await expect(page.locator('[data-page="updates"]')).toHaveCount(0)
   await expect(page.getByRole('link', { name: /^Updates/ })).toHaveCount(0)
-  await expect(page.getByTestId('updates-badge')).toHaveCount(0)
+  await expect(page.locator('[data-nav-badge="admin/updates"]')).toHaveCount(0)
 
   await page.goto('/stacks/web')
   const app = page.locator('[data-service="app"] [data-field="update"]')
