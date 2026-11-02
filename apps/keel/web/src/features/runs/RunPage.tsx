@@ -8,17 +8,13 @@
 import { ArrowLeftIcon, StopIcon } from '@phosphor-icons/react'
 import { LogView } from '@companion/terminal'
 import { Button } from '@companion/ui'
-import { Link, type Params } from '@companion/ui/kit'
+import { ConfirmDialog, DataTable, H2, LABEL, Link, LINK, Page, type Params } from '@companion/ui/kit'
 import { useEffect, useMemo, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { canOperate } from '@/features/hosts/workspaces'
 import type { HostStats, RunHostInfo, RunInfo, RunSummary } from '@/protocol/wire'
-import { ConfirmDialog } from '@/ui/ConfirmDialog'
-import { DataTable } from '@/ui/DataTable'
 import { when } from '@/features/settings/updates'
-import { H2, LABEL, LINK } from '@/ui/form'
-import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
 import { ApprovalPanel, DecisionDialog } from './ApprovalPanel'

@@ -4,7 +4,7 @@
  * real value. Long values wrap rather than scroll the page.
  */
 import { CheckIcon, CopyIcon, EyeIcon, EyeSlashIcon } from '@phosphor-icons/react'
-import { Button } from '@companion/ui'
+import { Button } from '../button'
 import { useEffect, useId, useState, type ReactNode } from 'react'
 
 import { copyText } from './clipboard'

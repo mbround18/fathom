@@ -4,9 +4,9 @@
  * failed, so a failure never reads as "nothing here yet". `data-pane-state="error"`.
  */
 import { ArrowClockwiseIcon } from '@phosphor-icons/react'
-import { Button } from '@companion/ui'
+import { Button } from '../button'
 
-import type { Refusal } from '@/app/load'
+import type { Refusal } from './refusal'
 
 import { RefusalText } from './RefusalText'
 

@@ -11,6 +11,22 @@
  */
 import { ArrowCounterClockwiseIcon, PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
+import {
+  ConfirmDialog,
+  DataTable,
+  EmptyState,
+  emptyVariant,
+  ErrorLine as Alert,
+  Field as FormField,
+  H2,
+  LABEL,
+  LINK,
+  LoadFailed,
+  LoadState,
+  Page,
+  Select,
+  useReveal,
+} from '@companion/ui/kit'
 import { lazy, Suspense, useId, useState, type ReactNode, type SyntheticEvent } from 'react'
 
 import { useSession } from '@/app/session-store'
@@ -18,16 +34,6 @@ import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
 import { canAdminister } from '@/features/hosts/workspaces'
 import { TermTip } from '@/help/TermTip'
 import type { InventoryProblem } from '@/protocol/wire'
-import { ConfirmDialog } from '@/ui/ConfirmDialog'
-import { DataTable } from '@/ui/DataTable'
-import { EmptyState } from '@/ui/EmptyState'
-import { emptyVariant } from '@/ui/empty-variant'
-import { ErrorLine as Alert } from '@/ui/ErrorLine'
-import { Field as FormField, H2, LABEL, LINK, Select } from '@/ui/form'
-import { LoadFailed } from '@/ui/LoadFailed'
-import { LoadState } from '@/ui/LoadState'
-import { Page } from '@/ui/Page'
-import { useReveal } from '@/ui/reveal'
 import { PageHeader } from '@/ui/PageHeader'
 
 import { useInventory, type Opened } from './store'

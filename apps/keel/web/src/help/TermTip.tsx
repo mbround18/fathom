@@ -7,8 +7,7 @@
  * term alone. Use it at most once per section.
  */
 import { InfoTip } from '@companion/ui'
-
-import { GuideLink } from '@/ui/GuideLink'
+import { GuideLink } from '@companion/ui/kit'
 
 import { GLOSSARY, type TermId } from './glossary'
 

@@ -15,7 +15,7 @@
  */
 import { HardDrivesIcon, PlayIcon, PlusIcon, ShieldStarIcon, TrashIcon, TreeStructureIcon } from '@phosphor-icons/react'
 import { Badge, Button, Input } from '@companion/ui'
-import { Link } from '@companion/ui/kit'
+import { EmptyState, Link, LoadState } from '@companion/ui/kit'
 import { useEffect, useId, useState } from 'react'
 
 import { NewBinding } from '@/features/bindings/BindingsPage'
@@ -23,8 +23,6 @@ import { ErrorLine, PreviewDialog } from '@/features/bindings/parts'
 import { useRepos } from '@/features/bindings/store'
 import { useSession } from '@/app/session-store'
 import { useEnroll } from '@/features/hosts/enroll-store'
-import { EmptyState } from '@/ui/EmptyState'
-import { LoadState } from '@/ui/LoadState'
 
 import { BuildPanel } from './BuildPanel'
 import { ConflictBanner } from './EnrollmentTab'

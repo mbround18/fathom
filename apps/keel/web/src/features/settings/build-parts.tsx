@@ -4,9 +4,8 @@
  */
 import { CheckIcon, CopyIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
+import { copyText } from '@companion/ui/kit'
 import { useEffect, useState, type ReactNode } from 'react'
-
-import { copyText } from '@/ui/clipboard'
 
 import { when } from './updates'
 

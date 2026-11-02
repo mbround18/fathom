@@ -8,13 +8,12 @@
  */
 import { ArrowsClockwiseIcon, ProhibitIcon } from '@phosphor-icons/react'
 import { Badge, Button } from '@companion/ui'
+import { DataTable, LoadState, type Column } from '@companion/ui/kit'
 import { useEffect, useId } from 'react'
 
 import { useEnroll } from '@/features/hosts/enroll-store'
 import { NativeSelect } from '@/features/teams/parts'
 import type { AdminApiTokenInfo, ApiTokenState, EnrollmentInfo, EnrollmentState } from '@/protocol/wire'
-import { DataTable, type Column } from '@/ui/DataTable'
-import { LoadState } from '@/ui/LoadState'
 
 import { useSettings } from './store'
 

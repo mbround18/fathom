@@ -24,15 +24,12 @@ import {
   WarningIcon,
 } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
-import { Link } from '@companion/ui/kit'
+import { CopyBlock, H2, Link, LoadState } from '@companion/ui/kit'
 import type { ReactNode } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { RefusalText } from '@/features/teams/parts'
 import type { AvailableImage, KeelBuild, UpdatePath, UpdateStatus } from '@/protocol/wire'
-import { CopyBlock } from '@/ui/CopyBlock'
-import { H2 } from '@/ui/form'
-import { LoadState } from '@/ui/LoadState'
 
 import { Row, ShortCopy, Time, Unknown } from './build-parts'
 import { canUpdate, cardState, failedRunId, shortDigest, shortRevision, showDot, useUpdates, when, type CardState } from './updates'

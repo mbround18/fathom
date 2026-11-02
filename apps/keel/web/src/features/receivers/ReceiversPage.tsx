@@ -5,6 +5,18 @@
  */
 import { KeyIcon, LinkBreakIcon, PlusIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
+import {
+  CopyBlock,
+  DataTable,
+  EmptyState,
+  emptyVariant,
+  FIELD,
+  H2,
+  LABEL,
+  LoadFailed,
+  Page,
+  STATUS,
+} from '@companion/ui/kit'
 import { useId, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
 
 import { useSession } from '@/app/session-store'
@@ -14,13 +26,6 @@ import { short, useRepos } from '@/features/bindings/store'
 import { canAdminister } from '@/features/hosts/workspaces'
 import { TermTip } from '@/help/TermTip'
 import type { DeliveryInfo, ReceiverInfo, ReceiverProvider } from '@/protocol/wire'
-import { CopyBlock } from '@/ui/CopyBlock'
-import { DataTable } from '@/ui/DataTable'
-import { EmptyState } from '@/ui/EmptyState'
-import { LoadFailed } from '@/ui/LoadFailed'
-import { emptyVariant } from '@/ui/empty-variant'
-import { FIELD, H2, LABEL, STATUS } from '@/ui/form'
-import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
 const PROVIDERS: { provider: ReceiverProvider; label: string }[] = [

@@ -13,12 +13,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@companion/ui'
+import { EmptyState, LoadState, Page } from '@companion/ui/kit'
 import { useEffect } from 'react'
 
 import type { PasskeyInfo } from '@/protocol/wire'
-import { EmptyState } from '@/ui/EmptyState'
-import { LoadState } from '@/ui/LoadState'
-import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
 import { usePasskeyList, type Removal } from './list-store'

@@ -5,24 +5,31 @@
  */
 import { PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Checkbox } from '@companion/ui'
+import {
+  ConfirmDialog as Confirm,
+  CopyBlock,
+  DataTable,
+  EmptyState,
+  emptyVariant,
+  ErrorLine as Alert,
+  H2,
+  LABEL,
+  LINK,
+  LoadFailed,
+  LoadState,
+  NoMatch,
+  Page,
+  SectionIntro,
+  STATUS,
+  useReveal,
+  type Column,
+} from '@companion/ui/kit'
 import { useEffect, useId, useMemo } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { WorkspaceSelect } from '@/app/WorkspacePicker'
 import { TermTip } from '@/help/TermTip'
 import type { HostInfo, HostStatus } from '@/protocol/wire'
-import { ConfirmDialog as Confirm } from '@/ui/ConfirmDialog'
-import { CopyBlock } from '@/ui/CopyBlock'
-import { DataTable, type Column } from '@/ui/DataTable'
-import { EmptyState } from '@/ui/EmptyState'
-import { emptyVariant } from '@/ui/empty-variant'
-import { ErrorLine as Alert } from '@/ui/ErrorLine'
-import { H2, LABEL, LINK, SectionIntro, STATUS } from '@/ui/form'
-import { LoadFailed } from '@/ui/LoadFailed'
-import { LoadState } from '@/ui/LoadState'
-import { NoMatch } from '@/ui/NoMatch'
-import { Page } from '@/ui/Page'
-import { useReveal } from '@/ui/reveal'
 import { PageHeader } from '@/ui/PageHeader'
 
 import { EnrollDialog } from './EnrollDialog'

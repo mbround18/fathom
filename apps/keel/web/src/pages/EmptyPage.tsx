@@ -3,9 +3,8 @@
  * Each story replaces its page with the real one.
  */
 import { HourglassIcon } from '@phosphor-icons/react'
+import { EmptyState, Page } from '@companion/ui/kit'
 
-import { EmptyState } from '@/ui/EmptyState'
-import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
 export function EmptyPage({ page, title, blurb }: { page: string; title: string; blurb: string }) {

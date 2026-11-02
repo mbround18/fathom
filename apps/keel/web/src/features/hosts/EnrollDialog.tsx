@@ -9,14 +9,11 @@
  */
 import { FingerprintIcon, PlusIcon, WarningIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
-import { Link } from '@companion/ui/kit'
+import { CopyBlock, Dialog, FIELD, LABEL, Link } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, useId, useState, type KeyboardEvent } from 'react'
 
 import { RefusalText } from '@/features/teams/parts'
 import { TermTip } from '@/help/TermTip'
-import { CopyBlock } from '@/ui/CopyBlock'
-import { Dialog } from '@/ui/Dialog'
-import { FIELD, LABEL } from '@/ui/form'
 
 import { HOST_NAME, MAX_PROFILES, useEnroll, type Minted } from './enroll-store'
 import { parseProfiles } from './store'

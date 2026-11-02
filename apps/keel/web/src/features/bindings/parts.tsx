@@ -3,11 +3,9 @@
  * confirm dialog for a `Preview`, and the error line, on the app's shared primitives.
  */
 import type { ReactNode } from 'react'
+import { ConfirmDialog, ErrorLine as Alert, Field as FormField } from '@companion/ui/kit'
 
 import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
-import { ConfirmDialog } from '@/ui/ConfirmDialog'
-import { ErrorLine as Alert } from '@/ui/ErrorLine'
-import { Field as FormField } from '@/ui/form'
 
 import { useRepos } from './store'
 

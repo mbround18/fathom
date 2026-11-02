@@ -8,6 +8,7 @@
  * `{ guide: 'hosts', anchor: 'enroll-a-host' }`. `tests/unit/guide-links.test.ts` finds every such
  * literal in `src/` and fails when its guide or heading doesn't exist (SC-006).
  */
+import type { GuideRef as KitGuideRef } from '@companion/ui/kit'
 
 /** One per `docs/guides/keel/*.md` file except README, which is the `/help` index. */
 export const GUIDE_SLUGS = [
@@ -36,8 +37,11 @@ export function isGuideSlug(s: string): s is GuideSlug {
   return (GUIDE_SLUGS as readonly string[]).includes(s)
 }
 
-/** The in-app route for a guide: `/help/<slug>`, plus `#<anchor>` when given. */
-export function guideHref(ref: GuideRef): string {
+/**
+ * The in-app route for a guide: `/help/<slug>`, plus `#<anchor>` when given. It takes the kit's
+ * `GuideRef` (spec 065), whose `guide` is any string, so it can be the kit's `guideHref`.
+ */
+export function guideHref(ref: KitGuideRef): string {
   return ref.anchor === undefined ? `/help/${ref.guide}` : `/help/${ref.guide}#${ref.anchor}`
 }
 

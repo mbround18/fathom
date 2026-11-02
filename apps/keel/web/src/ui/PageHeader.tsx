@@ -8,11 +8,9 @@
  * after the title, outside the `h1`, for a glossary term's `TermTip`.
  */
 import type { ReactNode } from 'react'
+import { GuideLink, H1 } from '@companion/ui/kit'
 
 import type { GuideRef } from '@/help/guides'
-
-import { H1 } from './form'
-import { GuideLink } from './GuideLink'
 
 export function PageHeader({
   id,

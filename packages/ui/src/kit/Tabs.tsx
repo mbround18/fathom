@@ -3,7 +3,7 @@
  * scrolls sideways inside itself on a narrow screen, never the page. Only the active panel is
  * rendered: pass it as `children`.
  */
-import { Tabs as Root, TabsContent, TabsList, TabsTrigger } from '@companion/ui'
+import { Tabs as Root, TabsContent, TabsList, TabsTrigger } from '../tabs'
 import type { ReactNode } from 'react'
 
 export interface TabItem<T extends string> {

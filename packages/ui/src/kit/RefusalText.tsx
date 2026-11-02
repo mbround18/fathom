@@ -1,12 +1,12 @@
 /**
  * A `Denied` or `OpError`, verbatim: the action and the reason code, or the server's message and
- * its code. Keel not being connected is not the server's answer, so it reads as a plain sentence.
+ * its code. The app not being connected is not the server's answer, so it reads as a plain sentence.
  * `lead` goes in front, in the same alert, so it is read out with the reason.
  */
 import { WarningOctagonIcon } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
 
-import { isTransportFailure, type Refusal } from '@companion/ui/kit'
+import { isTransportFailure, type Refusal } from './refusal'
 
 export function RefusalText({ refusal, lead }: { refusal: Refusal; lead?: ReactNode }) {
   return (

@@ -18,7 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@companion/ui'
-import { Link, navigate, usePath } from '@companion/ui/kit'
+import { LABEL, Link, navigate, usePath } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react'
 
 import { BRAND_GLYPH, BRAND_NAME } from '@/brand'
@@ -27,7 +27,6 @@ import { usePasskeys } from '@/features/passkeys/store'
 import { useApprovals } from '@/features/runs/approvals-store'
 import { canSeeSettings } from '@/features/settings/tabs'
 import { showDot, useUpdates } from '@/features/settings/updates'
-import { LABEL } from '@/ui/form'
 
 import { ACCOUNT_PASSKEYS, HELP, HOME, SETTINGS, visibleGroups, type NavGroup, type Section } from './nav'
 import { useSession } from './session-store'

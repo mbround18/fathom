@@ -4,7 +4,7 @@
  * changes until Confirm; Cancel and Escape send nothing.
  */
 import { FingerprintIcon } from '@phosphor-icons/react'
-import { Button } from '@companion/ui'
+import { Button } from '../button'
 import type { ReactNode } from 'react'
 
 import { Dialog } from './Dialog'

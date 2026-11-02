@@ -5,7 +5,7 @@
 import { CircleNotchIcon } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
 
-import type { Refusal } from '@/app/load'
+import type { Refusal } from './refusal'
 
 import { LoadFailed } from './LoadFailed'
 

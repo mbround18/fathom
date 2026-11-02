@@ -5,11 +5,10 @@
  * unknown guide is the ordinary Not found page.
  */
 import { use, useEffect } from 'react'
-import { useHash, type Params } from '@companion/ui/kit'
+import { Page, useHash, type Params } from '@companion/ui/kit'
 
 import NotFound from '@/pages/NotFound'
 import Markdown from '@/ui/Markdown'
-import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
 import { isGuideSlug, loadGuide, type GuideSlug } from './guides'

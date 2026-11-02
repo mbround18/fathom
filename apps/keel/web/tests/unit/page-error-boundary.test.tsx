@@ -1,8 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
-import { PageErrorBoundary } from '@/ui/PageErrorBoundary'
+import { PageErrorBoundary } from '@companion/ui/kit'
 
 // A page that throws while rendering says so, with the error, instead of blanking the app.
 

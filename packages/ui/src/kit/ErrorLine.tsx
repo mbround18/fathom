@@ -3,7 +3,7 @@
  * the page, announced to screen readers.
  */
 import { WarningOctagonIcon, XIcon } from '@phosphor-icons/react'
-import { Button } from '@companion/ui'
+import { Button } from '../button'
 
 export function ErrorLine({ message, onDismiss }: { message: string | null | undefined; onDismiss?: () => void }) {
   if (!message) return null

@@ -1,7 +1,7 @@
 /** Small pieces the run pages share (spec 055 US2, T072). */
+import { ErrorLine as Alert, STATUS } from '@companion/ui/kit'
+
 import type { HostPhase, RunPhase } from '@/protocol/wire'
-import { ErrorLine as Alert } from '@/ui/ErrorLine'
-import { STATUS } from '@/ui/form'
 
 import { useRuns } from './store'
 

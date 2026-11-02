@@ -9,16 +9,13 @@
  */
 import { CheckIcon, FingerprintIcon, ProhibitIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
+import { Dialog, FIELD, H2, LABEL, PreviewDetails, RefusalText } from '@companion/ui/kit'
 import { useId } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { when } from '@/features/settings/updates'
 import { TermTip } from '@/help/TermTip'
 import type { ApprovalEntry, RunApproval, RunInfo } from '@/protocol/wire'
-import { PreviewDetails } from '@/ui/ConfirmDialog'
-import { Dialog } from '@/ui/Dialog'
-import { FIELD, H2, LABEL } from '@/ui/form'
-import { RefusalText } from '@/ui/RefusalText'
 
 import { approvalView, relative } from './approval'
 import { MAX_REASON, useDecision } from './decision'

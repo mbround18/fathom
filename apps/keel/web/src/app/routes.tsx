@@ -4,9 +4,7 @@
  * its detail routes (`/runs/:id`, ...) here.
  */
 import { lazy, Suspense, useEffect, type ComponentType, type LazyExoticComponent } from 'react'
-import { matchPath, navigate, usePath, type Params } from '@companion/ui/kit'
-
-import { PageErrorBoundary } from '@/ui/PageErrorBoundary'
+import { matchPath, navigate, PageErrorBoundary, usePath, type Params } from '@companion/ui/kit'
 
 import { ACCOUNT_PASSKEYS, HOME } from './nav'
 

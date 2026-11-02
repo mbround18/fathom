@@ -4,7 +4,7 @@
  * so moving to another page clears it. `data-pane-state="error"`.
  */
 import { ArrowClockwiseIcon, WarningOctagonIcon } from '@phosphor-icons/react'
-import { Button } from '@companion/ui'
+import { Button } from '../button'
 import { Component, type ReactNode } from 'react'
 
 interface State {

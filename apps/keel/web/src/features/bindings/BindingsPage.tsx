@@ -6,21 +6,30 @@
  */
 import { PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
-import { Link } from '@companion/ui/kit'
+import {
+  DataTable,
+  EmptyState,
+  emptyVariant,
+  FIELD,
+  Field as FormField,
+  H2,
+  LABEL,
+  Link,
+  LINK,
+  LoadFailed,
+  LoadState,
+  Page,
+  SectionIntro,
+  Select,
+  STATUS,
+  useReveal,
+} from '@companion/ui/kit'
 import { useId, useRef, useState, type SyntheticEvent } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { canAdminister, canOperate, useWorkspaces } from '@/features/hosts/workspaces'
 import { TermTip } from '@/help/TermTip'
 import type { BindingInfo, CredentialInfo, CredentialKind, JobSummary, Transport } from '@/protocol/wire'
-import { DataTable } from '@/ui/DataTable'
-import { EmptyState } from '@/ui/EmptyState'
-import { LoadFailed } from '@/ui/LoadFailed'
-import { LoadState } from '@/ui/LoadState'
-import { emptyVariant } from '@/ui/empty-variant'
-import { useReveal } from '@/ui/reveal'
-import { Field as FormField, FIELD, H2, LABEL, LINK, SectionIntro, Select, STATUS } from '@/ui/form'
-import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
 import { ErrorLine, Field, PreviewDialog, WorkspacePicker } from './parts'

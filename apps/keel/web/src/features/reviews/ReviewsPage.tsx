@@ -8,6 +8,25 @@
  */
 import { CaretLeftIcon, CaretRightIcon, PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
+import {
+  ConfirmDialog as Confirm,
+  DataTable,
+  EmptyState,
+  emptyVariant,
+  ErrorLine as Alert,
+  FIELD,
+  H2,
+  LABEL,
+  LINK,
+  LoadFailed,
+  LoadState,
+  NoMatch,
+  Page,
+  SectionIntro,
+  Select,
+  STATUS,
+  useReveal,
+} from '@companion/ui/kit'
 import { useId, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
@@ -15,17 +34,6 @@ import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
 import { canAdminister } from '@/features/hosts/workspaces'
 import { TermTip } from '@/help/TermTip'
 import type { ReviewState, ReviewInfo, SignatureStatus, SignerInfo, SignerKind } from '@/protocol/wire'
-import { ConfirmDialog as Confirm } from '@/ui/ConfirmDialog'
-import { useReveal } from '@/ui/reveal'
-import { DataTable } from '@/ui/DataTable'
-import { EmptyState } from '@/ui/EmptyState'
-import { emptyVariant } from '@/ui/empty-variant'
-import { ErrorLine as Alert } from '@/ui/ErrorLine'
-import { FIELD, H2, LABEL, LINK, SectionIntro, Select, STATUS } from '@/ui/form'
-import { LoadFailed } from '@/ui/LoadFailed'
-import { LoadState } from '@/ui/LoadState'
-import { NoMatch } from '@/ui/NoMatch'
-import { Page } from '@/ui/Page'
 import { PageHeader } from '@/ui/PageHeader'
 
 import {

@@ -6,9 +6,8 @@
  */
 import { CubeIcon } from '@phosphor-icons/react'
 import { useEffect } from 'react'
+import { H2, LoadState } from '@companion/ui/kit'
 
-import { H2 } from '@/ui/form'
-import { LoadState } from '@/ui/LoadState'
 import type { KeelBuild } from '@/protocol/wire'
 
 import { Row, ShortCopy, Time, Unknown } from './build-parts'

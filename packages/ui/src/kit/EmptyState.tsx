@@ -10,7 +10,7 @@
  */
 import type { ReactNode } from 'react'
 
-import type { GuideRef } from '@/help/guides'
+import type { GuideRef } from './provider'
 
 import { GuideLink } from './GuideLink'
 

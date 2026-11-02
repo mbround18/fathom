@@ -7,10 +7,7 @@
  * dialog closes.
  */
 import { Button } from '@companion/ui'
-
-import { PreviewDetails } from '@/ui/ConfirmDialog'
-import { CopyBlock } from '@/ui/CopyBlock'
-import { Dialog } from '@/ui/Dialog'
+import { CopyBlock, Dialog, PreviewDetails } from '@companion/ui/kit'
 
 import { RefusalText } from './parts'
 import { useGovernance, type Change } from './store'

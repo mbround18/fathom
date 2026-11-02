@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-
-import { emptyVariant } from '@/ui/empty-variant'
+import { emptyVariant } from '@companion/ui/kit'
 
 describe('emptyVariant (spec 063 R3)', () => {
   it('says nothing matches when a filter emptied the list, whoever is looking', () => {

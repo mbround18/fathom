@@ -4,13 +4,11 @@
  * friendly, and what Playwright's `selectOption` drives).
  */
 import type { ComponentProps, ReactNode } from 'react'
+import { FORM_WIDTH, H2, LABEL, LoadFailed, LoadState, Select } from '@companion/ui/kit'
 
 import type { Refusal } from '@/app/load'
-import { FORM_WIDTH, H2, LABEL, Select } from '@/ui/form'
-import { LoadFailed } from '@/ui/LoadFailed'
-import { LoadState } from '@/ui/LoadState'
 
-export { RefusalText } from '@/ui/RefusalText'
+export { RefusalText } from '@companion/ui/kit'
 
 /** A titled list pane: a header row with actions, then the body. */
 export function Pane({

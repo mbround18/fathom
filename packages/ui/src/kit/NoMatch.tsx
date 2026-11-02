@@ -2,7 +2,7 @@
  * A list a filter emptied (spec 063 FR-014): says so plainly and clears the filter, rather than
  * showing the guided "nothing here yet" state for a list that isn't empty.
  */
-import { Button } from '@companion/ui'
+import { Button } from '../button'
 
 export function NoMatch({ what, message, onClear }: { what: string; message?: string; onClear: () => void }) {
   return (

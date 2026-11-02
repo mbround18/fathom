@@ -21,12 +21,10 @@
 import type { ComponentProps, ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Link } from '@companion/ui/kit'
+import { H2, H3, Link } from '@companion/ui/kit'
 
 import { guideHref, isGuideSlug } from '@/help/guides'
 import { slugger } from '@/help/slug'
-
-import { H2, H3 } from './form'
 
 interface MdNode {
   type: string

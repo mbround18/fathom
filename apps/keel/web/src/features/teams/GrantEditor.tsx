@@ -8,10 +8,10 @@
  */
 import { XIcon } from '@phosphor-icons/react'
 import { Button, Checkbox, Input } from '@companion/ui'
+import { LABEL, Select } from '@companion/ui/kit'
 import { useId, useState } from 'react'
 
 import type { TeamInfo, TeamRole } from '@/protocol/wire'
-import { LABEL, Select } from '@/ui/form'
 
 import { MAX_PROFILES, PROFILE_PATTERN, ROLE_LABEL, TEAM_ROLES } from './labels'
 import { Field, InlineForm } from './parts'

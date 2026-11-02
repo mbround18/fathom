@@ -1,10 +1,10 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { LoadFailed } from '@companion/ui/kit'
 
 import { loadList, OFFLINE, type Refusal } from '@/app/load'
 import type { Event } from '@/protocol/wire'
-import { LoadFailed } from '@/ui/LoadFailed'
 
 import { lastCmd, resetSession, signIn } from './session-helpers'
 

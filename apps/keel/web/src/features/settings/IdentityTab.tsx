@@ -5,11 +5,10 @@
  */
 import { IdentificationCardIcon, WarningIcon } from '@phosphor-icons/react'
 import { Badge } from '@companion/ui'
+import { EmptyState, LoadState } from '@companion/ui/kit'
 import { useEffect } from 'react'
 
 import type { RoleMappingInfo } from '@/protocol/wire'
-import { EmptyState } from '@/ui/EmptyState'
-import { LoadState } from '@/ui/LoadState'
 
 import { useSettings } from './store'
 

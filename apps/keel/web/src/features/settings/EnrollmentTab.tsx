@@ -9,10 +9,8 @@
  */
 import { ArrowCounterClockwiseIcon, ArrowsClockwiseIcon, WarningIcon } from '@phosphor-icons/react'
 import { Badge, Button } from '@companion/ui'
+import { LoadState, Tabs } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react'
-
-import { LoadState } from '@/ui/LoadState'
-import { Tabs } from '@/ui/Tabs'
 
 import { useSettings, type SettingsInfo } from './store'
 import {
