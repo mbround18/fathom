@@ -12,7 +12,7 @@
  * - An image update (062 FR-026) with nothing to install says everything is up to date, with each
  *   service and why it is left: information, closed with Close, nothing to confirm.
  */
-import { CopyIcon, FingerprintIcon, WarningIcon } from '@phosphor-icons/react'
+import { FingerprintIcon, WarningIcon } from '@phosphor-icons/react'
 import {
   Button,
   Dialog,
@@ -24,6 +24,7 @@ import {
   Input,
   Switch,
 } from '@companion/ui'
+import { CopyBlock } from '@companion/ui/kit'
 import { useId, useState, type ReactNode } from 'react'
 
 import { useSession } from '@/app/session-store'
@@ -35,29 +36,11 @@ import { requestKind, requestStack, useOps, type Flow, type PreviewRequest } fro
 import { SecurityChip } from './SecurityChip'
 import { SECURITY_GUIDE, worstFinding } from './security'
 
-function copy(text: string): void {
-  try {
-    void globalThis.navigator.clipboard.writeText(text).catch(() => undefined)
-  } catch {
-    /* No clipboard (insecure context): the line is selectable text anyway. */
-  }
-}
-
 function StepLine({ step, index }: { step: Step; index: number }) {
   const line = argvLine(step.argv)
   return (
     <li data-step={index} className="flex min-w-0 flex-col gap-0.5 border-t border-border py-1 first:border-t-0">
-      <div className="flex min-w-0 items-start gap-1">
-        <code
-          data-argv={JSON.stringify(step.argv)}
-          className="min-w-0 flex-1 font-mono text-xs break-all whitespace-pre-wrap text-foreground select-all"
-        >
-          {line}
-        </code>
-        <Button variant="ghost" size="icon-xs" aria-label={`Copy step ${String(index + 1)}`} onClick={() => copy(line)}>
-          <CopyIcon />
-        </Button>
-      </div>
+      <CopyBlock label={`Step ${String(index + 1)}`} value={line} valueData={{ 'data-argv': JSON.stringify(step.argv) }} />
       <p className="text-xs text-muted-foreground">
         in <span data-field="cwd" className="font-mono break-all text-foreground/90">{step.cwd}</span>
         {step.stdin === 'draft' && <span data-field="stdin">, reading the edited file on stdin</span>}

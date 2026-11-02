@@ -17,7 +17,7 @@
 import { ArrowLeftIcon, FloppyDiskIcon, RocketLaunchIcon } from '@phosphor-icons/react'
 import { YamlDiffView } from '@companion/terminal'
 import { Button } from '@companion/ui'
-import { Link, navigate, type Params } from '@companion/ui/kit'
+import { Link, navigate, PageHeader, type Params } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { useSession } from '@/app/session-store'
@@ -335,7 +335,7 @@ export default function EditStack({ params }: { params: Params }) {
   const back = (
     <Link
       to={`/stacks/${encodeURIComponent(name)}`}
-      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
+      className="inline-flex items-center self-start gap-1 text-xs text-muted-foreground hover:text-primary"
     >
       <ArrowLeftIcon aria-hidden className="size-3" /> {name}
     </Link>
@@ -361,12 +361,8 @@ export default function EditStack({ params }: { params: Params }) {
 
   return (
     <section data-page="edit" aria-labelledby="edit-title" className="flex min-w-0 flex-col gap-2 p-2">
-      <header className="flex min-w-0 flex-col gap-1">
-        {back}
-        <h1 id="edit-title" className="min-w-0 truncate font-display text-sm font-semibold tracking-wider">
-          Edit {name}
-        </h1>
-      </header>
+      {back}
+      <PageHeader id="edit-title" title={<span className="block min-w-0 truncate">Edit {name}</span>} />
       {body}
     </section>
   )

@@ -6,7 +6,7 @@
  */
 import { ArrowLeftIcon, PlusIcon, RocketLaunchIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
-import { Link } from '@companion/ui/kit'
+import { Link, PageHeader } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 
 import { useSession } from '@/app/session-store'
@@ -145,14 +145,10 @@ export default function CreateStack() {
 
   return (
     <section data-page="new-stack" aria-labelledby="new-title" className="flex min-w-0 flex-col gap-2 p-2">
-      <header className="flex min-w-0 flex-col gap-1">
-        <Link to="/" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary">
-          <ArrowLeftIcon aria-hidden className="size-3" /> Stacks
-        </Link>
-        <h1 id="new-title" className="font-display text-sm font-semibold tracking-wider">
-          New stack
-        </h1>
-      </header>
+      <Link to="/" className="inline-flex items-center gap-1 self-start text-xs text-muted-foreground hover:text-primary">
+        <ArrowLeftIcon aria-hidden className="size-3" /> Stacks
+      </Link>
+      <PageHeader id="new-title" title="New stack" />
       {body}
     </section>
   )
