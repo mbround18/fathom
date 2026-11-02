@@ -11,6 +11,23 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+ * 065: the resource list runs on the kit's DataGrid. Two of the old table's touch affordances are
+ * kept here, unlayered so they win over the kit's utilities: a row's checkbox takes taps across
+ * its whole lead cell (the cell is the touch target, as the old 44px checkbox was), and a column
+ * header sorts from anywhere in the header, not only on its label.
+ */
+[data-testid='resource-table'] [role='gridcell'] > [data-slot='checkbox'] {
+  position: static;
+}
+[data-testid='resource-table'] [role='gridcell'] > [data-slot='checkbox']::after {
+  inset: 0;
+}
+[data-testid='resource-table'] [role='columnheader'] > button[data-sort-key] {
+  align-self: stretch;
+  flex: 1 1 auto;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring;

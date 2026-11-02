@@ -53,7 +53,7 @@ test.describe('US1 applications list', () => {
   test('T013: lists Helm- and Flux-managed applications with the expected columns', async ({
     page,
   }, info) => {
-    // Column visibility is responsive to pane width (`layout/column-budget.ts`), and every
+    // Column visibility is responsive to pane width (the kit's `computeVisibleColumns`), and every
     // project except desktop squeezes the single list pane too narrow to show columns below
     // priority 1-2; the full column set is only asserted on the desktop project, matching
     // `us1-pods-list.spec.ts`'s viewport-conditional convention (`isPhone`).

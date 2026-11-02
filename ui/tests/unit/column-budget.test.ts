@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { computeVisibleColumns } from '@/layout/column-budget'
+import { computeVisibleColumns } from '@companion/ui/kit'
 
 const cols = [
   { id: 'name', priority: 1, minWidth: 180 },

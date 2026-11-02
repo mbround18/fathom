@@ -122,8 +122,13 @@ test.describe('US1 pods list', () => {
     if (!first) throw new Error('fixture')
     const box = await row(page, key(first)).boundingBox()
     expect(box?.height).toBeGreaterThanOrEqual(44)
-    const cb = await row(page, key(first)).getByRole('checkbox').boundingBox()
+    // The kit's checkbox is drawn small; its lead cell is the 44px touch target (065).
+    const checkbox = row(page, key(first)).getByRole('checkbox')
+    const cell = row(page, key(first)).getByRole('gridcell').filter({ has: page.getByRole('checkbox') })
+    const cb = await cell.boundingBox()
     expect(cb?.width).toBeGreaterThanOrEqual(44)
+    await cell.click({ position: { x: 2, y: 2 } })
+    await expect(checkbox).toBeChecked()
   })
 
   test('stays responsive with 10,000 pods', async ({ page }) => {

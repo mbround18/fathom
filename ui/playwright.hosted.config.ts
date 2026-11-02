@@ -1,3 +1,4 @@
+import './tests/support/node-kit-shim.js'
 import { defineConfig, devices } from '@playwright/test'
 
 /**
