@@ -36,9 +36,9 @@ function clearExpiry(name: string): void {
   expiry.delete(name)
 }
 
-const put = (name: string, r: Reveal): void => useReveal.setState((s) => ({ env: { ...s.env, [name]: r } }))
+const put = (name: string, r: Reveal): void => useRevealStore.setState((s) => ({ env: { ...s.env, [name]: r } }))
 
-export const useReveal = create<RevealState>()(() => ({
+export const useRevealStore = create<RevealState>()(() => ({
   env: {},
   reveal: (name) => {
     clearExpiry(name)
@@ -53,7 +53,7 @@ export const useReveal = create<RevealState>()(() => ({
   forget: (name) => {
     clearExpiry(name)
     for (const [id, n] of pending) if (n === name) pending.delete(id)
-    useReveal.setState((s) => ({ env: Object.fromEntries(Object.entries(s.env).filter(([k]) => k !== name)) }))
+    useRevealStore.setState((s) => ({ env: Object.fromEntries(Object.entries(s.env).filter(([k]) => k !== name)) }))
   },
 }))
 
@@ -72,7 +72,7 @@ onServerEvent(({ reply_to, event }) => {
     clearExpiry(name)
     expiry.set(
       name,
-      setTimeout(() => useReveal.getState().forget(name), REVEAL_TTL_MS),
+      setTimeout(() => useRevealStore.getState().forget(name), REVEAL_TTL_MS),
     )
   } else if (event.type === 'Denied') put(name, { state: 'denied', reason: event.data.reason })
 })
@@ -91,5 +91,5 @@ export function resetRevealStore(): void {
   pending.clear()
   for (const t of expiry.values()) clearTimeout(t)
   expiry.clear()
-  useReveal.setState({ env: {} })
+  useRevealStore.setState({ env: {} })
 }

@@ -10,7 +10,7 @@ import type { AuditAction, AuditFilter } from '@/protocol/generated'
 
 import { ACTION_LABEL, ACTIONS, cleanFilter, isoToLocal, localToIso, type AuditFilterDraft } from './model'
 
-const FIELD = 'h-7 min-w-0 border border-input bg-background px-1.5 text-xs outline-none focus:border-ring'
+const FILTER_FIELD = 'h-7 min-w-0 border border-input bg-background px-1.5 text-xs outline-none focus:border-ring'
 
 export function AuditFilters({
   filter,
@@ -51,7 +51,7 @@ export function AuditFilters({
         list="audit-stacks"
         value={stack}
         onChange={(e) => setStack(e.target.value)}
-        className={`${FIELD} basis-28 flex-1`}
+        className={`${FILTER_FIELD} basis-28 flex-1`}
       />
       <datalist id="audit-stacks">
         {stacks.map((s) => (
@@ -63,13 +63,13 @@ export function AuditFilters({
         placeholder="Actor id (github:…)"
         value={actor}
         onChange={(e) => setActor(e.target.value)}
-        className={`${FIELD} basis-36 flex-1 font-mono`}
+        className={`${FILTER_FIELD} basis-36 flex-1 font-mono`}
       />
       <select
         aria-label="Action"
         value={filter.action ?? ''}
         onChange={(e) => apply({ action: (e.target.value || undefined) as AuditAction | undefined })}
-        className={`${FIELD} shrink-0 px-1`}
+        className={`${FILTER_FIELD} shrink-0 px-1`}
       >
         <option value="">Any action</option>
         {ACTIONS.map((a) => (
@@ -87,7 +87,7 @@ export function AuditFilters({
           aria-label="From"
           value={isoToLocal(filter.from)}
           onChange={(e) => apply({ from: localToIso(e.target.value) })}
-          className={`${FIELD} shrink-0`}
+          className={`${FILTER_FIELD} shrink-0`}
         />
       </span>
       <span className="inline-flex items-center gap-1">
@@ -99,7 +99,7 @@ export function AuditFilters({
           aria-label="To"
           value={isoToLocal(filter.to)}
           onChange={(e) => apply({ to: localToIso(e.target.value) })}
-          className={`${FIELD} shrink-0`}
+          className={`${FILTER_FIELD} shrink-0`}
         />
       </span>
       <Button type="submit" variant="outline" size="sm">

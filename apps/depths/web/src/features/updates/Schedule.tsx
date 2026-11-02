@@ -44,7 +44,7 @@ import {
 } from './model'
 import { useUpdates } from './store'
 
-const FIELD = 'h-7 min-w-0 border border-input bg-background px-1.5 text-xs outline-none focus:border-ring'
+const FILTER_FIELD = 'h-7 min-w-0 border border-input bg-background px-1.5 text-xs outline-none focus:border-ring'
 const POLICIES: readonly UpdatePolicy[] = ['off', 'notify', 'auto']
 
 // --- Window editor ------------------------------------------------------------------------------
@@ -92,7 +92,7 @@ export function WindowEditor({
             data-field="window-start"
             value={value.start}
             onChange={(e) => onChange({ ...value, start: e.target.value })}
-            className={FIELD}
+            className={FILTER_FIELD}
           />
         </label>
         <label className="flex items-center gap-1" htmlFor={`${id}-end`}>
@@ -103,7 +103,7 @@ export function WindowEditor({
             data-field="window-end"
             value={value.end}
             onChange={(e) => onChange({ ...value, end: e.target.value })}
-            className={FIELD}
+            className={FILTER_FIELD}
           />
         </label>
         {problem === null && value.end < value.start && <span className="text-muted-foreground">ends the next day</span>}
@@ -165,7 +165,7 @@ function SettingsForm({ view, onClose }: { view: UpdatesView; onClose: () => voi
               aria-label="Check interval"
               value={draft.interval_secs}
               onChange={(e) => set({ interval_secs: Number(e.target.value) })}
-              className={FIELD}
+              className={FILTER_FIELD}
             >
               {intervals.map((i) => (
                 <option key={i.secs} value={i.secs}>
@@ -188,7 +188,7 @@ function SettingsForm({ view, onClose }: { view: UpdatesView; onClose: () => voi
               step={30}
               value={draft.health_timeout_secs}
               onChange={(e) => set({ health_timeout_secs: Number(e.target.value) })}
-              className={`${FIELD} w-20 tabular-nums`}
+              className={`${FILTER_FIELD} w-20 tabular-nums`}
             />
             <span className="text-muted-foreground">seconds for a new container to become healthy before it is rolled back</span>
           </label>
@@ -237,7 +237,7 @@ function SettingsForm({ view, onClose }: { view: UpdatesView; onClose: () => voi
                   return next
                 })
               }}
-              className={`${FIELD} w-32`}
+              className={`${FILTER_FIELD} w-32`}
             />
             <span className="text-muted-foreground">only services whose scope label matches</span>
           </label>

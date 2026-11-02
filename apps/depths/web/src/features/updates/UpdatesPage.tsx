@@ -60,10 +60,10 @@ import { UpdateStateChip } from './UpdateStateChip'
 
 const ESTIMATED_ROW_PX = 56
 const OVERSCAN = 8
-const FIELD = 'h-7 min-w-0 border border-input bg-background px-1.5 text-xs outline-none focus:border-ring'
+const FILTER_FIELD = 'h-7 min-w-0 border border-input bg-background px-1.5 text-xs outline-none focus:border-ring'
 const ROW =
   'grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 px-2 py-1.5 text-xs md:grid-cols-[minmax(0,12rem)_9rem_minmax(0,1fr)_minmax(0,1fr)_8rem] md:gap-y-0'
-const LABEL = 'text-muted-foreground md:hidden'
+const CARD_LABEL = 'text-muted-foreground md:hidden'
 
 export default function UpdatesPage() {
   const view = useUpdates((s) => s.view)
@@ -209,7 +209,7 @@ function ChecksOff({ settings }: { settings: UpdateSettings }) {
               aria-label="Check interval"
               value={secs}
               onChange={(e) => setSecs(Number(e.target.value))}
-              className={FIELD}
+              className={FILTER_FIELD}
             >
               {INTERVALS.map((i) => (
                 <option key={i.secs} value={i.secs}>
@@ -246,7 +246,7 @@ function SettingsStrip({ view }: { view: UpdatesView }) {
           aria-label="Check interval"
           value={settings.interval_secs}
           onChange={(e) => preview(withChecks(settings, true, Number(e.target.value)))}
-          className={FIELD}
+          className={FILTER_FIELD}
         >
           {options.map((i) => (
             <option key={i.secs} value={i.secs}>
@@ -345,7 +345,7 @@ function ServiceList({ services }: { services: readonly ServiceUpdate[] }) {
           aria-label="State"
           value={stateFilter}
           onChange={(e) => setStateFilter(e.target.value as StateFilter)}
-          className={`${FIELD} basis-36 flex-1 sm:flex-none`}
+          className={`${FILTER_FIELD} basis-36 flex-1 sm:flex-none`}
         >
           <option value="all">Every state ({String(services.length)})</option>
           {STATE_ORDER.filter((st) => (counts[st] ?? 0) > 0 || st === stateFilter).map((st) => (
@@ -358,7 +358,7 @@ function ServiceList({ services }: { services: readonly ServiceUpdate[] }) {
           aria-label="Stack"
           value={stackFilter}
           onChange={(e) => setStackFilter(e.target.value)}
-          className={`${FIELD} basis-32 flex-1 sm:flex-none`}
+          className={`${FILTER_FIELD} basis-32 flex-1 sm:flex-none`}
         >
           <option value="">Every stack</option>
           {stacks.map((s) => (
@@ -429,7 +429,7 @@ function Row({ s, index }: { s: ServiceUpdate; index: number }) {
       data-state={s.state}
       className={`${ROW} border-b border-border`}
     >
-      <span className={LABEL}>Service</span>
+      <span className={CARD_LABEL}>Service</span>
       <span role="cell" className="min-w-0">
         {selectable && (
           <input
@@ -450,19 +450,19 @@ function Row({ s, index }: { s: ServiceUpdate; index: number }) {
           {s.reference}
         </span>
       </span>
-      <span className={LABEL}>State</span>
+      <span className={CARD_LABEL}>State</span>
       <span role="cell" className="flex min-w-0 flex-col items-start gap-0.5">
         <UpdateStateChip state={s.state} />
       </span>
-      <span className={LABEL}>Running</span>
+      <span className={CARD_LABEL}>Running</span>
       <span role="cell" className="min-w-0 font-mono break-all">
         {runningText(s)}
       </span>
-      <span className={LABEL}>Available</span>
+      <span className={CARD_LABEL}>Available</span>
       <span role="cell" className="min-w-0 font-mono break-all">
         {available ?? '—'}
       </span>
-      <span className={LABEL}>Checked</span>
+      <span className={CARD_LABEL}>Checked</span>
       <span role="cell" className="tabular-nums text-muted-foreground">
         {s.last_checked ? <time dateTime={s.last_checked}>{formatTime(s.last_checked)}</time> : 'never'}
       </span>

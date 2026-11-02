@@ -29,7 +29,7 @@ const NO_NAMES: readonly string[] = []
 
 /** Wide: one grid row per entry; narrow: a card, each cell with its own label. */
 const ROW = 'grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 px-2 py-1.5 text-xs md:grid-cols-[8.5rem_9rem_7.5rem_7rem_minmax(0,1fr)_8rem] md:gap-y-0'
-const LABEL = 'text-muted-foreground md:hidden'
+const CARD_LABEL = 'text-muted-foreground md:hidden'
 
 export default function AuditLog() {
   const filter = useAudit((s) => s.filter)
@@ -163,25 +163,25 @@ function Row({ entry, index }: { entry: AuditEntry; index: number }) {
       data-outcome={outcome}
       className={`${ROW} border-b border-border`}
     >
-      <span className={LABEL}>Time</span>
+      <span className={CARD_LABEL}>Time</span>
       <span role="cell" className="tabular-nums">
         <time dateTime={entry.at}>{formatTime(entry.at)}</time>
       </span>
-      <span className={LABEL}>Actor</span>
+      <span className={CARD_LABEL}>Actor</span>
       <span role="cell" className="min-w-0 truncate" title={actorId(entry)}>
         {entry.actor.username} <span className="text-muted-foreground">({entry.actor.provider})</span>
       </span>
-      <span className={LABEL}>Action</span>
+      <span className={CARD_LABEL}>Action</span>
       <span role="cell">{ACTION_LABEL[entry.action]}</span>
-      <span className={LABEL}>Stack</span>
+      <span className={CARD_LABEL}>Stack</span>
       <span role="cell" className="min-w-0 truncate">
         {entry.stack ?? '—'}
       </span>
-      <span className={LABEL}>Details</span>
+      <span className={CARD_LABEL}>Details</span>
       <span role="cell" className="min-w-0 font-mono break-words whitespace-pre-wrap">
         {detailLines(entry).join('\n') || '—'}
       </span>
-      <span className={LABEL}>Outcome</span>
+      <span className={CARD_LABEL}>Outcome</span>
       <span
         role="cell"
         className={outcome === 'succeeded' ? 'text-status-ok' : outcome === 'failed' ? 'text-status-err' : 'text-status-warn'}

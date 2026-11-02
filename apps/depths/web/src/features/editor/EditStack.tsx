@@ -30,7 +30,7 @@ import { useStacks } from '@/features/stacks/store'
 import { useUntrusted } from '@/features/network/model'
 
 import { problemText, serverProblems, yamlProblems } from './problems'
-import { useCanReveal, useReveal } from './reveal-store'
+import { useCanReveal, useRevealStore } from './reveal-store'
 import { useComposeLint } from './useComposeLint'
 import { useUnsavedGuard } from './useUnsavedGuard'
 
@@ -85,8 +85,8 @@ function Editor({ detail }: { detail: StackDetail }) {
   const [envDraft, setEnvDraft] = useState<string | null>(null)
   const [tab, setTab] = useState<'edit' | 'diff'>('edit')
 
-  const revealed = useReveal((s) => s.env[name])
-  const reveal = useReveal((s) => s.reveal)
+  const revealed = useRevealStore((s) => s.env[name])
+  const reveal = useRevealStore((s) => s.reveal)
   const canReveal = useCanReveal()
   const blocked = useUntrusted()
   const flow = useOps((s) => s.flow)
@@ -137,7 +137,7 @@ function Editor({ detail }: { detail: StackDetail }) {
     () => () => {
       const f = useOps.getState().flow
       if (f?.request.kind === 'save' && f.request.draft.stack === name && f.phase !== 'confirming') useOps.getState().dismiss()
-      useReveal.getState().forget(name)
+      useRevealStore.getState().forget(name)
     },
     [name],
   )
@@ -157,7 +157,7 @@ function Editor({ detail }: { detail: StackDetail }) {
     setBase({ hash: conflict.currentHash, compose: conflict.currentText, env })
     setCompose(conflict.currentText)
     setEnvDraft(null)
-    useReveal.getState().forget(name)
+    useRevealStore.getState().forget(name)
     dismiss()
   }
   const keepMine = (): void => {

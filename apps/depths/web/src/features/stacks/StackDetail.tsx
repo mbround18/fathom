@@ -16,7 +16,7 @@ import { Link, type Params } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 
 import { useSession } from '@/app/session-store'
-import { useCanReveal, useReveal } from '@/features/editor/reveal-store'
+import { useCanReveal, useRevealStore } from '@/features/editor/reveal-store'
 import { filesHref, filesReason, parseFilesRest, showFilesTab, type FilesLocation } from '@/features/files/model'
 import { useUntrusted } from '@/features/network/model'
 import { OpenLogs, OpenShell, OpenStats } from '@/features/tabs/OpenTab'
@@ -345,9 +345,9 @@ function Env({ detail }: { detail: Detail }) {
   const env = detail.env
   const canReveal = useCanReveal()
   const blocked = useUntrusted()
-  const revealed = useReveal((s) => s.env[stack.name])
-  const reveal = useReveal((s) => s.reveal)
-  const forget = useReveal((s) => s.forget)
+  const revealed = useRevealStore((s) => s.env[stack.name])
+  const reveal = useRevealStore((s) => s.reveal)
+  const forget = useRevealStore((s) => s.forget)
   useEffect(() => () => forget(stack.name), [stack.name, forget])
 
   // The server masks by key; masking again here keeps a plain-text reply from ever showing a

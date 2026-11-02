@@ -25,7 +25,7 @@ vi.mock('@/app/connection', () => ({
   disconnect: () => undefined,
 }))
 
-const { useReveal, useCanReveal, resetRevealStore, REVEAL_TTL_MS } = await import('@/features/editor/reveal-store')
+const { useRevealStore, useCanReveal, resetRevealStore, REVEAL_TTL_MS } = await import('@/features/editor/reveal-store')
 const { useSession } = await import('@/app/session-store')
 
 function emit(event: Event, reply_to?: number): void {
@@ -55,22 +55,22 @@ afterEach(() => vi.useRealTimers())
 
 describe('reveal store', () => {
   it('masks revealed text again after REVEAL_TTL_MS', () => {
-    useReveal.getState().reveal('web')
+    useRevealStore.getState().reveal('web')
     expect(bus.sent).toEqual([{ type: 'RevealEnv', data: { name: 'web' } }])
     emit({ type: 'EnvRevealed', data: { name: 'web', env_text: 'DB_PASSWORD=hunter2\n' } }, 1)
-    expect(useReveal.getState().env.web).toEqual({ state: 'ready', text: 'DB_PASSWORD=hunter2\n' })
+    expect(useRevealStore.getState().env.web).toEqual({ state: 'ready', text: 'DB_PASSWORD=hunter2\n' })
 
     vi.advanceTimersByTime(REVEAL_TTL_MS - 1)
-    expect(useReveal.getState().env.web?.state).toBe('ready')
+    expect(useRevealStore.getState().env.web?.state).toBe('ready')
     vi.advanceTimersByTime(1)
-    expect(useReveal.getState().env.web).toBeUndefined()
+    expect(useRevealStore.getState().env.web).toBeUndefined()
   })
 
   it('forgetting clears the timer and a reply still pending', () => {
-    useReveal.getState().reveal('web')
-    useReveal.getState().forget('web')
+    useRevealStore.getState().reveal('web')
+    useRevealStore.getState().forget('web')
     emit({ type: 'EnvRevealed', data: { name: 'web', env_text: 'X_TOKEN=t\n' } }, 1)
-    expect(useReveal.getState().env.web).toBeUndefined()
+    expect(useRevealStore.getState().env.web).toBeUndefined()
     expect(vi.getTimerCount()).toBe(0)
   })
 
