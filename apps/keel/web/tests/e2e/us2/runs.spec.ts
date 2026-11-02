@@ -131,6 +131,18 @@ test('a running run is cancelled after its preview is confirmed', async ({ page,
   await expect(page.getByText('cancelled by user')).toBeVisible()
 })
 
+test('a viewer is not offered Cancel run, which the server would refuse', async ({ page, backend }) => {
+  backend.me = fixtures.me({
+    instance_role: 'user',
+    grants: [{ workspace: WORKSPACE, workspace_slug: 'ops', role: 'viewer', profiles: [] }],
+  })
+  const runs = new FakeRuns(backend)
+  runs.add(runInfo({ id: 'run-0004', state: 'running' }))
+  await page.goto('/runs/run-0004')
+  await expect(page.locator('[data-run-state]').first()).toHaveAttribute('data-run-state', 'running')
+  await expect(page.getByRole('button', { name: 'Cancel run' })).toHaveCount(0)
+})
+
 test('a run pinned to an older inventory revision says a newer one exists', async ({ page, backend }) => {
   const runs = operator(backend)
   runs.add(runInfo({ id: 'run-0005', state: 'succeeded', newer_inventory_revision: true }))

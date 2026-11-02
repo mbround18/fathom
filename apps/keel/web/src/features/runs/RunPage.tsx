@@ -12,6 +12,8 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { Link } from '@/app/Link'
 import type { Params } from '@/app/router'
+import { useSession } from '@/app/session-store'
+import { canOperate } from '@/features/hosts/workspaces'
 import type { HostStats, RunHostInfo, RunInfo, RunSummary } from '@/protocol/wire'
 import { ConfirmDialog } from '@/ui/ConfirmDialog'
 import { DataTable } from '@/ui/DataTable'
@@ -137,6 +139,7 @@ function CancelDialog() {
 
 function Header({ run }: { run: RunInfo }) {
   const propose = useRuns((s) => s.propose)
+  const me = useSession((s) => s.me)
   return (
     <>
       <PageHeader
@@ -151,7 +154,9 @@ function Header({ run }: { run: RunInfo }) {
           </span>
         }
         actions={
-          active(run.state) && (
+          // Cancelling takes Operate in the run's workspace; a viewer would only meet a refusal.
+          active(run.state) &&
+          canOperate(me, run.workspace) && (
             <Button size="sm" variant="destructive" onClick={() => propose({ type: 'PreviewCancel', data: { run: run.id } })}>
               <StopIcon aria-hidden />
               Cancel run
