@@ -22,18 +22,18 @@ Keel files are under `apps/keel/web/src`.
 | `load-state` | `LoadState` | `ui/LoadState.tsx` | `data-pane-state` | as today | moved |
 | `error-line` | `ErrorLine` | `ui/ErrorLine.tsx` | none | `message`, `onDismiss` | moved |
 | `page` | `Page` | `ui/Page.tsx` | `data-page` | `name`, `labelledBy` | moved |
-| `page-header` | `PageHeader` | `ui/PageHeader.tsx` | `data-page-intro` | title, intro, guide, actions | adds `size?: 'page' \| 'pane'`, `lead?`, `count?`, `rootProps?` (R9) |
+| `page-header` | `PageHeader` | `ui/PageHeader.tsx` | `data-page-intro`; pane: `data-pane-header`, `data-pane-count` | title, intro, guide, actions | adds `size?: 'page' \| 'pane'`; pane takes `id?`, `title`, `tip?`, `lead?`, `count?`, `actions?`, `rootProps?` and renders an `h2` (R9) |
 | `page-error-boundary` | `PageErrorBoundary` | `ui/PageErrorBoundary.tsx` | `data-pane-state="crashed"`, `data-error-message` | none | adds `resetKey?` (pane reset) |
 | `empty-state` | `EmptyState`, `emptyVariant`, type `EmptyVariant` | `ui/EmptyState.tsx`, `ui/empty-variant.ts` | `data-empty`, `data-empty-page`, `data-empty-action`, `data-who-can`, `data-pane-state` | text, steps, who-can, guide | moved |
 | `no-match` | `NoMatch` | `ui/NoMatch.tsx` | `data-empty`, `data-pane-state` | `what`, `message`, `onClear` | moved |
 | `dialog` | `Dialog` | `ui/Dialog.tsx` | `data-summary` | as today | moved |
-| `confirm-dialog` | `ConfirmDialog`, `PreviewDetails`, type `Preview` | `ui/ConfirmDialog.tsx` | `data-preview-summary`, `data-affected`, `data-step-up` | as today | adds `typedConfirm?: { word: string }` (R9) |
+| `confirm-dialog` | `ConfirmDialog`, `PreviewDetails`, type `Preview` | `ui/ConfirmDialog.tsx` | `data-preview-summary`, `data-affected`, `data-step-up`, `data-typed-confirm` | as today | adds `typedConfirm?: { word: string }` (R9) |
 | `copy-block` | `CopyBlock`, `copyText` | `ui/CopyBlock.tsx`, `ui/clipboard.ts` | `data-copy-block`, `data-copy`, `data-masked` | as today | moved |
 | `reveal` | `useReveal` | `ui/reveal.ts` | none | none | moved |
 | `form` | `FIELD`, `FIELD_DENSE`, `LABEL`, `STATUS`, `FORM_WIDTH`, `LINK`, `H1`, `H2`, `H3`, `SectionIntro`, `Select`, `Field`, `FormPanel` | `ui/form.tsx` | `data-section-intro` | guide | moved |
 | `tabs` | `Tabs`, type `TabItem` | `ui/Tabs.tsx` | `data-tab` | as today | moved |
-| `data-table` | `DataTable`, type `Column` | `ui/DataTable.tsx` | `data-pane-state` | columns, rows | adds `sort?`, `selection?`, `rowKey?`, `rowActions?`, and `Column.sortable?` (data-model.md) |
-| `data-grid` | `DataGrid`, type `GridColumn`, `computeVisibleColumns` | Fathom `ui/src/components/ResourceTable.tsx` (engine), `ui/src/layout/column-budget.ts` | Fathom's grid markers and `data-testid`s that its suite uses | rows, columns, sort, selection, focus, `rowActions`, `onOpen` | new (R8) |
+| `data-table` | `DataTable`, type `Column` | `ui/DataTable.tsx` | `data-pane-state` | columns, rows | adds `sort?`, `selection?`, `rowActions?`, `rowLabel?`, and `Column.sortable?` (`rowKey` was already required); types `SortState`, `TableSort`, `TableSelection`, `RowAction`, `RowActions` (data-model.md) |
+| `data-grid` | `DataGrid`, types `GridColumn`, `GridCursor`, `RowMenuRequest`, `computeVisibleColumns`, type `BudgetColumn` | Fathom `ui/src/components/ResourceTable.tsx` (engine), `ui/src/layout/column-budget.ts` | `data-row-count`, `data-columns`, `data-table-body`, `data-row-key`, `data-open`, `data-focused`, `data-checked`, `data-cursor`, `data-col`, `data-grid-status`, `data-testid="row-actions"` | rows, columns, `rowKey`, `rowLabel?`, `rowData?`, `sort?`, `selection?`, `cursor?`, `openKey?`, `onOpen?`, `rowActions?` or `onRowMenu?`, `onKeyDown?`, `empty?`, `failed?`, `rowHeight?`, `initialScrollTop?`, `onScrollTopChange?`, `onVisibleColumnsChange?`, `ref` (data-model.md) | new (R8) |
 | `markdown` | `Markdown` (default export) | `ui/Markdown.tsx` | `data-markdown`, `data-image-link` | `isGuide`, `guideHref`, `guideImage` | moved |
 | `slug` | `slug`, `slugger` | `help/slug.ts` | none | none | moved |
 | `guide-link` | `GuideLink` | `ui/GuideLink.tsx` | `data-guide-link` | `guideHref` | renders nothing without `guideHref` |

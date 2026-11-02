@@ -93,12 +93,33 @@ interface NavGroup { id: string; label: string; items: readonly NavItem[] }
 interface SortState { key: string; dir: 'asc' | 'desc' }
 interface TableSort { value: SortState | null; onChange: (s: SortState | null) => void }
 interface TableSelection { value: ReadonlySet<string>; onChange: (s: Set<string>) => void }
-type RowActions<T> = (row: T) => readonly { label: string; onSelect: () => void; destructive?: boolean; disabled?: boolean }[]
+interface RowAction { label: string; onSelect: () => void; destructive?: boolean; disabled?: boolean }
+type RowActions<T> = (row: T) => readonly RowAction[]
 ```
 
 - A column is sortable only when it has `sortable: true`.
 - Clicking a column header cycles its sort through ascending, descending, then none.
-- Rows are keyed by `rowKey(row): string`.
+- Rows are keyed by `rowKey(row): string`. `rowLabel(row)` names a row in "Select …" and
+  "Actions for …"; it defaults to `rowKey`.
+- The app orders and filters `rows`; neither component sorts.
+
+### DataGrid only
+
+```ts
+interface GridColumn<T> {
+  id: string; header: string
+  cell: (row: T) => ReactNode; text: (row: T) => string   // text: title and long-press peek
+  priority: number; minWidth: number; grow?: number       // column budget
+  align?: 'start' | 'end'; sortable?: boolean; className?: string
+}
+interface GridCursor { value: string | null | undefined; onChange: (key: string) => void }
+interface RowMenuRequest { key: string; x: number; y: number; peek?: string }
+```
+
+- `cursor` is the keyboard cursor (internal when omitted); `openKey` is the open row
+  (`aria-current`); `selection` checks rows (`aria-selected`).
+- The row menu is the kit's (`rowActions`) or the app's (`onRowMenu(req)`), never both.
+- `onKeyDown(e, cursor)` runs before the grid's keys; `preventDefault` there stops them.
 
 ## Allow-listed copy (`packages/ui/kit-allow.json`)
 
