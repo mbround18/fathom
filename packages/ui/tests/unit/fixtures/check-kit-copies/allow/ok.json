@@ -1,0 +1,7 @@
+[
+  { "file": "apps/copies/copies.ts", "name": "EmptyState", "reason": "fixture: kept on purpose" },
+  { "file": "apps/copies/copies.ts", "name": "H2", "reason": "fixture: kept on purpose" },
+  { "file": "apps/copies/more.jsx", "name": "ConfirmDialog", "reason": "fixture: kept on purpose" },
+  { "file": "apps/copies/more.jsx", "name": "Markdown", "reason": "fixture: kept on purpose" },
+  { "file": "apps/copies/more.jsx", "name": "LoadFailed", "reason": "fixture: kept on purpose" }
+]

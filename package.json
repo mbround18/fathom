@@ -4,7 +4,7 @@
   "license": "Apache-2.0",
   "packageManager": "pnpm@12.4.2",
   "scripts": {
-    "lint:packages": "eslint packages",
+    "lint:packages": "eslint packages && node scripts/check-kit-copies.mjs",
     "typecheck:packages": "pnpm --filter './packages/*' run typecheck"
   },
   "devDependencies": {
