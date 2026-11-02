@@ -8,10 +8,9 @@
 import { ArrowLeftIcon, StopIcon } from '@phosphor-icons/react'
 import { LogView } from '@companion/terminal'
 import { Button } from '@companion/ui'
+import { Link, type Params } from '@companion/ui/kit'
 import { useEffect, useMemo, useState } from 'react'
 
-import { Link } from '@/app/Link'
-import type { Params } from '@/app/router'
 import { useSession } from '@/app/session-store'
 import { canOperate } from '@/features/hosts/workspaces'
 import type { HostStats, RunHostInfo, RunInfo, RunSummary } from '@/protocol/wire'

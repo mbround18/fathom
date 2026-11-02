@@ -14,6 +14,7 @@
  * - `ready`: `Me` arrived; the routes render and the socket is up (or reconnecting).
  */
 import { create } from 'zustand'
+import { navigate } from '@companion/ui/kit'
 
 import { endSessionUrl, mutate, readCsrf, type FetchLike } from '@/protocol/http'
 import type { ConnectionStatus, TerminalReason, TransportEnv } from '@/protocol/transport'
@@ -21,7 +22,6 @@ import type { Me } from '@/protocol/wire'
 
 import { connect, disconnect, onReconnected, onServerEvent, sendCmd } from './connection'
 import { takeReturnTo } from './return-to'
-import { navigate } from './router'
 
 export type SessionStatus = 'loading' | 'signed_out' | 'outdated' | 'error' | 'ready'
 export type SignedOutNotice = 'expired' | 'revoked' | null

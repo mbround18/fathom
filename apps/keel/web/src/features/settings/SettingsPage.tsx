@@ -8,8 +8,8 @@
  */
 import { CertificateIcon, GearSixIcon, IdentificationCardIcon, KeyIcon, ShieldStarIcon } from '@phosphor-icons/react'
 import { useEffect, type ReactNode } from 'react'
+import { navigate, type Params } from '@companion/ui/kit'
 
-import { navigate, type Params } from '@/app/router'
 import { useSession } from '@/app/session-store'
 import { EnrollDialog } from '@/features/hosts/EnrollDialog'
 import { ChangeDialog } from '@/features/teams/ChangeDialog'

@@ -6,9 +6,9 @@
  */
 import { PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
+import { Link } from '@companion/ui/kit'
 import { useId, useRef, useState, type SyntheticEvent } from 'react'
 
-import { Link } from '@/app/Link'
 import { useSession } from '@/app/session-store'
 import { canAdminister, canOperate, useWorkspaces } from '@/features/hosts/workspaces'
 import { TermTip } from '@/help/TermTip'

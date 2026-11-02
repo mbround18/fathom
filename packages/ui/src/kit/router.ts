@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from 'react'
 
-const NAVIGATE = 'keel:navigate'
+const NAVIGATE = 'companion:navigate'
 
 function subscribe(onChange: () => void): () => void {
   globalThis.addEventListener('popstate', onChange)

@@ -21,8 +21,8 @@
 import type { ComponentProps, ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { Link } from '@companion/ui/kit'
 
-import { Link } from '@/app/Link'
 import { guideHref, isGuideSlug } from '@/help/guides'
 import { slugger } from '@/help/slug'
 

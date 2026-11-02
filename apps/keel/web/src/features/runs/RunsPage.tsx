@@ -4,10 +4,9 @@
  * narrows the list to held runs, oldest first, and is kept in `?state=pending_approval`.
  */
 import { Button } from '@companion/ui'
+import { Link, navigate, useSearchParam } from '@companion/ui/kit'
 import { useCallback, useMemo } from 'react'
 
-import { Link } from '@/app/Link'
-import { navigate, useSearchParam } from '@/app/router'
 import { useSession } from '@/app/session-store'
 import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
 import { canOperate } from '@/features/hosts/workspaces'

@@ -9,9 +9,9 @@
  */
 import { FingerprintIcon, PlusIcon, WarningIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
+import { Link } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, useId, useState, type KeyboardEvent } from 'react'
 
-import { Link } from '@/app/Link'
 import { RefusalText } from '@/features/teams/parts'
 import { TermTip } from '@/help/TermTip'
 import { CopyBlock } from '@/ui/CopyBlock'

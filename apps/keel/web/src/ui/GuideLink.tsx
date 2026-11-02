@@ -6,8 +6,8 @@
  */
 import { ArrowRightIcon } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
+import { Link } from '@companion/ui/kit'
 
-import { Link } from '@/app/Link'
 import { guideHref, type GuideRef } from '@/help/guides'
 
 export function GuideLink({ to, children = 'Learn more' }: { to: GuideRef; children?: ReactNode }) {

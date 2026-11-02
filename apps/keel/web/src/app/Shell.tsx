@@ -18,6 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@companion/ui'
+import { Link, navigate, usePath } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, useRef, type ReactNode } from 'react'
 
 import { BRAND_GLYPH, BRAND_NAME } from '@/brand'
@@ -28,9 +29,7 @@ import { canSeeSettings } from '@/features/settings/tabs'
 import { showDot, useUpdates } from '@/features/settings/updates'
 import { LABEL } from '@/ui/form'
 
-import { Link } from './Link'
 import { ACCOUNT_PASSKEYS, HELP, HOME, SETTINGS, visibleGroups, type NavGroup, type Section } from './nav'
-import { navigate, usePath } from './router'
 import { useSession } from './session-store'
 
 const PasskeyDialogs = lazy(() => import('@/features/passkeys/PasskeyDialogs'))
