@@ -344,5 +344,7 @@ the certificate renews and Keel serves the new version, with no manual step.
   them. Importing them is an explicit, audited action, not an automatic sweep.
 - Certificate management is ACME-only in the first version. A private certificate authority for
   the suite, and providers other than Let's Encrypt and Cloudflare, are later adapters. Until
-  this ships, Keel's Ansible role makes a self-signed certificate when none is given.
+  this ships, Keel's Ansible role makes a self-signed certificate when none is given. The private
+  PKI that follows (suite root CAs, Kubernetes issuance through the daemon, enterprise roots,
+  tenancy) is laid out in [roadmap-private-pki.md](roadmap-private-pki.md).
 - Overlap period default: 24 hours. Step-up window: the same as Depths and Keel.
