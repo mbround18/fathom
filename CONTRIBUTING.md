@@ -100,6 +100,149 @@ cargo test -p depths-protocol --test export_bindings   # apps/depths/web/src/pro
 directory changed. A change to a shared
 crate must leave Fathom's bindings byte-identical.
 
+## Shared UI kit
+
+`@companion/ui/kit` (`packages/ui/src/kit`) holds the screen-level pieces Keel, Depths and Fathom
+share: states, dialogs, headers, tables, navigation. Build a new screen from these, and import
+them from `@companion/ui/kit`, never from a deep path. The kit holds no app words or rules: the
+text, the refusal, the guides and the glossary come from the app. Spec 065 has the details
+(`specs/065-shared-ui-kit/contracts/kit-api.md`).
+
+### The pieces
+
+| Piece | Use it when |
+|---|---|
+| `KitProvider`, `useKit` | Once at the app root, to hand the kit your link, guides and glossary (below) |
+| `navigate`, `usePath`, `useSearchParam`, `useHash`, `matchPath`, `setNavigationGuard` | Routing inside the app; the in-app event is `companion:navigate` |
+| `Link` | Any link to another screen of the same app |
+| `Refusal`, `isTransportFailure`, `ListHandlers`, `ListLoad` | Typing what the server refused and how a list loads; `OFFLINE`, `refusalOf` and `loadList` stay in the app |
+| `RefusalText` | Showing a refusal ("not allowed" or an error) inline, as the server sent it |
+| `LoadFailed` | A list or panel that failed to load: "Failed to load {what}." with the reason and Retry |
+| `LoadState` | Switching a list between loading, failed, empty and loaded |
+| `ErrorLine` | A dismissible one-line error under a form or toolbar |
+| `Page` | The outer frame of a routed page |
+| `PageHeader` | A page's title, intro, guide link and actions |
+| `PageErrorBoundary` | Around a page or pane, so a crash shows "Something went wrong" there and nowhere else |
+| `EmptyState`, `emptyVariant` | A list with nothing in it yet: why it matters, the next steps, and the one action (or who can take it) |
+| `NoMatch` | A filter or search that matched nothing, with a way to clear it |
+| `Dialog` | A modal that is not a confirmation |
+| `ConfirmDialog`, `PreviewDetails` | Confirming a change the server previewed: its summary, what it affects, and whether it asks for a passkey |
+| `CopyBlock`, `copyText` | A value someone will copy (a token, a command), masked when secret |
+| `useReveal` | Remembering which secret values are shown |
+| `Field`, `Select`, `FormPanel`, `SectionIntro`, `FIELD`, `LABEL`, `H1`–`H3`, … | Forms and section headings, with the suite's sizes and classes |
+| `Tabs` | Tabs inside a page; controlled, and only the active panel renders |
+| `DataTable` | A short list: a table at 640 px and wider, cards below |
+| `Markdown` | Rendering guide or help text; load it with `React.lazy`, since it pulls in react-markdown |
+| `slug`, `slugger` | Heading anchors that match the guides' |
+| `GuideLink` | A "Learn more" link to a guide; renders nothing without `guideHref` |
+| `TermTip` | A term with its glossary entry in a popover; renders nothing for a term the glossary lacks |
+| `NavShell` | The app frame: header, banner, grouped side navigation (a sheet below 768 px) and the main area |
+
+Coming in this spec, being added now:
+
+- `DataGrid`: a long or live list (thousands of rows). It is virtualized and keyboard-driven, and
+  hides columns by priority as the width shrinks. It is fully controlled: rows, sort, selection
+  and the focused row come in as props. Fathom's resource table is built on it.
+- `DataTable` and `DataGrid` gain optional `sort` (`{ value, onChange }`; a column sorts only with
+  `sortable: true`, and a click cycles ascending, descending, none), `selection` (a set of
+  `rowKey(row)` values) and `rowActions(row)` (a trailing menu). Without them a table renders as
+  today.
+- `PageHeader size="pane"`: a compact one-row header for a pane, with `count`, `lead` and
+  `actions` slots, and `rootProps` for the pane's own attributes. `size="page"` is the default.
+- `ConfirmDialog typedConfirm={{ word }}`: Confirm stays disabled until the word is typed. Use it
+  for deleting many items at once.
+- `PageErrorBoundary resetKey`: when the key changes (another pane, another resource), a crashed
+  boundary renders its children again.
+
+### Examples
+
+A list with nothing in it:
+
+```tsx
+<EmptyState
+  page="widgets"
+  title="No widgets yet"
+  reason="Widgets show what each host runs."
+  steps={['Add a host.', 'Pick the widgets to watch.']}
+  action={canAdd ? <Button onClick={add}>Add widget</Button> : undefined}
+  whoCan="An owner or admin"
+  verb="add widgets"
+  guide={{ guide: 'widgets', anchor: 'add' }}
+/>
+```
+
+A list that failed to load:
+
+```tsx
+{refusal ? <LoadFailed what="widgets" refusal={refusal} onRetry={load} /> : <WidgetList rows={rows} />}
+```
+
+Confirming a change the server previewed:
+
+```tsx
+<ConfirmDialog
+  preview={preview}            // null keeps it closed
+  title="Remove widgets"
+  confirmLabel="Remove"
+  tone="destructive"
+  onConfirm={() => void confirm()}
+  onCancel={cancel}
+/>
+```
+
+### `KitProvider`
+
+Each app wraps its root once: `<KitProvider value={{ … }}>`. Every field is optional, and a piece
+whose field is missing renders without it.
+
+| Field | What it is | Without it |
+|---|---|---|
+| `Link` | The app's in-app link component (`{ to, …anchor props }`) | The kit's own `Link` |
+| `guideHref` | Builds a guide's route from `{ guide, anchor? }` | `GuideLink` renders nothing; Markdown keeps guide links as plain links |
+| `isGuide` | Tells whether a Markdown link target (`slug.md`) is one of the app's guides | No link is treated as a guide |
+| `guideImage` | The bundled URL of a guide's image (`img/<name>`) | The image shows as a link |
+| `glossary` | The app's terms: `{ [id]: { term, text, guide? } }` | `TermTip` renders nothing |
+
+### Testing a piece
+
+Each piece has unit tests (`packages/ui/tests/unit`, Vitest) and an isolated browser spec
+(`packages/ui/tests/e2e/<piece>.spec.ts`) that runs against the harness, a page that shows one
+piece alone, with no app or server.
+
+```sh
+pnpm --filter @companion/ui test                                    # unit tests
+pnpm --filter @companion/ui harness                                 # the harness in a browser
+pnpm --filter @companion/ui e2e tests/e2e/empty-state.spec.ts       # one piece's spec
+pnpm --filter @companion/ui e2e                                     # every piece
+```
+
+The harness URL is `/?piece=<id>&state=<state>&theme=<light|dark>`. Without `piece` it lists every
+piece, and without `state` it lists the piece's states. A piece's fixture is
+`packages/ui/harness/pieces/<id>.tsx`, and its content never names an app.
+
+Every spec calls `expectAccessible` (`packages/ui/tests/support/a11y.ts`) on every state: axe with
+the WCAG 2.2 AA tags, in light and dark, at 360 and 1280 px, with zero violations. No rule is
+turned off for the whole kit. To turn one off for one piece, pass it in `disable` and write the
+reason in a comment beside it in that piece's spec.
+
+### No copies in the apps
+
+`node scripts/check-kit-copies.mjs` (part of `pnpm -w run lint:packages`) fails when Keel, Depths
+or Fathom (`apps/keel/web/src`, `apps/depths/web/src`, `ui/src`) declares, at the top level of a
+file, something with the name of a kit export. It names the file and the line, and tells you to
+import the piece from `@companion/ui/kit`. Imports, usages, nested helpers and test files don't
+count, and nor does an adapter that imports the kit piece under another name and wraps it
+(`import { ErrorLine as Alert }`, then `function ErrorLine()` around it).
+
+When an app must keep its own piece under a kit name, add it to `packages/ui/kit-allow.json`:
+
+```json
+[{ "file": "ui/src/components/Foo.tsx", "name": "EmptyState", "reason": "why it can't use the kit's" }]
+```
+
+`file` is relative to the repository root. An entry without a `reason`, or one that no longer
+matches anything, fails the check, so keep the list short and remove entries when the copy goes.
+
 ## Fathom development
 
 Commands run from the repo root (full detail in `specs/001-tauri-shadcn-frontend/quickstart.md`).
