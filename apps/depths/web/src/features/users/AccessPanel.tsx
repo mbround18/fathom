@@ -4,36 +4,46 @@
  * one (FR-006, FR-017), and the server refuses them otherwise. Loaded on demand from the Users page.
  */
 import { Button } from '@companion/ui'
+import { LoadState } from '@companion/ui/kit'
 import { useCallback, useEffect, useId, useState, type SyntheticEvent } from 'react'
 
 import { useSession } from '@/app/session-store'
-import { type ApiResult, endUserSessions, removeNetwork, userNetworks, userSessions, whitelistNetwork } from '@/features/network/api'
+import {
+  endUserSessions,
+  LIST_LOADING,
+  listRead,
+  removeNetwork,
+  userNetworks,
+  userSessions,
+  whitelistNetwork,
+  type ApiResult,
+  type ListRead,
+} from '@/features/network/api'
 import { useUntrusted } from '@/features/network/model'
 import { NetworkList, SessionList } from '@/features/sessions/lists'
 import { whitelistProblem } from '@/features/sessions/model'
 import type { NetworkView, SessionView } from '@/protocol/generated'
 
-type Loaded = [Awaited<ReturnType<typeof userSessions>>, Awaited<ReturnType<typeof userNetworks>>]
-const fetchAll = (id: string): Promise<Loaded> => Promise.all([userSessions(id), userNetworks(id)])
-
 export default function AccessPanel({ id, name }: { id: string; name: string }) {
   const csrf = useSession((s) => s.me?.csrf_token ?? '')
   const refreshMe = useSession((s) => s.refreshMe)
   const blocked = useUntrusted()
-  const [sessions, setSessions] = useState<SessionView[] | null>(null)
-  const [networks, setNetworks] = useState<NetworkView[] | null>(null)
+  const [sessions, setSessions] = useState<ListRead<SessionView[]>>(LIST_LOADING)
+  const [networks, setNetworks] = useState<ListRead<NetworkView[]>>(LIST_LOADING)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
-  const show = useCallback(([s, n]: Loaded): void => {
-    if (s.ok) setSessions(s.data)
-    if (n.ok) setNetworks(n.data)
-    if (!s.ok || !n.ok) setNote({ kind: 'err', text: 'Could not load everything. Try again.' })
-  }, [])
+  const loadSessions = useCallback(async (): Promise<void> => setSessions(listRead(await userSessions(id))), [id])
+  const loadNetworks = useCallback(async (): Promise<void> => setNetworks(listRead(await userNetworks(id))), [id])
 
   useEffect(() => {
-    void fetchAll(id).then(show)
-  }, [id, show])
+    let live = true
+    void userSessions(id).then((r) => live && setSessions(listRead(r)))
+    void userNetworks(id).then((r) => live && setNetworks(listRead(r)))
+    return () => {
+      live = false
+    }
+  }, [id])
 
   const run = async (what: () => Promise<ApiResult<unknown>>, done: string): Promise<boolean> => {
     setBusy(true)
@@ -44,7 +54,7 @@ export default function AccessPanel({ id, name }: { id: string; name: string }) 
       setNote({ kind: 'err', text: 'Refused: not from this network. Whitelisting needs a trusted network.' })
       await refreshMe()
     } else setNote({ kind: 'err', text: 'That did not work. Try again.' })
-    show(await fetchAll(id))
+    await Promise.all([loadSessions(), loadNetworks()])
     setBusy(false)
     return r.ok
   }
@@ -66,18 +76,18 @@ export default function AccessPanel({ id, name }: { id: string; name: string }) 
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <span className="font-semibold">Sessions</span>
         <span className="flex-1" />
-        <Button variant="outline" size="xs" disabled={busy || (sessions?.length ?? 0) === 0} onClick={endAll} aria-label={`End every session for ${name}`}>
+        <Button variant="outline" size="xs" disabled={busy || (sessions.value?.length ?? 0) === 0} onClick={endAll} aria-label={`End every session for ${name}`}>
           End every session
         </Button>
       </div>
-      {sessions === null ? <p className="text-muted-foreground">Loading…</p> : <SessionList sessions={sessions} label={`Sessions for ${name}`} />}
+      <LoadState loading={sessions.value === null} failed={sessions.failed} what={`sessions for ${name}`} onRetry={() => void loadSessions()}>
+        <SessionList sessions={sessions.value ?? []} label={`Sessions for ${name}`} />
+      </LoadState>
 
       <span className="font-semibold">Networks</span>
-      {networks === null ? (
-        <p className="text-muted-foreground">Loading…</p>
-      ) : (
-        <NetworkList networks={networks} label={`Networks for ${name}`} onRemove={remove} removeBlocked={blocked} busy={busy} />
-      )}
+      <LoadState loading={networks.value === null} failed={networks.failed} what={`networks for ${name}`} onRetry={() => void loadNetworks()}>
+        <NetworkList networks={networks.value ?? []} label={`Networks for ${name}`} onRemove={remove} removeBlocked={blocked} busy={busy} />
+      </LoadState>
       <WhitelistForm
         name={name}
         blocked={blocked}

@@ -19,6 +19,7 @@ import {
   DialogTitle,
   Input,
 } from '@companion/ui'
+import { EmptyState, LoadState } from '@companion/ui/kit'
 import { useEffect, useId, useState, type SyntheticEvent } from 'react'
 
 import type { PasskeyInfo, PasskeyRequest, Preview } from '@/protocol/generated'
@@ -165,6 +166,7 @@ function Recovery() {
 export default function PasskeysPanel() {
   const list = usePasskeys((s) => s.list)
   const loadList = usePasskeys((s) => s.loadList)
+  const listFailed = usePasskeys((s) => s.listFailed)
   const openEnrol = usePasskeys((s) => s.openEnrol)
   const previewRemove = usePasskeys((s) => s.previewRemove)
   const confirmRemove = usePasskeys((s) => s.confirmRemove)
@@ -221,12 +223,12 @@ export default function PasskeysPanel() {
         Depths asks for one of these before shells, file changes and other risky actions. Keep more than one, in case
         you lose a device.
       </p>
-      {list === null ? (
-        <p className="text-xs text-muted-foreground">Loading…</p>
+      {list === null || listFailed !== null ? (
+        <LoadState loading={list === null} failed={listFailed} what="your passkeys" onRetry={loadList} label="Loading passkeys…" />
       ) : list.length === 0 ? (
-        <p data-testid="passkeys-empty" className="text-xs text-muted-foreground">
-          No passkeys yet.
-        </p>
+        <div data-testid="passkeys-empty">
+          <EmptyState icon={<KeyIcon aria-hidden />} title="No passkeys yet." reason="Add one to confirm shells, file changes and other risky actions." />
+        </div>
       ) : (
         <ul aria-label="Your passkeys" className="min-w-0 border border-border">
           {list.map((p) => (

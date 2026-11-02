@@ -9,7 +9,7 @@
  * mount, the current one marked.
  */
 
-import { Link } from '@companion/ui/kit'
+import { Link, LoadFailed, type Refusal } from '@companion/ui/kit'
 
 import type { Mount, MountState } from '@/protocol/generated'
 
@@ -49,12 +49,22 @@ function byService(mounts: readonly Mount[]): Group[] {
 export interface MountListProps {
   stack: string
   mounts: readonly Mount[] | null
+  /** Why the mounts could not be listed (spec 065 T021); Retry asks again. */
+  failed?: Refusal | null
+  onRetry?: () => void
   /** The mount being browsed, marked in the compact tree. */
   current?: string | null
   compact?: boolean
 }
 
-export function MountList({ stack, mounts, current = null, compact = false }: MountListProps) {
+export function MountList({ stack, mounts, failed = null, onRetry, current = null, compact = false }: MountListProps) {
+  if (failed !== null) {
+    return (
+      <div data-pane="mounts" className="min-w-0">
+        <LoadFailed what="mounts" refusal={failed} onRetry={onRetry} />
+      </div>
+    )
+  }
   if (mounts === null) {
     return (
       <div data-pane="mounts" className="min-w-0">

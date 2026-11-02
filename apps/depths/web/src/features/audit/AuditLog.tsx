@@ -7,8 +7,9 @@
  * Read-only by design (FR-036): no control here edits or removes an entry. Export is a plain
  * same-origin download of `GET /api/v1/audit/export` with the current filter, as JSONL.
  */
-import { ArrowClockwiseIcon, DownloadSimpleIcon } from '@phosphor-icons/react'
+import { ArrowClockwiseIcon, ClipboardTextIcon, DownloadSimpleIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
+import { EmptyState, LoadState, NoMatch, PageHeader } from '@companion/ui/kit'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useMemo, useRef } from 'react'
 
@@ -37,11 +38,12 @@ export default function AuditLog() {
   const nextCursor = useAudit((s) => s.nextCursor)
   const loading = useAudit((s) => s.loading)
   const loaded = useAudit((s) => s.loaded)
-  const denied = useAudit((s) => s.denied)
+  const failed = useAudit((s) => s.failed)
   const setFilter = useAudit((s) => s.setFilter)
   const refresh = useAudit((s) => s.refresh)
   const more = useAudit((s) => s.more)
   const blocked = useUntrusted()
+  const filtered = Object.keys(filter).length > 0
   const loadStacks = useStacks((s) => s.load)
   const stackList = useStacks((s) => s.list)
   const stackNames = useMemo(() => stackList?.stacks.map((s) => s.name) ?? NO_NAMES, [stackList])
@@ -72,28 +74,32 @@ export default function AuditLog() {
 
   return (
     <section data-page="audit" aria-labelledby="audit-title" className="flex h-full min-w-0 flex-col">
-      <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-border px-2 py-1.5">
-        <h1 id="audit-title" className="font-display text-sm font-semibold tracking-wider uppercase">
-          Audit log
-        </h1>
-        <span data-testid="audit-count" className="text-xs text-muted-foreground tabular-nums">
-          {loaded ? `${String(entries.length)}${nextCursor !== null ? '+' : ''} entries` : ''}
-        </span>
-        <span className="flex-1" />
-        <Button variant="ghost" size="sm" onClick={refresh} aria-label="Refresh the audit log">
-          <ArrowClockwiseIcon aria-hidden />
-        </Button>
-        {blocked === null && (
-          <a
-            href={exportHref(filter)}
-            download="depths-audit.jsonl"
-            data-action="export"
-            className="inline-flex h-7 shrink-0 items-center gap-1 border border-input px-2 text-xs hover:border-primary hover:text-primary"
-          >
-            <DownloadSimpleIcon aria-hidden className="size-3.5" />
-            Export JSONL
-          </a>
-        )}
+      <div className="shrink-0 px-2 pt-2">
+        <PageHeader
+          id="audit-title"
+          title="Audit log"
+          actions={
+            <>
+              <span data-testid="audit-count" className="text-xs text-muted-foreground tabular-nums">
+                {loaded && failed === null ? `${String(entries.length)}${nextCursor !== null ? '+' : ''} entries` : ''}
+              </span>
+              <Button variant="ghost" size="sm" onClick={refresh} aria-label="Refresh the audit log">
+                <ArrowClockwiseIcon aria-hidden />
+              </Button>
+              {blocked === null && (
+                <a
+                  href={exportHref(filter)}
+                  download="depths-audit.jsonl"
+                  data-action="export"
+                  className="inline-flex h-7 shrink-0 items-center gap-1 border border-input px-2 text-xs hover:border-primary hover:text-primary"
+                >
+                  <DownloadSimpleIcon aria-hidden className="size-3.5" />
+                  Export JSONL
+                </a>
+              )}
+            </>
+          }
+        />
       </div>
 
       <AuditFilters filter={filter} stacks={stackNames} onChange={setFilter} />
@@ -117,18 +123,18 @@ export default function AuditLog() {
           </div>
         </div>
 
-        {denied ? (
-          <p role="status" className="p-3 text-xs text-muted-foreground">
-            You can&apos;t read the audit log.
-          </p>
-        ) : !loaded ? (
-          <p role="status" data-pane-state="loading" className="p-3 text-xs text-muted-foreground">
-            Loading the audit log…
-          </p>
+        {failed !== null || !loaded ? (
+          <div className="p-3">
+            <LoadState loading={!loaded} failed={failed} what="the audit log" onRetry={refresh} label="Loading the audit log…" />
+          </div>
         ) : entries.length === 0 ? (
-          <p role="status" data-pane-state="empty" className="p-3 text-xs text-muted-foreground">
-            No entries match the filter.
-          </p>
+          <div className="p-3">
+            {filtered ? (
+              <NoMatch what="entries" message="No entries match the filter." onClear={() => setFilter({})} />
+            ) : (
+              <EmptyState icon={<ClipboardTextIcon aria-hidden />} title="No audit entries yet" reason="Every change made through Depths is recorded here." />
+            )}
+          </div>
         ) : (
           <div role="rowgroup" style={{ paddingTop: first?.start ?? 0, paddingBottom: last ? total - last.end : 0 }}>
             {virtual.map((v) => {

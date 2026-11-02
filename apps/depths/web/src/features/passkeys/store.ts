@@ -32,6 +32,8 @@ import type {
   Verification,
 } from '@/protocol/generated'
 
+import { OFFLINE as OFFLINE_REFUSAL, refusalOf, type Refusal } from '@/protocol/refusal'
+
 import { createCredential, getAssertion, PasskeyFailure } from './api'
 import { ALREADY_ON_DEVICE, NO_AUTHENTICATOR, OFFLINE, REFUSED_MESSAGES, STEP_UP_AGAIN } from './messages'
 
@@ -50,6 +52,8 @@ export interface PasskeyState {
   /** The sign-in prompt was shown (and maybe cancelled) for this session: don't push it again. */
   prompted: boolean
   list: PasskeyInfo[] | null
+  /** Why `ListPasskeys` failed (spec 065 T021); cleared by the next load. */
+  listFailed: Refusal | null
   refreshVerification: () => void
   openEnrol: (required?: boolean) => void
   openVerify: () => void
@@ -165,6 +169,7 @@ export const usePasskeys = create<PasskeyState>()((set, get) => {
     error: null,
     prompted: false,
     list: null,
+    listFailed: null,
 
     refreshVerification: () => {
       void ask({ type: 'GetVerification' }).catch(() => undefined)
@@ -239,11 +244,14 @@ export const usePasskeys = create<PasskeyState>()((set, get) => {
       }),
 
     loadList: () => {
+      set({ listFailed: null })
       void ask({ type: 'ListPasskeys' })
         .then((e) => {
           if (e.type === 'Passkeys') set({ list: e.data.items })
+          else if (e.type === 'Invalid' && e.data.reason === OFFLINE) set({ listFailed: OFFLINE_REFUSAL })
+          else set({ listFailed: refusalOf(e) ?? { kind: 'error', code: 'unexpected', message: refusalMessage(e) } })
         })
-        .catch(() => undefined)
+        .catch(() => set({ listFailed: OFFLINE_REFUSAL }))
     },
 
     recover: async (code) => {
@@ -320,5 +328,5 @@ export function resetPasskeysStore(): void {
   stepUpResolve?.(null)
   stepUpResolve = null
   generation++
-  usePasskeys.setState({ verification: null, dialog: null, phase: 'idle', error: null, prompted: false, list: null })
+  usePasskeys.setState({ verification: null, dialog: null, phase: 'idle', error: null, prompted: false, list: null, listFailed: null })
 }

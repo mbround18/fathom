@@ -17,11 +17,12 @@ import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
 import { useSession } from '@/app/session-store'
 import type { StepUpRefusal } from '@/features/passkeys/messages'
 import type { Cmd, DenyReason, RequestId, Role, UserList } from '@/protocol/generated'
+import { OFFLINE, refusalOf, type Refusal } from '@/protocol/refusal'
 
 export interface UsersState {
   list: UserList | null
-  /** `GetUsers` itself was refused. */
-  denied: boolean
+  /** Why `GetUsers` itself failed (spec 065 T021). */
+  failed: Refusal | null
   /** The last change was refused, and why. */
   error: DenyReason | null
   /** The last change needed a passkey check that did not happen. */
@@ -29,6 +30,8 @@ export interface UsersState {
   /** Ids with a change in flight. */
   saving: string[]
   load: () => void
+  /** Ask for the list again after it failed. */
+  retry: () => void
   put: (id: string, role: Role, stacks: string[]) => void
   remove: (id: string) => void
   clearError: () => void
@@ -40,7 +43,7 @@ const pending = new Map<RequestId, Asked>()
 let wanted = false
 let sent = false
 
-const INITIAL = { list: null, denied: false, error: null, stepUp: null, saving: [] }
+const INITIAL = { list: null, failed: null, error: null, stepUp: null, saving: [] }
 
 export const useUsers = create<UsersState>()((set) => ({
   ...INITIAL,
@@ -48,6 +51,13 @@ export const useUsers = create<UsersState>()((set) => ({
   load: () => {
     wanted = true
     if (!sent) sendList()
+  },
+
+  retry: () => {
+    wanted = true
+    sent = false
+    set({ failed: null })
+    if (!sendList() && useSession.getState().connection === 'closed') set({ failed: OFFLINE })
   },
 
   put: (id, role, stacks) => {
@@ -61,11 +71,13 @@ export const useUsers = create<UsersState>()((set) => ({
   clearError: () => set({ error: null, stepUp: null }),
 }))
 
-function sendList(): void {
+/** Asks for the list; whether it went out (no socket yet: not). */
+function sendList(): boolean {
   const id = sendCmd({ type: 'GetUsers' })
-  if (id === null) return
+  if (id === null) return false
   sent = true
   pending.set(id, { kind: 'list' })
+  return true
 }
 
 function change(userId: string, cmd: Cmd): void {
@@ -88,13 +100,16 @@ onServerEvent(({ reply_to, event }) => {
     case 'Users':
     case 'UsersChanged':
       settle(asked)
-      useUsers.setState({ list: event.data, denied: false })
+      useUsers.setState({ list: event.data, failed: null })
       return
     case 'Denied':
       if (!asked) return
       settle(asked)
-      if (asked.kind === 'list') useUsers.setState({ denied: true })
+      if (asked.kind === 'list') useUsers.setState({ failed: refusalOf(event) })
       else useUsers.setState({ error: event.data.reason })
+      return
+    case 'Invalid':
+      if (asked?.kind === 'list') useUsers.setState({ failed: refusalOf(event) })
       return
     case 'PasskeyEnrolmentRequired':
       if (asked?.kind !== 'change') return

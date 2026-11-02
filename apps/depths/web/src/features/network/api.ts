@@ -4,6 +4,7 @@
  * and the network again on each one, so nothing here is the protection.
  */
 import { mutate, type FetchLike } from '@/protocol/http'
+import { httpRefusal, type Refusal } from '@/protocol/refusal'
 import type {
   AnswerNetwork,
   NetworkAnswer,
@@ -15,6 +16,18 @@ import type {
 } from '@/protocol/generated'
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string }
+
+/** A list read's outcome as a page keeps it (spec 065 T021): the list, or why it failed to load. */
+export interface ListRead<T> {
+  value: T | null
+  failed: Refusal | null
+}
+
+export const LIST_LOADING: ListRead<never> = { value: null, failed: null }
+
+export function listRead<T>(r: ApiResult<T>): ListRead<T> {
+  return r.ok ? { value: r.data, failed: null } : { value: null, failed: httpRefusal(r.status, r.error) }
+}
 
 const defaultFetch: FetchLike = (input, init) => globalThis.fetch(input, init)
 

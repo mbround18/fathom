@@ -41,6 +41,7 @@ import type {
 } from '@/protocol/generated'
 
 import { DENY_TEXT } from '@/features/stacks/argv'
+import { deniedRefusal, OFFLINE, type Refusal } from '@/protocol/refusal'
 
 import type { StateFilter } from './model'
 
@@ -96,8 +97,8 @@ export interface LiveRun {
 export interface UpdatesState {
   view: UpdatesView | null
   loaded: boolean
-  /** `Denied`: not an admin, or the feature is off. */
-  denied: string | null
+  /** Why the list did not load (spec 065 T021): `Denied` (not an admin, or the feature is off). */
+  failed: Refusal | null
   stateFilter: StateFilter
   stackFilter: string
   check: CheckStatus
@@ -109,6 +110,8 @@ export interface UpdatesState {
   /** The audit entries the recent runs show, by action, newest first; empty until asked. */
   runAudit: Partial<Record<RunAuditAction, AuditEntry[]>>
   load: () => void
+  /** Loads again after a failure; offline when there is no connection to ask on. */
+  retry: () => void
   setStateFilter: (f: StateFilter) => void
   setStackFilter: (s: string) => void
   checkNow: () => void
@@ -149,7 +152,7 @@ const OUTPUT_CAP = 64 * 1024
 const INITIAL = {
   view: null,
   loaded: false,
-  denied: null,
+  failed: null as Refusal | null,
   stateFilter: 'all' as StateFilter,
   stackFilter: '',
   check: { kind: 'idle' } as CheckStatus,
@@ -197,6 +200,14 @@ export const useUpdates = create<UpdatesState>()((set, get) => ({
   load: () => {
     wanted = true
     send('list', { type: 'ListUpdates' })
+  },
+
+  retry: () => {
+    wanted = true
+    set({ loaded: false, failed: null })
+    if (!send('list', { type: 'ListUpdates' }) && useSession.getState().connection === 'closed') {
+      set({ loaded: true, failed: OFFLINE })
+    }
   },
 
   setStateFilter: (stateFilter) => set({ stateFilter }),
@@ -325,6 +336,13 @@ function voidText(reason: string): string {
   }
 }
 
+/** A refused `ListUpdates`, with the feature switch said in this page's words. */
+function listDenied(e: Extract<Event, { type: 'Denied' }>): Refusal {
+  return e.data.reason === 'feature_disabled'
+    ? { kind: 'error', code: e.data.reason, message: 'Image updates are turned off on this server.' }
+    : deniedRefusal(e.data.reason, e.data.detail)
+}
+
 function deniedText(e: Extract<Event, { type: 'Denied' }>): string {
   return e.data.detail ? `${DENY_TEXT[e.data.reason]} ${e.data.detail}` : DENY_TEXT[e.data.reason]
 }
@@ -442,8 +460,8 @@ onServerEvent(({ reply_to, event }) => {
 
   switch (asked) {
     case 'list':
-      if (event.type === 'Updates') useUpdates.setState({ view: event.data, loaded: true, denied: null })
-      else if (event.type === 'Denied') useUpdates.setState({ loaded: true, denied: event.data.reason })
+      if (event.type === 'Updates') useUpdates.setState({ view: event.data, loaded: true, failed: null })
+      else if (event.type === 'Denied') useUpdates.setState({ loaded: true, failed: listDenied(event) })
       return
     case 'check':
       if (event.type === 'CheckStarted') useUpdates.setState({ check: { kind: 'started' } })

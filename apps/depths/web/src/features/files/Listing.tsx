@@ -34,7 +34,7 @@ import {
   UploadSimpleIcon,
 } from '@phosphor-icons/react'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@companion/ui'
-import { Link, navigate } from '@companion/ui/kit'
+import { Link, LoadFailed, navigate } from '@companion/ui/kit'
 import { useMemo, useRef, useState, type DragEvent, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
@@ -47,7 +47,7 @@ import { noteDeleted } from './deleted'
 import { DeletedFiles } from './HistoryPanel'
 import { downloadHref, filesHref, joinPath, modeString, parentPath, pathParts } from './model'
 import { NameDialog, type NameAsk } from './NameDialog'
-import { entryPath, filterEntries, refusalText, relist, type FilesRefusal, type ListStatus } from './store'
+import { entryPath, filesRefusal, filterEntries, relist, type FilesRefusal, type ListStatus } from './store'
 import { TransferPanel } from './TransferPanel'
 import { downloadFolder, requestUpload } from './transfers'
 
@@ -352,9 +352,9 @@ export function Listing({ stack, mount, rootLabel, dir, entries, list, refusal, 
       <TransferPanel stack={stack} mount={mount} />
 
       {list === 'refused' && refusal ? (
-        <p role="alert" data-refusal={refusal.kind} className="border border-border p-2 text-xs break-words text-status-err">
-          {refusalText(refusal)}
-        </p>
+        <div data-refusal={refusal.kind} className="min-w-0 break-words">
+          <LoadFailed what="this folder" refusal={filesRefusal(refusal)} onRetry={relist} />
+        </div>
       ) : list === 'loading' && entries.length === 0 ? (
         <p role="status" data-pane-state="loading" className="border border-border p-2 text-xs text-muted-foreground">
           Loading…

@@ -12,7 +12,7 @@
  */
 import { ArrowLeftIcon, PencilSimpleIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
-import { Link, type Params } from '@companion/ui/kit'
+import { Link, PageHeader, type Params } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 
 import { useSession } from '@/app/session-store'
@@ -527,35 +527,39 @@ export default function StackDetail({ params }: { params: Params }) {
 
   return (
     <section data-page="stack" aria-labelledby="stack-title" className="flex min-w-0 flex-col gap-2 p-2 lg:h-full lg:min-h-0">
-      <header className="flex min-w-0 shrink-0 flex-col gap-1">
-        {back}
-        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <h1 id="stack-title" className="min-w-0 truncate font-display text-sm font-semibold tracking-wider">
-            {stack.name}
-          </h1>
-          <StatusBadge status={stack.status} unhealthy={stack.unhealthy} />
-          <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-            <span>
-              {stack.running_services}/{stack.total_services} services up
+      {back}
+      <div className="min-w-0 shrink-0">
+        <PageHeader
+          id="stack-title"
+          title={stack.name}
+          tip={<StatusBadge status={stack.status} unhealthy={stack.unhealthy} />}
+          description={
+            <span className="flex flex-wrap gap-x-3 text-xs">
+              <span>
+                {stack.running_services}/{stack.total_services} services up
+              </span>
+              <span>changed {formatTime(stack.modified_at)}</span>
             </span>
-            <span>changed {formatTime(stack.modified_at)}</span>
-          </p>
-        </div>
-        <StackNotes notes={stackNotes(stack, elsewhere)} />
-        <div className="flex min-w-0 flex-wrap items-center gap-1">
-          <StackActions stack={stack} />
-          <EditLink detail={detail} />
-          <DeleteStack stack={stack.name} />
-          <OpenLogs target={{ kind: 'stack', stack: stack.name }} label={`stack ${stack.name}`} />
-          <OpenStats target={{ kind: 'stack', stack: stack.name }} label={`stack ${stack.name}`} />
-        </div>
-        {filesShown && <StackViews stack={stack.name} files={inFiles} />}
-        {!filesShown && filesOffWhy !== null && (
-          <p role="note" data-files-reason className="text-xs break-words text-muted-foreground">
-            Files are off on this server: {filesOffWhy}
-          </p>
-        )}
-      </header>
+          }
+        >
+          <div className="flex w-full min-w-0 flex-col gap-1">
+            <StackNotes notes={stackNotes(stack, elsewhere)} />
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
+              <StackActions stack={stack} />
+              <EditLink detail={detail} />
+              <DeleteStack stack={stack.name} />
+              <OpenLogs target={{ kind: 'stack', stack: stack.name }} label={`stack ${stack.name}`} />
+              <OpenStats target={{ kind: 'stack', stack: stack.name }} label={`stack ${stack.name}`} />
+            </div>
+            {filesShown && <StackViews stack={stack.name} files={inFiles} />}
+            {!filesShown && filesOffWhy !== null && (
+              <p role="note" data-files-reason className="text-xs break-words text-muted-foreground">
+                Files are off on this server: {filesOffWhy}
+              </p>
+            )}
+          </div>
+        </PageHeader>
+      </div>
 
       <div className="min-w-0 shrink-0">
         <OperationOutput stack={stack.name} />
@@ -572,14 +576,14 @@ export default function StackDetail({ params }: { params: Params }) {
           className="grid min-w-0 gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_24rem] xl:grid-cols-[minmax(0,1fr)_28rem] 2xl:grid-cols-[minmax(0,1fr)_36rem]"
         >
           <div data-column="console" className="flex min-w-0 flex-col gap-2 lg:min-h-0">
-            <section aria-labelledby="services-title" className="flex min-w-0 shrink-0 flex-col gap-1 lg:max-h-[45%] lg:overflow-auto">
+            <section aria-labelledby="services-title" className="@container flex min-w-0 shrink-0 flex-col gap-1 lg:max-h-[45%] lg:overflow-auto">
               <h2 id="services-title" className={SECTION_TITLE}>
                 Services
               </h2>
               {stack.services.length === 0 ? (
                 <p className="text-xs text-muted-foreground">No services.</p>
               ) : (
-                <div className="grid min-w-0 gap-2 md:grid-cols-2 2xl:grid-cols-3">
+                <div className="grid min-w-0 gap-2 @xl:grid-cols-2 @5xl:grid-cols-3">
                   {stack.services.map((s) => (
                     <ServiceCard
                       key={s.name}

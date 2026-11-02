@@ -4,37 +4,48 @@
  * "home" starts the maturity clock, it never trusts the network at once.
  */
 import { Button } from '@companion/ui'
+import { LoadState, Page, PageHeader } from '@companion/ui/kit'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
-import { answerNetwork, endOtherSessions, endSession, listNetworks, listSessions } from '@/features/network/api'
+import {
+  answerNetwork,
+  endOtherSessions,
+  endSession,
+  listNetworks,
+  listSessions,
+  listRead,
+  LIST_LOADING,
+  type ListRead,
+} from '@/features/network/api'
 import type { NetworkAnswer, NetworkView, SessionView } from '@/protocol/generated'
 
 import { NetworkList, SessionList } from './lists'
 
 const PasskeysPanel = lazy(() => import('@/features/passkeys/PasskeysPanel'))
 
-type Loaded = [Awaited<ReturnType<typeof listSessions>>, Awaited<ReturnType<typeof listNetworks>>]
-const fetchAll = (): Promise<Loaded> => Promise.all([listSessions(), listNetworks()])
-
 export default function SessionsPage() {
   const csrf = useSession((s) => s.me?.csrf_token ?? '')
   const refreshMe = useSession((s) => s.refreshMe)
-  const [sessions, setSessions] = useState<SessionView[] | null>(null)
-  const [networks, setNetworks] = useState<NetworkView[] | null>(null)
+  const [sessions, setSessions] = useState<ListRead<SessionView[]>>(LIST_LOADING)
+  const [networks, setNetworks] = useState<ListRead<NetworkView[]>>(LIST_LOADING)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
-  const show = useCallback(([s, n]: Loaded): void => {
-    if (s.ok) setSessions(s.data)
-    if (n.ok) setNetworks(n.data)
-    if (!s.ok || !n.ok) setNote({ kind: 'err', text: 'Could not load everything. Try again.' })
-  }, [])
-  const load = async (): Promise<void> => show(await fetchAll())
+  const loadSessions = useCallback(async (): Promise<void> => setSessions(listRead(await listSessions())), [])
+  const loadNetworks = useCallback(async (): Promise<void> => setNetworks(listRead(await listNetworks())), [])
+  const load = async (): Promise<void> => {
+    await Promise.all([loadSessions(), loadNetworks()])
+  }
 
   useEffect(() => {
-    void fetchAll().then(show)
-  }, [show])
+    let live = true
+    void listSessions().then((r) => live && setSessions(listRead(r)))
+    void listNetworks().then((r) => live && setNetworks(listRead(r)))
+    return () => {
+      live = false
+    }
+  }, [])
 
   const run = async (what: () => Promise<{ ok: boolean }>, done: string): Promise<void> => {
     setBusy(true)
@@ -53,19 +64,19 @@ export default function SessionsPage() {
       return r
     }, a === 'home' ? 'Saved: home. It is trusted once the waiting period ends and you have used it on two days.' : 'Saved: public.')
 
-  const others = sessions?.filter((s) => !s.current).length ?? 0
+  const others = sessions.value?.filter((s) => !s.current).length ?? 0
 
   return (
-    <section data-page="sessions" aria-labelledby="sessions-title" className="flex min-w-0 flex-col gap-3 p-2">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <h1 id="sessions-title" className="font-display text-sm font-semibold tracking-wider uppercase">
-          Your sessions
-        </h1>
-        <span className="flex-1" />
-        <Button variant="outline" size="sm" disabled={busy || others === 0} onClick={endOthers} data-action="end-others">
-          End all other sessions
-        </Button>
-      </div>
+    <Page name="sessions" labelledBy="sessions-title">
+      <PageHeader
+        id="sessions-title"
+        title="Your sessions"
+        actions={
+          <Button variant="outline" size="sm" disabled={busy || others === 0} onClick={endOthers} data-action="end-others">
+            End all other sessions
+          </Button>
+        }
+      />
       {note && (
         <p role={note.kind === 'err' ? 'alert' : 'status'} className={`text-xs ${note.kind === 'err' ? 'text-status-err' : 'text-muted-foreground'}`}>
           {note.text}
@@ -75,11 +86,9 @@ export default function SessionsPage() {
         <h2 id="sessions-live" className="font-display text-xs font-semibold tracking-wider text-muted-foreground uppercase">
           Signed in
         </h2>
-        {sessions === null ? (
-          <p className="text-xs text-muted-foreground">Loading…</p>
-        ) : (
-          <SessionList sessions={sessions} onEnd={endOne} busy={busy} label="Your sessions" />
-        )}
+        <LoadState loading={sessions.value === null} failed={sessions.failed} what="your sessions" onRetry={() => void loadSessions()}>
+          <SessionList sessions={sessions.value ?? []} onEnd={endOne} busy={busy} label="Your sessions" />
+        </LoadState>
       </section>
       <section aria-labelledby="sessions-networks" className="flex min-w-0 flex-col gap-1">
         <h2 id="sessions-networks" className="font-display text-xs font-semibold tracking-wider text-muted-foreground uppercase">
@@ -88,15 +97,13 @@ export default function SessionsPage() {
         <p className="text-xs text-muted-foreground">
           Locations are approximate and only shown to you; they never decide trust.
         </p>
-        {networks === null ? (
-          <p className="text-xs text-muted-foreground">Loading…</p>
-        ) : (
-          <NetworkList networks={networks} onAnswer={answer} busy={busy} label="Your networks" />
-        )}
+        <LoadState loading={networks.value === null} failed={networks.failed} what="your networks" onRetry={() => void loadNetworks()}>
+          <NetworkList networks={networks.value ?? []} onAnswer={answer} busy={busy} label="Your networks" />
+        </LoadState>
       </section>
       <Suspense fallback={null}>
         <PasskeysPanel />
       </Suspense>
-    </section>
+    </Page>
   )
 }

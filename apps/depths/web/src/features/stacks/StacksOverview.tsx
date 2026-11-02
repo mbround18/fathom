@@ -5,7 +5,7 @@
  * everyone sees CPU and memory per stack they may view, busiest first.
  */
 import { useEffect, useMemo } from 'react'
-import { Link } from '@companion/ui/kit'
+import { Link, LoadState, PageHeader } from '@companion/ui/kit'
 
 import { WarningIcon } from '@phosphor-icons/react'
 
@@ -125,6 +125,8 @@ export default function StacksOverview() {
   const showHost = useCanSeeHost()
   const list = useStacks((s) => s.list)
   const setStatus = useStacks((s) => s.setStatus)
+  const listFailed = useStacks((s) => s.listFailed)
+  const retry = useStacks((s) => s.retry)
   const counts = useMemo(() => {
     const out = new Map<StackStatus, number>()
     for (const s of list?.stacks ?? []) out.set(s.status, (out.get(s.status) ?? 0) + 1)
@@ -133,17 +135,15 @@ export default function StacksOverview() {
 
   if (!list) {
     return (
-      <p role="status" data-pane-state="loading" className="p-3 text-xs text-muted-foreground">
-        Loading stacks…
-      </p>
+      <div className="p-3">
+        <LoadState loading failed={listFailed} what="stacks" onRetry={retry} label="Loading stacks…" />
+      </div>
     )
   }
 
   return (
     <section data-page="overview" aria-labelledby="overview-title" className="flex min-w-0 flex-col gap-3 p-3">
-      <h1 id="overview-title" className="font-display text-sm font-semibold tracking-wider uppercase">
-        Overview
-      </h1>
+      <PageHeader id="overview-title" title="Overview" />
       <RootfulNotice />
       <div className="grid min-w-0 grid-cols-2 gap-2 xl:grid-cols-3 2xl:grid-cols-6">
         <Tile label="Stacks" value={list.stacks.length} onClick={() => setStatus('all')} />

@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@companion/ui'
-import { Link } from '@companion/ui/kit'
+import { Link, LoadState, PageHeader } from '@companion/ui/kit'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
@@ -68,8 +68,9 @@ const CARD_LABEL = 'text-muted-foreground md:hidden'
 export default function UpdatesPage() {
   const view = useUpdates((s) => s.view)
   const loaded = useUpdates((s) => s.loaded)
-  const denied = useUpdates((s) => s.denied)
+  const failed = useUpdates((s) => s.failed)
   const load = useUpdates((s) => s.load)
+  const retry = useUpdates((s) => s.retry)
 
   useEffect(() => {
     load()
@@ -80,14 +81,10 @@ export default function UpdatesPage() {
   return (
     <section data-page="updates" aria-labelledby="updates-title" className="flex min-h-full min-w-0 flex-col sm:h-full">
       <Header view={view} />
-      {denied !== null ? (
-        <p role="status" className="p-3 text-xs text-muted-foreground">
-          {denied === 'feature_disabled' ? 'Image updates are turned off on this server.' : "You can't see updates."}
-        </p>
-      ) : !loaded || view === null ? (
-        <p role="status" data-pane-state="loading" className="p-3 text-xs text-muted-foreground">
-          Loading updates…
-        </p>
+      {failed !== null || !loaded || view === null ? (
+        <div className="p-3">
+          <LoadState loading={!loaded || view === null} failed={failed} what="updates" onRetry={retry} label="Loading updates…" />
+        </div>
       ) : (
         <Body view={view} />
       )}
@@ -104,40 +101,37 @@ function Header({ view }: { view: UpdatesView | null }) {
   const blocked = useUntrusted()
   const on = view?.settings.checks_enabled === true
   return (
-    <div className="flex min-w-0 shrink-0 flex-col gap-1 border-b border-border px-2 py-1.5">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <h1 id="updates-title" className="font-display text-sm font-semibold tracking-wider uppercase">
-          Updates
-        </h1>
-        {view !== null && (
-          <span data-testid="updates-schedule" className="min-w-0 text-xs text-muted-foreground">
-            {on
-              ? `Checks ${intervalText(view.settings.interval_secs)}${view.next_check ? `, next ${untilText(view.next_check)}` : ''}`
-              : 'Checks are off'}
-            <span className="hidden sm:inline"> · {view.zone}</span>
-            {view.next_window && (
-              <span data-field="next-window" className="hidden sm:inline">
-                {' '}
-                · Auto window {untilText(view.next_window)}
-              </span>
-            )}
-          </span>
-        )}
-        <span className="flex-1" />
-        {on && blocked === null && (
-          <Button
-            variant="outline"
-            size="sm"
-            data-action="check-now"
-            disabled={check.kind === 'sending'}
-            onClick={checkNow}
-          >
-            <ArrowClockwiseIcon aria-hidden />
-            Check now
-          </Button>
-        )}
-      </div>
-      <CheckLine check={check} />
+    <div className="shrink-0 px-2 pt-2">
+      <PageHeader
+        id="updates-title"
+        title="Updates"
+        description={
+          view !== null ? (
+            <span data-testid="updates-schedule" className="text-xs">
+              {on
+                ? `Checks ${intervalText(view.settings.interval_secs)}${view.next_check ? `, next ${untilText(view.next_check)}` : ''}`
+                : 'Checks are off'}
+              <span className="hidden sm:inline"> · {view.zone}</span>
+              {view.next_window && (
+                <span data-field="next-window" className="hidden sm:inline">
+                  {' '}
+                  · Auto window {untilText(view.next_window)}
+                </span>
+              )}
+            </span>
+          ) : undefined
+        }
+        actions={
+          on && blocked === null ? (
+            <Button variant="outline" size="sm" data-action="check-now" disabled={check.kind === 'sending'} onClick={checkNow}>
+              <ArrowClockwiseIcon aria-hidden />
+              Check now
+            </Button>
+          ) : undefined
+        }
+      >
+        {check.kind === 'idle' || check.kind === 'sending' ? undefined : <CheckLine check={check} />}
+      </PageHeader>
     </div>
   )
 }

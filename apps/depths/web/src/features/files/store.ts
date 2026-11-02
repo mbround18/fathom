@@ -18,6 +18,7 @@
  * - `relist` re-reads the folder on screen after a change, keeping the rows until the new ones land.
  * - A reconnect asks again for what is on screen. Signing out forgets everything.
  */
+import type { Refusal } from '@companion/ui/kit'
 import { create } from 'zustand'
 
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
@@ -379,6 +380,19 @@ export function fileSaved(path: string, text: string, fingerprint: string | unde
   if (file.state !== 'open' || file.path !== path) return
   const content: FileContent = { ...file.content, text, ...(fingerprint === undefined ? {} : { fingerprint }) }
   useFiles.setState({ file: { ...file, content } })
+}
+
+/** Asks for the stack's mounts again, after they failed to load (spec 065 T021). */
+export function retryMounts(): void {
+  const { stack } = useFiles.getState()
+  if (stack === null || asking('mounts')) return
+  if (!send({ what: 'mounts' }, { type: 'ListMounts', data: { stack } })) return
+  useFiles.setState({ mounts: null, mountsRefusal: null })
+}
+
+/** A files refusal as the kit's `Refusal`, in the same words the file pane uses. */
+export function filesRefusal(r: FilesRefusal): Refusal {
+  return { kind: 'error', code: r.kind === 'denied' ? r.reason : r.kind, message: refusalText(r) }
 }
 
 /** Lists the folder on screen again after a change, keeping its rows until the new ones land. */

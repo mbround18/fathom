@@ -6,6 +6,7 @@
  */
 import { LockSimpleIcon, PlusIcon, WarningIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
+import { LoadState, Page, PageHeader } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, useId, useMemo, useState, type SyntheticEvent, type ReactNode } from 'react'
 
 import { useUntrusted } from '@/features/network/model'
@@ -23,7 +24,8 @@ const AccessPanel = lazy(() => import('./AccessPanel'))
 
 export default function UsersView() {
   const list = useUsers((s) => s.list)
-  const denied = useUsers((s) => s.denied)
+  const failed = useUsers((s) => s.failed)
+  const retry = useUsers((s) => s.retry)
   const error = useUsers((s) => s.error)
   const stepUp = useUsers((s) => s.stepUp)
   const clearError = useUsers((s) => s.clearError)
@@ -42,17 +44,18 @@ export default function UsersView() {
   const allIds = useMemo(() => new Set([...users, ...waiting].map((u) => u.id)), [users, waiting])
 
   return (
-    <section data-page="users" aria-labelledby="users-title" className="flex min-w-0 flex-col">
-      <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-border px-2 py-1.5">
-        <h1 id="users-title" className="font-display text-sm font-semibold tracking-wider uppercase">
-          Users
-        </h1>
-        {list && (
-          <span data-testid="user-count" className="text-xs text-muted-foreground tabular-nums">
-            {users.length} · {waiting.length} waiting
-          </span>
-        )}
-      </div>
+    <Page name="users" labelledBy="users-title">
+      <PageHeader
+        id="users-title"
+        title="Users"
+        actions={
+          list ? (
+            <span data-testid="user-count" className="text-xs text-muted-foreground tabular-nums">
+              {users.length} · {waiting.length} waiting
+            </span>
+          ) : undefined
+        }
+      />
 
       {stepUp !== null && (
         <div role="alert" data-banner="step-up" className="flex items-start gap-1.5 border-b border-status-warn/50 px-2 py-1.5 text-xs text-status-warn">
@@ -73,16 +76,8 @@ export default function UsersView() {
         </div>
       )}
 
-      {denied ? (
-        <p role="status" className="p-3 text-xs text-muted-foreground">
-          You can&apos;t see the users list.
-        </p>
-      ) : !list ? (
-        <p role="status" data-pane-state="loading" className="p-3 text-xs text-muted-foreground">
-          Loading users…
-        </p>
-      ) : (
-        <div className="flex flex-col gap-3 p-2">
+      <LoadState loading={!list} failed={failed} what="users" onRetry={retry} label="Loading users…">
+        <div className="flex flex-col gap-3">
           <AddById existing={allIds} />
           <Group id="group-pending" label="Waiting for access" count={waiting.length}>
             {waiting.length === 0 ? (
@@ -95,8 +90,8 @@ export default function UsersView() {
             {users.length === 0 ? <Empty>No users yet.</Empty> : users.map((u) => <UserRow key={u.id} user={u} known={known} />)}
           </Group>
         </div>
-      )}
-    </section>
+      </LoadState>
+    </Page>
   )
 }
 

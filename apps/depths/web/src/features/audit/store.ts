@@ -12,6 +12,7 @@ import { create } from 'zustand'
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
 import { useSession } from '@/app/session-store'
 import type { AuditEntry, AuditFilter, RequestId } from '@/protocol/generated'
+import { OFFLINE, refusalOf, type Refusal } from '@/protocol/refusal'
 
 import { cleanFilter } from './model'
 
@@ -23,7 +24,8 @@ export interface AuditState {
   loading: boolean
   /** No page has arrived for this filter yet. */
   loaded: boolean
-  denied: boolean
+  /** Why the last page failed to load (spec 065 T021). */
+  failed: Refusal | null
   setFilter: (f: AuditFilter) => void
   refresh: () => void
   more: () => void
@@ -34,7 +36,7 @@ const pending = new Map<RequestId, { gen: number; first: boolean }>()
 let gen = 0
 let wanted = false
 
-const INITIAL = { filter: {}, entries: [], nextCursor: null, loading: false, loaded: false, denied: false }
+const INITIAL = { filter: {}, entries: [], nextCursor: null, loading: false, loaded: false, failed: null }
 
 export const useAudit = create<AuditState>()((set, get) => ({
   ...INITIAL,
@@ -47,7 +49,7 @@ export const useAudit = create<AuditState>()((set, get) => ({
   refresh: () => {
     wanted = true
     gen += 1
-    set({ entries: [], nextCursor: null, loaded: false, denied: false })
+    set({ entries: [], nextCursor: null, loaded: false, failed: null })
     send(undefined)
   },
 
@@ -62,7 +64,9 @@ function send(cursor: string | undefined): void {
   const filter = useAudit.getState().filter
   const id = sendCmd({ type: 'GetAudit', data: cursor === undefined ? { filter } : { filter, cursor } })
   if (id === null) {
-    useAudit.setState({ loading: false })
+    useAudit.setState(
+      useSession.getState().connection === 'closed' ? { loading: false, loaded: true, failed: OFFLINE } : { loading: false },
+    )
     return
   }
   pending.set(id, { gen, first: cursor === undefined })
@@ -83,8 +87,9 @@ onServerEvent(({ reply_to, event }) => {
       loading: false,
       loaded: true,
     }))
-  } else if (event.type === 'Denied') {
-    useAudit.setState({ denied: true, loading: false, loaded: true })
+  } else {
+    const failed = refusalOf(event)
+    if (failed) useAudit.setState({ failed, loading: false, loaded: true })
   }
 })
 

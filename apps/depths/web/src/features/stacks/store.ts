@@ -14,6 +14,7 @@ import { create } from 'zustand'
 import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
 import { useSession } from '@/app/session-store'
 import type { RequestId, StackDetail, StackList } from '@/protocol/generated'
+import { OFFLINE, refusalOf, type Refusal } from '@/protocol/refusal'
 
 import type { StatusFilter } from './model'
 
@@ -26,14 +27,16 @@ export interface StacksState {
   list: StackList | null
   /** `RuntimeUnavailable{reason}`, verbatim, until the next snapshot. */
   runtimeError: string | null
-  /** The `ListStacks` reply was `Denied`. */
-  listDenied: boolean
+  /** Why `ListStacks` failed (spec 065 T021); cleared by the next snapshot or `retry`. */
+  listFailed: Refusal | null
   query: string
   status: StatusFilter
   details: Record<string, DetailEntry>
   setQuery: (q: string) => void
   setStatus: (s: StatusFilter) => void
   load: () => void
+  /** Ask for the list again after it failed. */
+  retry: () => void
   openDetail: (name: string) => void
   closeDetail: (name: string) => void
 }
@@ -49,7 +52,7 @@ const detailsUnsent = new Set<string>()
 const INITIAL = {
   list: null,
   runtimeError: null,
-  listDenied: false,
+  listFailed: null,
   query: '',
   status: 'all' as StatusFilter,
   details: {},
@@ -67,6 +70,13 @@ export const useStacks = create<StacksState>()((set, get) => ({
     sendList()
   },
 
+  retry: () => {
+    listWanted = true
+    listSent = false
+    set({ listFailed: null })
+    if (!sendList() && useSession.getState().connection === 'closed') set({ listFailed: OFFLINE })
+  },
+
   openDetail: (name) => {
     const existing = get().details[name]
     if (existing?.state === 'ready') return
@@ -80,11 +90,13 @@ export const useStacks = create<StacksState>()((set, get) => ({
   },
 }))
 
-function sendList(): void {
+/** Asks for the list; whether it went out (no socket yet: not). */
+function sendList(): boolean {
   const id = sendCmd({ type: 'ListStacks' })
-  if (id === null) return
+  if (id === null) return false
   listSent = true
   pending.set(id, { kind: 'list' })
+  return true
 }
 
 function sendDetail(name: string): void {
@@ -107,7 +119,7 @@ function applySnapshot(list: StackList): void {
     if (stack.content_hash !== entry.detail.content_hash) sendDetail(name)
     next[name] = { state: 'ready', detail: { ...entry.detail, stack } }
   }
-  useStacks.setState({ list, runtimeError: null, listDenied: false, details: next })
+  useStacks.setState({ list, runtimeError: null, listFailed: null, details: next })
 }
 
 onServerEvent(({ reply_to, event }) => {
@@ -131,8 +143,9 @@ onServerEvent(({ reply_to, event }) => {
       return
     }
     case 'Denied':
-      if (asked?.kind === 'list') useStacks.setState({ listDenied: true })
-      else if (asked?.kind === 'detail') {
+    case 'Invalid':
+      if (asked?.kind === 'list') useStacks.setState({ listFailed: refusalOf(event) })
+      else if (event.type === 'Denied' && asked?.kind === 'detail') {
         const name = asked.name
         useStacks.setState((s) => ({ details: { ...s.details, [name]: { state: 'denied' } } }))
       }

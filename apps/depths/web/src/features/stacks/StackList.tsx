@@ -3,10 +3,10 @@
  * and standalone containers, read-only. One virtualised scroller holds all three groups, so 200
  * stacks and their neighbours stay cheap to render and to filter (SC-004).
  */
-import { MagnifyingGlassIcon, PlusIcon, WarningOctagonIcon } from '@phosphor-icons/react'
+import { MagnifyingGlassIcon, PlusIcon, StackIcon, WarningOctagonIcon } from '@phosphor-icons/react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useMemo, useRef } from 'react'
-import { Link } from '@companion/ui/kit'
+import { EmptyState, Link, LoadState, NoMatch, PageHeader } from '@companion/ui/kit'
 
 import { useSession } from '@/app/session-store'
 import type { Container, ForeignProject, Stack } from '@/protocol/generated'
@@ -38,7 +38,8 @@ const OVERSCAN = 10
 export function StackList({ selected }: { selected?: string | undefined } = {}) {
   const list = useStacks((s) => s.list)
   const runtimeError = useStacks((s) => s.runtimeError)
-  const listDenied = useStacks((s) => s.listDenied)
+  const listFailed = useStacks((s) => s.listFailed)
+  const retry = useStacks((s) => s.retry)
   const query = useStacks((s) => s.query)
   const status = useStacks((s) => s.status)
   const setQuery = useStacks((s) => s.setQuery)
@@ -85,39 +86,44 @@ export function StackList({ selected }: { selected?: string | undefined } = {}) 
 
   return (
     <section data-page="stacks" aria-labelledby="stacks-title" className="@container flex h-full min-w-0 flex-col">
-      <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-border px-2 py-1.5">
-        <h1 id="stacks-title" className="font-display text-sm font-semibold tracking-wider uppercase">
-          Stacks
-        </h1>
-        <span data-testid="stack-count" className="text-xs text-muted-foreground tabular-nums">
-          {list ? `${String(shownStacks.length)} of ${String(totalStacks)}` : ''}
-        </span>
-        <span className="flex-1" />
-        <NewStackLink />
-        <label className="flex h-7 min-w-0 flex-1 basis-40 items-center gap-1 border border-input bg-background px-1.5 focus-within:border-ring">
-          <MagnifyingGlassIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-          <input
-            type="search"
-            aria-label="Filter by name"
-            placeholder="Filter by name"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="h-full min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-          />
-        </label>
-        <select
-          aria-label="Filter by status"
-          value={status}
-          onChange={(e) => setStatus(e.target.value as StatusFilter)}
-          className="h-7 shrink-0 border border-input bg-background px-1 text-xs focus-visible:border-ring"
+      <div className="shrink-0 px-2 pt-2">
+        <PageHeader
+          id="stacks-title"
+          title="Stacks"
+          actions={
+            <>
+              <span data-testid="stack-count" className="text-xs text-muted-foreground tabular-nums">
+                {list ? `${String(shownStacks.length)} of ${String(totalStacks)}` : ''}
+              </span>
+              <NewStackLink />
+            </>
+          }
         >
-          <option value="all">All statuses</option>
-          {STATUS_ORDER.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_LABEL[s]}
-            </option>
-          ))}
-        </select>
+          <label className="flex h-7 min-w-0 flex-1 basis-40 items-center gap-1 border border-input bg-background px-1.5 focus-within:border-ring">
+            <MagnifyingGlassIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+            <input
+              type="search"
+              aria-label="Filter by name"
+              placeholder="Filter by name"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="h-full min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+            />
+          </label>
+          <select
+            aria-label="Filter by status"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as StatusFilter)}
+            className="h-7 shrink-0 border border-input bg-background px-1 text-xs focus-visible:border-ring"
+          >
+            <option value="all">All statuses</option>
+            {STATUS_ORDER.map((s) => (
+              <option key={s} value={s}>
+                {STATUS_LABEL[s]}
+              </option>
+            ))}
+          </select>
+        </PageHeader>
       </div>
 
       {runtimeError !== null && (
@@ -145,18 +151,29 @@ export function StackList({ selected }: { selected?: string | undefined } = {}) 
         data-stale={list?.stale || undefined}
         className={`min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto ${list?.stale ? 'opacity-70' : ''}`}
       >
-        {listDenied ? (
-          <p role="status" className="p-3 text-xs text-muted-foreground">
-            You can&apos;t list stacks.
-          </p>
-        ) : !list ? (
-          <p role="status" data-pane-state="loading" className="p-3 text-xs text-muted-foreground">
-            Loading stacks…
-          </p>
+        {listFailed || !list ? (
+          <div className="p-3">
+            <LoadState loading={!list} failed={listFailed} what="stacks" onRetry={retry} label="Loading stacks…" />
+          </div>
         ) : items.length === 0 ? (
-          <p role="status" data-pane-state="empty" className="p-3 text-xs break-words text-muted-foreground">
-            {totalStacks === 0 ? `No stacks in ${list.root}.` : 'No stacks match the filter.'}
-          </p>
+          <div className="p-3">
+            {totalStacks === 0 ? (
+              <EmptyState
+                icon={<StackIcon aria-hidden />}
+                title="No stacks yet"
+                reason={<span className="break-words">No stacks in {list.root}.</span>}
+              />
+            ) : (
+              <NoMatch
+                what="stacks"
+                message="No stacks match the filter."
+                onClear={() => {
+                  setQuery('')
+                  setStatus('all')
+                }}
+              />
+            )}
+          </div>
         ) : (
           <div style={{ paddingTop: first?.start ?? 0, paddingBottom: last ? total - last.end : 0 }}>
             {virtual.map((v) => {

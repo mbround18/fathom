@@ -19,7 +19,7 @@ import { FileOpDialog } from './FileOpDialog'
 import { Listing } from './Listing'
 import { filesMode, type FilesLocation } from './model'
 import { MountList } from './MountList'
-import { useFiles } from './store'
+import { filesRefusal, retryMounts, useFiles } from './store'
 
 export default function FilesTab({ stack, location }: { stack: string; location: FilesLocation }) {
   const go = useFiles((s) => s.go)
@@ -30,6 +30,7 @@ export default function FilesTab({ stack, location }: { stack: string; location:
   const mode = useSession((s) => filesMode(s.me))
   const ours = useFiles((s) => s.stack === stack)
   const mounts = useFiles((s) => (ours ? s.mounts : null))
+  const mountsRefusal = useFiles((s) => (ours ? s.mountsRefusal : null))
   const mount = useFiles((s) => s.mount)
   const dir = useFiles((s) => s.dir)
   const entries = useFiles((s) => s.entries)
@@ -40,6 +41,7 @@ export default function FilesTab({ stack, location }: { stack: string; location:
   const file = useFiles((s) => s.file)
 
   const here = location.mount
+  const mountsFailed = mountsRefusal ? filesRefusal(mountsRefusal) : null
   const info = mounts?.find((m) => m.id === here)
   const rootLabel = info?.source ?? here ?? ''
   const inMount = ours && here !== null && mount === here
@@ -54,11 +56,11 @@ export default function FilesTab({ stack, location }: { stack: string; location:
       className="@container flex min-w-0 flex-col gap-1 lg:min-h-0 lg:flex-1"
     >
       {here === null ? (
-        <MountList stack={stack} mounts={mounts} />
+        <MountList stack={stack} mounts={mounts} failed={mountsFailed} onRetry={retryMounts} />
       ) : (
         <div className="flex min-w-0 flex-col gap-3 @3xl:flex-row @3xl:items-start">
           <aside aria-label="Mounts" className="hidden w-64 shrink-0 @6xl:block">
-            <MountList stack={stack} mounts={mounts} current={here} compact />
+            <MountList stack={stack} mounts={mounts} failed={mountsFailed} onRetry={retryMounts} current={here} compact />
           </aside>
           <div className={`min-w-0 flex-col @3xl:flex @3xl:flex-1 ${open ? 'hidden' : 'flex'}`}>
             <Listing
