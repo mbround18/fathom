@@ -177,19 +177,20 @@ need_mem() {
   fi
 }
 
-# node_run <workdir> --step ...: the Playwright image (node, pnpm via corepack, browsers) with the
-# pnpm workspace installed. pnpm comes from packageManager via corepack.
+# node_run <workdir> --step ...: the Playwright image (node, browsers) with the pnpm workspace
+# installed. pnpm is the version packageManager names, installed with npm: the image's tag was
+# rebuilt on Node 26, which no longer bundles corepack.
+PNPM_SPEC=$(sed -n 's/.*"packageManager": *"\(pnpm@[^"]*\)".*/\1/p' package.json)
 node_run() {
   local workdir=$1
   shift
-  timed_steps --step "corepack enable" \
+  timed_steps --step "npm install -g --silent $PNPM_SPEC" \
     --step "$N pnpm install --frozen-lockfile --store-dir /pnpm-store" "$@"
   nice -n "$CI_NICE" paws run \
     --image "$PLAYWRIGHT_IMAGE" \
     --workdir "$workdir" \
-    --env CI=true --env PLAYWRIGHT_WORKERS --env VITEST_WORKERS --env CI_RUN_ID --env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
+    --env CI=true --env PLAYWRIGHT_WORKERS --env VITEST_WORKERS --env CI_RUN_ID \
     --cache fathom-ci-pnpm-store=/pnpm-store \
-    --cache fathom-ci-corepack=/root/.cache/node/corepack \
     "${TIMED[@]}"
 }
 
