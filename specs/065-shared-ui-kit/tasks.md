@@ -63,7 +63,7 @@ commits. Tick tasks in a final, separate commit.
 
 Each task below writes `packages/ui/harness/pieces/<id>.tsx` (every state), `packages/ui/tests/unit/<id>.test.tsx` and `packages/ui/tests/e2e/<id>.spec.ts`, per contracts/harness.md. Keyboard and focus are asserted, and so is `expectAccessible` for every state.
 
-- [ ] T016 [P] Pieces A, states and feedback:
+- [X] T016 [P] Pieces A, states and feedback:
   - `refusal-text` (denied, error, offline);
   - `load-failed` (with Retry, and without);
   - `load-state` (loading, failed, loaded);
@@ -73,7 +73,7 @@ Each task below writes `packages/ui/harness/pieces/<id>.tsx` (every state), `pac
   - `page-error-boundary` (thrown, with Reload);
   - `page`;
   - `page-header` (page, with intro and guide).
-- [ ] T017 [P] Pieces B, interaction:
+- [X] T017 [P] Pieces B, interaction:
   - `dialog` (open and close, focus trap, return focus);
   - `confirm-dialog` (preview, affected, step-up, denied, done);
   - `copy-block` (copy, masked reveal);
