@@ -119,8 +119,8 @@ Each task below writes `packages/ui/harness/pieces/<id>.tsx` (every state), `pac
 - the perf-10k spec passes;
 - the new pane failed-to-load and pane crash specs pass.
 
-- [ ] T025 [US3] Extend the kit's `DataTable` with the optional `sort`, `selection`, `rowKey` and `rowActions` props, and `Column.sortable` (data-model.md). Keel passes none of them, so `s065` must still pass. Add harness states (sortable, selectable, with actions) to `packages/ui/harness/pieces/data-table.tsx`, and specs in `packages/ui/tests/e2e/data-table.spec.ts`.
-- [ ] T026 [US3] Build the kit's `DataGrid` in `packages/ui/src/kit/DataGrid.tsx`, with `column-budget.ts` moved from `ui/src/layout/column-budget.ts` (R8). It is a controlled, virtualized ARIA grid, with:
+- [x] T025 [US3] Extend the kit's `DataTable` with the optional `sort`, `selection`, `rowKey` and `rowActions` props, and `Column.sortable` (data-model.md). Keel passes none of them, so `s065` must still pass. Add harness states (sortable, selectable, with actions) to `packages/ui/harness/pieces/data-table.tsx`, and specs in `packages/ui/tests/e2e/data-table.spec.ts`.
+- [x] T026 [US3] Build the kit's `DataGrid` in `packages/ui/src/kit/DataGrid.tsx`, with `column-budget.ts` moved from `ui/src/layout/column-budget.ts` (R8). It is a controlled, virtualized ARIA grid, with:
   - column priorities;
   - roving focus and keyboard movement;
   - long-press and ⋯ row actions;
@@ -129,7 +129,7 @@ Each task below writes `packages/ui/harness/pieces/<id>.tsx` (every state), `pac
   - Keel's header, row and status styling.
 
   Add a harness fixture with 10,000 rows. The spec asserts no more than about 60 rows in the DOM, keyboard navigation, sort, selection, actions, and axe.
-- [ ] T027 [US3] Add `PageHeader` `size="pane"`, with `lead`, `count` and `rootProps` (R9). Add `typedConfirm` to `ConfirmDialog` (R9). Add harness states and spec cases for both.
+- [x] T027 [US3] Add `PageHeader` `size="pane"`, with `lead`, `count` and `rootProps` (R9). Add `typedConfirm` to `ConfirmDialog` (R9). Add harness states and spec cases for both.
 - [ ] T028 [US3] Rewrite `ui/src/components/ResourceTable.tsx` as an adapter over `DataGrid`. The store, descriptors, compiled search, capabilities and `RowActionMenu` stay in Fathom. Keep every `data-testid` and role its suite uses.
 - [ ] T029 [US3] Adopt the following in Fathom:
   - the kit's pane header in `ui/src/components/shell/PaneHost.tsx`, with `paneDragProps` on `rootProps` and `PaneSlotMenu` in `lead`;
