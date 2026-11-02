@@ -4,8 +4,7 @@
  * navigation through without asking (after the save it was waiting for has started).
  */
 import { useCallback, useEffect, useRef } from 'react'
-
-import { setNavigationGuard } from '@/app/router'
+import { setNavigationGuard } from '@companion/ui/kit'
 
 export const UNSAVED_PROMPT = 'You have unsaved changes. Leave and discard them?'
 

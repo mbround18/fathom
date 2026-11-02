@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { navigate, setNavigationGuard } from '@companion/ui/kit'
 
-import { navigate, setNavigationGuard } from '@/app/router'
 import { problemText, serverProblems, yamlProblems } from '@/features/editor/problems'
 
 describe('yamlProblems', () => {

@@ -8,7 +8,9 @@
  * `compact` is the narrow tree beside the listing on the widest layout (FR-023): one line per
  * mount, the current one marked.
  */
-import { Link } from '@/app/Link'
+
+import { Link } from '@companion/ui/kit'
+
 import type { Mount, MountState } from '@/protocol/generated'
 
 import { filesHref } from './model'

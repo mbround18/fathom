@@ -16,9 +16,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@companion/ui'
+import { Link } from '@companion/ui/kit'
 import { useState } from 'react'
 
-import { Link } from '@/app/Link'
 import { useSession } from '@/app/session-store'
 import type { NetworkAnswer } from '@/protocol/generated'
 

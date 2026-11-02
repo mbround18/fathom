@@ -1,6 +1,7 @@
 import { ArrowsClockwiseIcon, ClipboardTextIcon, DevicesIcon, MoonIcon, RowsIcon, SignOutIcon, SunIcon, UsersIcon } from '@phosphor-icons/react'
 import { BrandMark } from '@companion/theme'
 import { Button, ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@companion/ui'
+import { Link, usePath } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 
 import { BRAND_GLYPH, BRAND_NAME } from '@/brand'
@@ -8,8 +9,6 @@ import { useUpdatesBadge } from '@/features/updates/badge-store'
 import { useTabs } from '@/features/tabs/store'
 import { useWide } from '@/features/tabs/useWide'
 
-import { Link } from './Link'
-import { usePath } from './router'
 import { useSession } from './session-store'
 import { useTheme } from './theme-store'
 

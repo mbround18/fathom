@@ -17,10 +17,9 @@
 import { ArrowLeftIcon, FloppyDiskIcon, RocketLaunchIcon } from '@phosphor-icons/react'
 import { YamlDiffView } from '@companion/terminal'
 import { Button } from '@companion/ui'
+import { Link, navigate, type Params } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
-import { Link } from '@/app/Link'
-import { navigate, type Params } from '@/app/router'
 import { useSession } from '@/app/session-store'
 import type { EnvText, StackDetail } from '@/protocol/generated'
 import { DENY_TEXT } from '@/features/stacks/argv'

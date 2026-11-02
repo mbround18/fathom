@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react'
+import type { Params } from '@companion/ui/kit'
 
-import type { Params } from '@/app/router'
 import { PageFallback } from '@/app/routes'
 import { useMedia } from '@/app/useMedia'
 

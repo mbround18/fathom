@@ -12,10 +12,9 @@
  */
 import { ArrowLeftIcon, PencilSimpleIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
+import { Link, type Params } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 
-import { Link } from '@/app/Link'
-import type { Params } from '@/app/router'
 import { useSession } from '@/app/session-store'
 import { useCanReveal, useReveal } from '@/features/editor/reveal-store'
 import { filesHref, filesReason, parseFilesRest, showFilesTab, type FilesLocation } from '@/features/files/model'

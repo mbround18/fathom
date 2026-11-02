@@ -1,7 +1,7 @@
 import { WarningIcon } from '@phosphor-icons/react'
 import { memo } from 'react'
+import { Link } from '@companion/ui/kit'
 
-import { Link } from '@/app/Link'
 import type { ForeignProject, Stack } from '@/protocol/generated'
 
 import { blockedReason, formatTime, stackHref, stackNotes, type StackNote } from './model'

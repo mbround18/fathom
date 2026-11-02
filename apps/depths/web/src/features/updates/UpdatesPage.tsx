@@ -22,10 +22,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@companion/ui'
+import { Link } from '@companion/ui/kit'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { Link } from '@/app/Link'
 import { useUntrusted } from '@/features/network/model'
 import { formatTime } from '@/features/stacks/model'
 import type { ServiceUpdate, UpdateChange, UpdatesView, UpdateSettings } from '@/protocol/generated'

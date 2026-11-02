@@ -129,7 +129,7 @@ test("a grant change applies at the user's next command; removing the last stack
   await page.getByRole('link', { name: 'Stacks' }).first().click()
   await page.evaluate(() => {
     history.pushState(null, '', '/stacks/y')
-    dispatchEvent(new Event('depths:navigate'))
+    dispatchEvent(new Event('companion:navigate'))
   })
   await expect(page.getByRole('heading', { name: 'y', level: 1 })).toBeVisible()
   expect(backend.http.filter((h) => h.path === '/api/v1/me')).toHaveLength(1)

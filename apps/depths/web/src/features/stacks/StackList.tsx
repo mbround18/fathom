@@ -6,8 +6,8 @@
 import { MagnifyingGlassIcon, PlusIcon, WarningOctagonIcon } from '@phosphor-icons/react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useMemo, useRef } from 'react'
+import { Link } from '@companion/ui/kit'
 
-import { Link } from '@/app/Link'
 import { useSession } from '@/app/session-store'
 import type { Container, ForeignProject, Stack } from '@/protocol/generated'
 

@@ -6,9 +6,9 @@
  */
 import { ArrowLeftIcon, PlusIcon, RocketLaunchIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
+import { Link } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 
-import { Link } from '@/app/Link'
 import { useSession } from '@/app/session-store'
 import { yamlProblems } from '@/features/editor/problems'
 import { useUntrusted } from '@/features/network/model'

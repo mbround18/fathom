@@ -18,9 +18,9 @@
  */
 import { ArrowLeftIcon, ClockCounterClockwiseIcon, DownloadSimpleIcon, FloppyDiskIcon, WarningIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
+import { Link } from '@companion/ui/kit'
 import { useMemo, useState } from 'react'
 
-import { Link } from '@/app/Link'
 import { CodeEditor } from '@/features/editor/CodeEditor'
 import { useUnsavedGuard } from '@/features/editor/useUnsavedGuard'
 import { formatBytes } from '@/features/stacks/metrics'

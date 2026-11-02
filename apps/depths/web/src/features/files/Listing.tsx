@@ -34,11 +34,10 @@ import {
   UploadSimpleIcon,
 } from '@phosphor-icons/react'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@companion/ui'
+import { Link, navigate } from '@companion/ui/kit'
 import { useMemo, useRef, useState, type DragEvent, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 
-import { Link } from '@/app/Link'
-import { navigate } from '@/app/router'
 import { formatBytes } from '@/features/stacks/metrics'
 import { formatTime } from '@/features/stacks/model'
 import type { Entry } from '@/protocol/generated'

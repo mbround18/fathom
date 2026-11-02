@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { matchPath } from '@companion/ui/kit'
 
-import { matchPath } from '@/app/router'
 import {
   downloadHref,
   filesHref,

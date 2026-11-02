@@ -19,9 +19,8 @@ import {
   DialogTitle,
   Input,
 } from '@companion/ui'
+import { Link } from '@companion/ui/kit'
 import { useEffect, useId, useState, type SyntheticEvent } from 'react'
-
-import { Link } from '@/app/Link'
 
 import { usePasskeys, type PasskeyPhase } from './store'
 

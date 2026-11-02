@@ -6,8 +6,8 @@
  * says nothing about what is there. The server refuses their commands regardless (FR-032).
  */
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react'
+import { matchPath, type Params, usePath } from '@companion/ui/kit'
 
-import { matchPath, usePath, type Params } from './router'
 import { useSession } from './session-store'
 
 interface Route {

@@ -1,4 +1,4 @@
-import { Link } from '@/app/Link'
+import { Link } from '@companion/ui/kit'
 
 export default function NotFound() {
   return (

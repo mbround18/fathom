@@ -5,10 +5,10 @@
  * everyone sees CPU and memory per stack they may view, busiest first.
  */
 import { useEffect, useMemo } from 'react'
+import { Link } from '@companion/ui/kit'
 
 import { WarningIcon } from '@phosphor-icons/react'
 
-import { Link } from '@/app/Link'
 import { useSession } from '@/app/session-store'
 import { useStreams, watchStatsAll } from '@/features/tabs/streams'
 import { MAX_STATS_TARGETS, type StackStatus } from '@/protocol/generated'
