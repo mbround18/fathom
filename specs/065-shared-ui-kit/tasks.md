@@ -94,21 +94,21 @@ Each task below writes `packages/ui/harness/pieces/<id>.tsx` (every state), `pac
 - Depths' unit and e2e suites pass;
 - the new failed-to-load and crash specs pass.
 
-- [ ] T019 [US2] Replace `apps/depths/web/src/app/router.ts` and `Link.tsx` with the kit's. Update `apps/depths/web/tests/e2e/us5-access/users.spec.ts` from `depths:navigate` to `companion:navigate`.
-- [ ] T020 [US2] Wrap Depths' root in `KitProvider` in `apps/depths/web/src/app/App.tsx`, with no guides and no glossary. Rebuild `apps/depths/web/src/app/Shell.tsx` on `NavShell`, with grouped sections and the updates dot. Wrap every routed page in `PageErrorBoundary` in `apps/depths/web/src/app/routes.tsx` (FR-010).
-- [ ] T021 [US2] Every Depths list read (stacks, files, sessions, passkeys, users, audit, network, updates):
+- [x] T019 [US2] Replace `apps/depths/web/src/app/router.ts` and `Link.tsx` with the kit's. Update `apps/depths/web/tests/e2e/us5-access/users.spec.ts` from `depths:navigate` to `companion:navigate`.
+- [x] T020 [US2] Wrap Depths' root in `KitProvider` in `apps/depths/web/src/app/App.tsx`, with no guides and no glossary. Rebuild `apps/depths/web/src/app/Shell.tsx` on `NavShell`, with grouped sections and the updates dot. Wrap every routed page in `PageErrorBoundary` in `apps/depths/web/src/app/routes.tsx` (FR-010).
+- [x] T021 [US2] Every Depths list read (stacks, files, sessions, passkeys, users, audit, network, updates):
   - map its HTTP and socket errors to the kit's `Refusal` in `apps/depths/web/src/protocol/` (a new `refusal.ts`), with `OFFLINE` in Depths' own words;
   - show `LoadState`/`LoadFailed` with Retry in each feature page under `apps/depths/web/src/features/*/` (FR-009).
-- [ ] T022 [US2] Adopt the following in `apps/depths/web/src/features/*/`, keeping Depths' text and its existing `data-` markers:
+- [x] T022 [US2] Adopt the following in `apps/depths/web/src/features/*/`, keeping Depths' text and its existing `data-` markers:
   - `PageHeader` and `Page` on every page;
   - `EmptyState` and `NoMatch` where lists are empty or filtered;
   - `ConfirmDialog` for Depths' confirmations, with passkey step-up where the server asks for it;
   - `DataTable` for the tables;
   - `CopyBlock` for copyable values.
-- [ ] T023 [US2] Add `apps/depths/web/tests/e2e/shell/kit-states.spec.ts`:
+- [x] T023 [US2] Add `apps/depths/web/tests/e2e/shell/kit-states.spec.ts`:
   - one failed load per list, each showing "Failed to load {what}." with the reason and Retry (SC-004);
   - one crashing page, showing the crash state with the navigation still usable (SC-005).
-- [ ] T024 [US2] Run Depths' `lint`, `typecheck`, `test` and `build`, and its e2e suite one project at a time (`PLAYWRIGHT_WORKERS=2`). List Depths' visible changes under 065 in `CHANGELOG.md` (FR-011).
+- [x] T024 [US2] Run Depths' `lint`, `typecheck`, `test` and `build`, and its e2e suite one project at a time (`PLAYWRIGHT_WORKERS=2`). List Depths' visible changes under 065 in `CHANGELOG.md` (FR-011).
 
 ## Phase 6: User Story 3 – Fathom uses the shared pieces inside its panes (P3)
 
