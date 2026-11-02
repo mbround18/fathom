@@ -64,13 +64,13 @@ import {
 
 import { CASCADE_FIRST_SLOT } from '@/layout/cascade'
 import { paneDragProps, PaneSlotMenu } from '@/layout/PaneHeader'
+import { LoadFailed, PageErrorBoundary, PageHeader } from '@companion/ui/kit'
 
 import { cascadeWaitingTitle, paneTitle } from './labels'
 import { FirstRunState } from './FirstRunState'
 import {
   Disconnected,
   Empty,
-  ErrorState,
   Loading,
   NoLongerExists,
   NotPermitted,
@@ -165,51 +165,82 @@ export function PaneHost({ paneId, slotIndex, className }: PaneHostProps) {
       onFocusCapture={onFocusWithin}
       className={cn('flex h-full min-h-0 min-w-0 flex-col bg-background', className)}
     >
-      <header
-        className="flex h-[max(2rem,var(--touch-target))] shrink-0 items-center gap-2 border-b border-border bg-card px-2"
-        {...(pane.kind === 'list' && slotIndex !== undefined ? paneDragProps(pane.id) : {})}
-      >
-        {slotIndex !== undefined && (
-          <span aria-hidden="true" className="text-xs text-accent-neon">
-            {String(slotIndex + 1).padStart(2, '0')}
-          </span>
-        )}
-        <h2
-          className={cn(
-            'min-w-0 truncate text-xs font-semibold',
-            pane.kind === 'inspector' && pane.target
-              ? 'font-mono text-accent-neon'
-              : 'font-display tracking-wider uppercase',
-          )}
-        >
-          {title}
-        </h2>
-        <span className="ml-auto" />
-        {pane.kind === 'list' && slotIndex !== undefined && <PaneSlotMenu paneId={pane.id} />}
-        {pane.kind === 'list' && <ListActions pane={pane} />}
-        {pane.kind === 'inspector' && pane.target && (
-          <InspectorActions
-            target={pane.target}
-            {...(pane.source !== undefined ? { source: pane.source } : {})}
-          />
-        )}
-        {pane.kind === 'inspector' && pane.target && (
-          <RoleBindingEditLauncherSlot target={pane.target} />
-        )}
-        {pane.kind === 'inspector' && pane.target && <RoleEditLauncherSlot target={pane.target} />}
-      </header>
+      <PageHeader
+        size="pane"
+        title={
+          pane.kind === 'inspector' && pane.target ? (
+            <span className="font-mono tracking-normal text-accent-neon normal-case">{title}</span>
+          ) : (
+            title
+          )
+        }
+        lead={
+          slotIndex !== undefined && (
+            <>
+              <span aria-hidden="true" className="text-xs text-accent-neon">
+                {String(slotIndex + 1).padStart(2, '0')}
+              </span>
+              {pane.kind === 'list' && <PaneSlotMenu paneId={pane.id} />}
+            </>
+          )
+        }
+        actions={
+          pane.kind === 'list' ? (
+            <ListActions pane={pane} />
+          ) : pane.kind === 'inspector' && pane.target ? (
+            <>
+              <InspectorActions
+                target={pane.target}
+                {...(pane.source !== undefined ? { source: pane.source } : {})}
+              />
+              <RoleBindingEditLauncherSlot target={pane.target} />
+              <RoleEditLauncherSlot target={pane.target} />
+            </>
+          ) : undefined
+        }
+        {...(pane.kind === 'list' && slotIndex !== undefined
+          ? { rootProps: paneDragProps(pane.id) }
+          : {})}
+      />
       {pane.kind === 'list' && <PaneSearch pane={pane} />}
-      {selfScrolling ? (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <PaneBody pane={pane} />
-        </div>
-      ) : (
-        <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto">
-          <PaneBody pane={pane} />
-        </div>
-      )}
+      {/* FR-013: a pane that throws shows the kit's failed state in its own column; the shell and
+          the other panes keep working, and showing something else (a new view) clears it. */}
+      <PageErrorBoundary resetKey={paneView(pane)}>
+        {selfScrolling ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <PaneBody pane={pane} />
+          </div>
+        ) : (
+          <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto">
+            <PaneBody pane={pane} />
+          </div>
+        )}
+      </PageErrorBoundary>
     </section>
   )
+}
+
+/** What a pane shows: its error boundary clears when this changes. */
+function paneView(pane: PaneState): string {
+  const t = pane.target
+  return [
+    pane.kind,
+    pane.route?.section ?? '',
+    pane.kind === 'tool' ? pane.tool : '',
+    t ? `${t.kind}/${t.namespace ?? ''}/${t.name}` : '',
+  ].join('|')
+}
+
+/**
+ * Fake builds only (spec 065 T030): `?crash=<section>` makes that section's list pane throw, so
+ * the e2e can show a crash stays in its pane. Vite folds `VITE_TRANSPORT` at build time, so this
+ * is gone from every other build.
+ */
+function fakeCrash(section: string | undefined): void {
+  if (import.meta.env.VITE_TRANSPORT !== 'fake' || section === undefined) return
+  if (new URLSearchParams(globalThis.location.search).get('crash') === section) {
+    throw new Error(`Fake crash in ${section} (?crash=${section}).`)
+  }
 }
 
 /**
@@ -432,6 +463,7 @@ function ListBody({ pane }: { pane: PaneState }) {
     section === undefined ? undefined : s.denied[deniedKey(ctx, deniedVia(section))],
   )
 
+  fakeCrash(section)
   if (disconnected) return <Disconnected />
   if (section === undefined) {
     return <Empty title="Pick a section" detail="Choose a resource type from the navigator." />
@@ -540,12 +572,15 @@ function ListBody({ pane }: { pane: PaneState }) {
         />
       )
     }
+    // The backend sends a plain message with no code: the kit's message-only refusal.
     return (
-      <ErrorState
-        title={`Cannot list ${descriptor.label.toLowerCase()}`}
-        detail={list.error}
-        onRetry={() => refreshSection(section)}
-      />
+      <div className="p-4">
+        <LoadFailed
+          what={descriptor.label.toLowerCase()}
+          refusal={{ kind: 'error', code: 'offline', message: list.error ?? 'Unknown error' }}
+          onRetry={() => refreshSection(section)}
+        />
+      </div>
     )
   }
   return (

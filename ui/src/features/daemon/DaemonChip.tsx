@@ -3,9 +3,9 @@
  * 043 US4: the chip always names itself ("Daemon: Off"), and the dialog explains what the
  * daemon is and what its switch does.
  */
-import { CopyIcon, HardDrivesIcon } from '@phosphor-icons/react'
+import { HardDrivesIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
-import { toast } from 'sonner'
+import { CopyBlock } from '@companion/ui/kit'
 
 import {
   Button,
@@ -53,12 +53,6 @@ export function DaemonChip({ compact }: { compact: boolean }) {
   const enabled = state !== 'off'
   const caps = daemon.status?.capabilities
   const detail = daemon.status?.detail
-
-  const copy = () => {
-    void navigator.clipboard.writeText(INSTALL_COMMAND).then(() => {
-      toast.success('Copied install command')
-    })
-  }
 
   return (
     <>
@@ -151,21 +145,7 @@ export function DaemonChip({ compact }: { compact: boolean }) {
                 To install it yourself, run this against the cluster (Fathom never does this for
                 you):
               </p>
-              <div className="flex items-center gap-2">
-                <code className="min-w-0 flex-1 overflow-x-auto border border-border bg-muted px-2 py-1 text-xs">
-                  {INSTALL_COMMAND}
-                </code>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label="Copy install command"
-                  data-testid="daemon-copy-install"
-                  onClick={copy}
-                  className="size-[var(--touch-target)] shrink-0"
-                >
-                  <CopyIcon />
-                </Button>
-              </div>
+              <CopyBlock label="Install command" value={INSTALL_COMMAND} data="daemon-install" />
             </div>
           )}
 
