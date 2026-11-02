@@ -6,3 +6,4 @@
 export { KitProvider, useKit, type GlossaryEntry, type GuideRef, type KitContext } from './provider'
 export { matchPath, navigate, setNavigationGuard, useHash, usePath, useSearchParam, type Params } from './router'
 export { Link } from './Link'
+export { isTransportFailure, type ListHandlers, type ListLoad, type Refusal } from './refusal'

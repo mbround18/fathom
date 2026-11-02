@@ -6,7 +6,7 @@
 import { WarningOctagonIcon } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
 
-import { isTransportFailure, type Refusal } from '@/app/load'
+import { isTransportFailure, type Refusal } from '@companion/ui/kit'
 
 export function RefusalText({ refusal, lead }: { refusal: Refusal; lead?: ReactNode }) {
   return (
