@@ -84,7 +84,7 @@ Each task below writes `packages/ui/harness/pieces/<id>.tsx` (every state), `pac
   - `term-tip` (opens on keyboard and pointer, Escape closes);
   - `router`/`link` (a plain click navigates, a modified click doesn't);
   - `nav-shell` (groups, badge, dot, the 360 px sheet).
-- [ ] T018 Run impeccable over the harness: `KIT_SHOTS=<dir> pnpm --filter @companion/ui e2e`, then an impeccable audit and polish of every piece at 360 and 1280 px, light and dark (FR-018). Fix findings in the kit, once. If a fix changes Keel's look, regenerate Keel's `s065` goldens, and list the change in `CHANGELOG.md`.
+- [X] T018 Run impeccable over the harness: `KIT_SHOTS=<dir> pnpm --filter @companion/ui e2e`, then an impeccable audit and polish of every piece at 360 and 1280 px, light and dark (FR-018). Fix findings in the kit, once. If a fix changes Keel's look, regenerate Keel's `s065` goldens, and list the change in `CHANGELOG.md`.
 
 ## Phase 5: User Story 2 – Depths looks and behaves like Keel (P2)
 
