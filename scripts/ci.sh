@@ -124,6 +124,8 @@ job_shared() {
   node_run . \
     --step "$N pnpm -w run lint:packages" \
     --step "$N pnpm -w run typecheck:packages" \
+    --step "$N pnpm --filter @companion/ui test" \
+    --step "$N pnpm --filter @companion/ui e2e --workers=\"\$PLAYWRIGHT_WORKERS\"" \
     --step "$N pnpm audit --prod --audit-level high"
 }
 
