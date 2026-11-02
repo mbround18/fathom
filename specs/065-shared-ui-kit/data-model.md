@@ -30,6 +30,8 @@ interface KitContext {
   isGuide?: (slug: string) => boolean
   /** The app's glossary. Absent: TermTip renders nothing. */
   glossary?: Readonly<Record<string, GlossaryEntry>>
+  /** The bundled URL of a guide image (`img/<name>`). Absent or `undefined`: the image shows as a link. */
+  guideImage?: (name: string) => string | undefined
 }
 interface GuideRef { guide: string; anchor?: string }
 interface GlossaryEntry { term: string; text: string; guide?: GuideRef }

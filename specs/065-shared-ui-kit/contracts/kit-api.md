@@ -34,11 +34,11 @@ Keel files are under `apps/keel/web/src`.
 | `tabs` | `Tabs`, type `TabItem` | `ui/Tabs.tsx` | `data-tab` | as today | moved |
 | `data-table` | `DataTable`, type `Column` | `ui/DataTable.tsx` | `data-pane-state` | columns, rows | adds `sort?`, `selection?`, `rowKey?`, `rowActions?`, and `Column.sortable?` (data-model.md) |
 | `data-grid` | `DataGrid`, type `GridColumn`, `computeVisibleColumns` | Fathom `ui/src/components/ResourceTable.tsx` (engine), `ui/src/layout/column-budget.ts` | Fathom's grid markers and `data-testid`s that its suite uses | rows, columns, sort, selection, focus, `rowActions`, `onOpen` | new (R8) |
-| `markdown` | `Markdown` (default export) | `ui/Markdown.tsx` | `data-markdown`, `data-image-link` | `isGuide`, `guideHref` | moved |
+| `markdown` | `Markdown` (default export) | `ui/Markdown.tsx` | `data-markdown`, `data-image-link` | `isGuide`, `guideHref`, `guideImage` | moved |
 | `slug` | `slug`, `slugger` | `help/slug.ts` | none | none | moved |
 | `guide-link` | `GuideLink` | `ui/GuideLink.tsx` | `data-guide-link` | `guideHref` | renders nothing without `guideHref` |
 | `term-tip` | `TermTip` | `help/TermTip.tsx` | `data-infotip`, `data-infotip-content` | `glossary` | takes `term: string` (R6) |
-| `nav-shell` | `NavShell`, types `NavGroup`, `NavItem` | markup from `app/Shell.tsx` | `data-nav-group`, `data-nav-badge`, `data-update-dot` | brand, groups, path, `headerEnd`, `banner` | new (R7) |
+| `nav-shell` | `NavShell`, types `NavGroup`, `NavItem` | markup from `app/Shell.tsx` | `data-nav-group`, `data-nav-badge`, `data-update-dot` | brand, groups, path, `headerEnd`, `banner`, `pinned`, `overlay` (rendered after the frame) | new (R7) |
 
 ## Rules
 
