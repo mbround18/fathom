@@ -62,6 +62,11 @@ export default defineConfig({
       testDir: './tests/e2e/s064',
       use: { ...devices['Desktop Chrome'] },
     },
+    // Spec 065: screenshot goldens taken before the shared kit move. Opt in with KEEL_GOLDENS=1:
+    // they were made on the dev box, and another machine's rendering would not match them.
+    ...(process.env.KEEL_GOLDENS
+      ? [{ name: 's065', testDir: './tests/e2e/s065', use: { ...devices['Desktop Chrome'] } }]
+      : []),
   ],
   webServer: {
     // The production bundle, as the server ships it. Built rather than served by the dev server.
