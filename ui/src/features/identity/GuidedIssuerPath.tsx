@@ -13,7 +13,7 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
 import { cn } from 'cn'
 
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import {
   Button,
   Input,
@@ -439,7 +439,7 @@ function Body({
         </p>
       )}
 
-      <ConfirmDialog
+      <ConfirmAction
         open={confirming}
         title={`Save ${typedId}`}
         items={[{ namespace: null, name: typedId }]}
@@ -514,7 +514,7 @@ function StepBody(p: StepProps) {
 }
 
 /** One labelled text field, the density `IssuerSettings` already uses. */
-function Field({
+function IssuerField({
   label,
   testId,
   value,
@@ -578,7 +578,7 @@ function IssuerUrlStep({ draft, dispatch, probe, runProbe }: StepProps) {
         what the provider itself declares, before anything is saved.
       </p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <Field
+        <IssuerField
           label="Issuer URL"
           testId="guided-issuer-url"
           value={draft.config.issuer_url}
@@ -590,7 +590,7 @@ function IssuerUrlStep({ draft, dispatch, probe, runProbe }: StepProps) {
             if (url !== '' && draft.discovery === undefined && probe.state !== 'running') runProbe()
           }}
         />
-        <Field
+        <IssuerField
           label="Issuer id"
           testId="guided-issuer-id"
           value={draft.config.id}
@@ -598,14 +598,14 @@ function IssuerUrlStep({ draft, dispatch, probe, runProbe }: StepProps) {
           disabled={frozen}
           onChange={(id) => set({ id })}
         />
-        <Field
+        <IssuerField
           label="Client ID (public client)"
           testId="guided-client-id"
           value={draft.config.client_id}
           disabled={frozen}
           onChange={(client_id) => set({ client_id })}
         />
-        <Field
+        <IssuerField
           label="Private CA bundle path (optional)"
           testId="guided-ca-bundle"
           value={draft.config.ca_bundle_path ?? ''}
@@ -922,7 +922,7 @@ function ClaimsStep({ draft, dispatch }: StepProps) {
           disabled={frozen}
           onChange={(groups_claim) => set({ groups_claim })}
         />
-        <Field
+        <IssuerField
           label="Username prefix"
           testId="guided-username-prefix"
           value={username_prefix ?? ''}
@@ -930,7 +930,7 @@ function ClaimsStep({ draft, dispatch }: StepProps) {
           disabled={frozen}
           onChange={(v) => set({ username_prefix: v === '' ? null : v })}
         />
-        <Field
+        <IssuerField
           label="Groups prefix"
           testId="guided-groups-prefix"
           value={groups_prefix ?? ''}
@@ -967,7 +967,7 @@ function ClaimPicker({
 }) {
   if (names.length === 0) {
     return (
-      <Field
+      <IssuerField
         label={label}
         testId={testId}
         value={value}
@@ -1291,7 +1291,7 @@ function FathomRolesStep({ draft, dispatch }: StepProps) {
       <div className="flex flex-col gap-3">
         {ROLE_SLOTS.map((slot) => (
           <div key={slot.key} className="flex flex-col gap-1">
-            <Field
+            <IssuerField
               label={slot.label}
               testId={`guided-role-${slot.key}`}
               value={draft.roleMap[slot.key]}
@@ -1650,7 +1650,7 @@ function ApiServerWriteStep({ draft }: StepProps) {
         </Button>
       </div>
 
-      <ConfirmDialog
+      <ConfirmAction
         open={confirming}
         title={`Change how ${cluster} authenticates`}
         items={[{ namespace: null, name: cluster }]}

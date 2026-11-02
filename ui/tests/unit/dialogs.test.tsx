@@ -1,10 +1,10 @@
-/** ConfirmDialog (T092) and ScaleDialog (T095): naming, typed confirm, Esc/Cancel send nothing. */
+/** ConfirmAction (T092, on the kit's ConfirmDialog since 065) and ScaleDialog (T095): naming, typed confirm, Esc/Cancel send nothing. */
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { parseReplicas } from '@/components/action-utils'
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { ScaleDialog } from '@/components/ScaleDialog'
 
 const items = (n: number) =>
@@ -14,7 +14,7 @@ function confirm(n: number) {
   const onConfirm = vi.fn()
   const onCancel = vi.fn()
   render(
-    <ConfirmDialog
+    <ConfirmAction
       open
       title={`Delete ${String(n)} pods?`}
       items={items(n)}
@@ -27,11 +27,11 @@ function confirm(n: number) {
   return { onConfirm, onCancel }
 }
 
-describe('ConfirmDialog', () => {
+describe('ConfirmAction', () => {
   it('names every object by namespace/name', () => {
     confirm(3)
     const names = screen.getAllByTestId('confirm-item').map((li) => li.textContent)
-    expect(names).toEqual(['✖default/api-0', '✖default/api-1', '✖default/api-2'])
+    expect(names).toEqual(['default/api-0', 'default/api-1', 'default/api-2'])
     expect(screen.getByTestId('confirm-typed-count')).toBeTruthy()
   })
 

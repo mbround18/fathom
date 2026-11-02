@@ -13,7 +13,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { Button, Textarea } from '@companion/ui'
 import { capabilityForSection, Gated } from '@/lib/capabilities'
 import type { ObjectRef } from '@/resources'
@@ -171,7 +171,7 @@ export function YamlEditTab({ target, raw }: { target: ObjectRef; raw: string | 
         )}
       </div>
 
-      <ConfirmDialog
+      <ConfirmAction
         open={confirmOpen}
         title={`Apply changes to ${target.name}`}
         items={[{ namespace: target.namespace, name: target.name }]}

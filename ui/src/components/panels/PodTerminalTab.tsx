@@ -16,7 +16,7 @@ import type { PodDetails } from '@/protocol/types'
 import type { ObjectRef } from '@/resources'
 import { detailKey, execAccessKey, useStore } from '@/store'
 
-import { ConfirmDialog } from '../ConfirmDialog'
+import { ConfirmAction } from '../ConfirmAction'
 import { Picker } from '../Picker'
 import { Loading } from '@companion/terminal'
 import { TerminalView, type TerminalPhase } from './TerminalView'
@@ -229,7 +229,7 @@ export function PodTerminalTab({ target }: { target: ObjectRef }) {
           )}
         </div>
       )}
-      <ConfirmDialog
+      <ConfirmAction
         open={phase === 'confirming'}
         title="Open a shell in this container?"
         items={[{ namespace, name }]}

@@ -33,7 +33,7 @@ test('an error result shows the verbatim message and leaves the rows unchanged',
   await clearSent(page)
   await pressDelete(page)
   const dialog = confirmDialog(page)
-  await expect(dialog.getByTestId('confirm-item')).toHaveText([`✖${KEY}`])
+  await expect(dialog.getByTestId('confirm-item')).toHaveText([KEY])
   const id = await nextRequestId(page)
   await dialog.getByTestId('confirm-submit').click()
   await expect.poll(() => sentTypes(page)).toEqual(['DeletePod'])

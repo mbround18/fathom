@@ -8,7 +8,7 @@
  */
 import { useId, useState } from 'react'
 
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { Button, Input } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
 import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
@@ -188,7 +188,7 @@ export function HelmUpgradePanel({
         </section>
       )}
 
-      <ConfirmDialog
+      <ConfirmAction
         open={confirming}
         title="Upgrade Helm release"
         items={[{ namespace, name: release }]}

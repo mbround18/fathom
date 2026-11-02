@@ -20,7 +20,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { Button, Input } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { YamlDiffView } from '@companion/terminal'
 import { exportFilename } from '@/features/manifest-export/clean'
 import { ManifestActions } from '@/features/manifest-export/ManifestActions'
@@ -454,7 +454,7 @@ export function RoleBindingForm(props: RoleBindingFormProps) {
         </div>
       )}
 
-      <ConfirmDialog
+      <ConfirmAction
         open={confirmOpen}
         title={`${mode === 'create' ? 'Create' : 'Apply changes to'} ${name || kind}`}
         items={[{ namespace: effectiveNamespace, name }]}

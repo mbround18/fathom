@@ -5,7 +5,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { YamlDiffView } from '@companion/terminal'
 import { Button, Input } from '@companion/ui'
 import { exportFilename } from '@/features/manifest-export/clean'
@@ -316,7 +316,7 @@ function Body({ onClose, namespace, issuerId, setIssuerId, source, subject: hand
         </div>
       )}
 
-      <ConfirmDialog
+      <ConfirmAction
         open={confirmOpen}
         title={`Create ${bindingName || kind}`}
         items={[{ namespace, name: bindingName }]}

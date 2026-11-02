@@ -13,7 +13,7 @@
  */
 import { useState } from 'react'
 
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
 import { YamlDiffView } from '@companion/terminal'
 import { exportFilename } from '@/features/manifest-export/clean'
@@ -195,7 +195,7 @@ function RollbackAction({
         </>
       )}
 
-      <ConfirmDialog
+      <ConfirmAction
         open={confirmOpen}
         title={`Roll back ${release} to revision ${revision.revision}`}
         items={[{ namespace, name: release }]}

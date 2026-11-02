@@ -15,7 +15,7 @@ import { ProhibitIcon, StopIcon, TagIcon, TrashIcon } from '@phosphor-icons/reac
 import { useState } from 'react'
 import { toast } from 'sonner'
 
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { Button, Checkbox, Input } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
 import { SECTION } from '@/protocol/commands'
@@ -374,7 +374,7 @@ export function NodeActionsPanel({ nodeName }: { nodeName: string }) {
           )}
       </section>
 
-      <ConfirmDialog
+      <ConfirmAction
         open={confirm !== undefined}
         title={confirmTitle(confirm)}
         items={[{ namespace: null, name: nodeName }]}

@@ -10,7 +10,7 @@ import { selectDetail, useStore, type ActionPrompt, type ListRow } from '@/store
 import type { PodDetails } from '@/protocol/types'
 import type { ReactNode } from 'react'
 
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmAction } from './ConfirmAction'
 import { DebugContainerDialog } from './DebugContainerDialog'
 import { ScaleDialog } from './ScaleDialog'
 
@@ -130,7 +130,7 @@ export function ActionDialogHost() {
       ? `${action.label} ${descriptor.kind.toLowerCase()}?`
       : `${action.label} ${target}?`
   return (
-    <ConfirmDialog
+    <ConfirmAction
       key={`${action.id}:${items.map((i) => i.name).join(',')}`}
       open
       title={title}

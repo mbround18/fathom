@@ -15,7 +15,7 @@
 import { WarningIcon } from '@phosphor-icons/react'
 import { useEffect, useId, useRef, useState } from 'react'
 
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import {
   Button,
   Checkbox,
@@ -268,7 +268,7 @@ function KubeconfigExportDialog({ initial, onClose }: { initial: string; onClose
           )}
         </DialogFooter>
 
-        <ConfirmDialog
+        <ConfirmAction
           open={confirming}
           title="Write kubeconfig file?"
           items={[{ namespace: null, name: context }]}

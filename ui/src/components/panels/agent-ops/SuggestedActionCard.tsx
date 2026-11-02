@@ -10,7 +10,7 @@
  */
 import { useState } from 'react'
 
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { Button } from '@companion/ui'
 import type { AgentObjectRef, ExecutedAction, SuggestedAction } from '@/protocol/types'
 
@@ -162,7 +162,7 @@ export function SuggestedActionCard({
         </p>
       )}
       {planned && resolved && (
-        <ConfirmDialog
+        <ConfirmAction
           open
           title={`${resolved.action.label} ${resolved.descriptor.kind.toLowerCase()}?`}
           items={items}

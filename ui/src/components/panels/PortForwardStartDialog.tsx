@@ -8,7 +8,7 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { useStore } from '@/store'
 import { waitForCommandResult } from '@/store/actions'
 
@@ -134,7 +134,7 @@ export function PortForwardStartDialog({
   }
 
   return (
-    <ConfirmDialog
+    <ConfirmAction
       open={open}
       title="Start port forward"
       items={[{ namespace: target.namespace, name: target.pod }]}

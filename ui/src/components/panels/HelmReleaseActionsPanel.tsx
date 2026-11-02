@@ -19,7 +19,7 @@ import { TrashIcon } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { Button } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
 import { GitOpsWarningBanner } from '@/components/panels/GitOpsWarningBanner'
@@ -110,7 +110,7 @@ export function HelmReleaseActionsPanel({
         )}
       </section>
 
-      <ConfirmDialog
+      <ConfirmAction
         open={confirming}
         title="Uninstall release"
         items={[{ namespace, name: release }]}

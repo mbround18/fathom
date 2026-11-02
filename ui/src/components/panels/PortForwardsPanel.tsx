@@ -9,7 +9,7 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Button, Checkbox } from '@companion/ui'
 import { Gated } from '@/lib/capabilities'
@@ -91,7 +91,7 @@ export function PortForwardsPanel() {
         ))}
       </ul>
 
-      <ConfirmDialog
+      <ConfirmAction
         open={removeTarget !== undefined}
         title="Remove port forward"
         items={removeTarget ? [{ namespace: removeTarget.namespace, name: removeTarget.pod }] : []}
@@ -115,7 +115,7 @@ export function PortForwardsPanel() {
         }}
       />
 
-      <ConfirmDialog
+      <ConfirmAction
         open={stopTarget !== undefined}
         title="Stop port forward"
         items={stopTarget ? [{ namespace: stopTarget.namespace, name: stopTarget.pod }] : []}

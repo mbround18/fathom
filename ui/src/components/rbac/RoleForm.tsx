@@ -19,7 +19,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { Button, Input } from '@companion/ui'
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { YamlDiffView } from '@companion/terminal'
 import { exportFilename } from '@/features/manifest-export/clean'
 import { ManifestActions } from '@/features/manifest-export/ManifestActions'
@@ -468,7 +468,7 @@ export function RoleForm(props: RoleFormProps) {
         </div>
       )}
 
-      <ConfirmDialog
+      <ConfirmAction
         open={confirmOpen}
         title={`${mode === 'create' ? 'Create' : 'Apply changes to'} ${kind} ${name}`}
         items={[{ namespace: effectiveNamespace, name }]}

@@ -16,7 +16,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { Button } from '@companion/ui'
 import {
   DISCLOSURE_TEXT,
@@ -146,7 +146,7 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
         </Button>
       </div>
       {confirmingClear && (
-        <ConfirmDialog
+        <ConfirmAction
           open
           title="Clear conversation history?"
           items={[{ namespace: object.namespace, name: object.name }]}
@@ -162,7 +162,7 @@ export function AgentPanel({ object }: { object: AgentObjectRef }) {
         />
       )}
       {confirmingSend && (
-        <ConfirmDialog
+        <ConfirmAction
           open
           title={DISCLOSURE_TITLE}
           items={[{ namespace: object.namespace, name: object.name }]}

@@ -47,7 +47,7 @@ test.describe('US3 bulk delete', () => {
     await pressDelete(page)
     const dialog = confirmDialog(page)
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByTestId('confirm-item')).toHaveText(THREE.map((p) => `✖${key(p)}`))
+    await expect(dialog.getByTestId('confirm-item')).toHaveText(THREE.map((p) => key(p)))
     // Any bulk delete makes the user state the count (`TYPED_CONFIRM_THRESHOLD`), so the
     // destructive button is never armed on first paint here.
     await expect(dialog.getByTestId('confirm-submit')).toBeDisabled()
@@ -111,7 +111,7 @@ test.describe('US3 bulk delete', () => {
     await clearSent(page)
     await page.getByTestId('bulk-delete').click()
     const dialog = confirmDialog(page)
-    await expect(dialog.getByTestId('confirm-item')).toHaveText(two.map((d) => `✖${key(d)}`))
+    await expect(dialog.getByTestId('confirm-item')).toHaveText(two.map((d) => key(d)))
     await dialog.getByTestId('confirm-typed-count').fill('2')
     await dialog.getByTestId('confirm-submit').click()
     await expect

@@ -10,7 +10,7 @@
 import { ShieldWarningIcon, StopIcon, TerminalWindowIcon, TrashIcon } from '@phosphor-icons/react'
 import { useEffect, useRef, useState } from 'react'
 
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { Button, Input } from '@companion/ui'
 import type { NodeDetails, OrphanedNodeShellPod } from '@/protocol/types'
 import { detailKey, useStore } from '@/store'
@@ -305,7 +305,7 @@ export function NodeShellPanel({ nodeName }: { nodeName: string }) {
         ))}
       </section>
 
-      <ConfirmDialog
+      <ConfirmAction
         open={confirmOpen}
         title="Open node shell"
         // Two entries, but one action: the node being opened and the pod that will be created
@@ -329,7 +329,7 @@ export function NodeShellPanel({ nodeName }: { nodeName: string }) {
         onConfirm={start}
         onCancel={() => setConfirmOpen(false)}
       />
-      <ConfirmDialog
+      <ConfirmAction
         open={orphanTarget !== undefined}
         title="Delete leftover pod"
         items={orphanTarget ? [{ namespace: orphanTarget.namespace, name: orphanTarget.name }] : []}

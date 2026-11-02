@@ -244,7 +244,7 @@ test.describe('US3 edit/delete RoleBinding', () => {
 
     const dialog = confirmDialog(page)
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByTestId('confirm-item')).toHaveText([`✖${key}`])
+    await expect(dialog.getByTestId('confirm-item')).toHaveText([key])
 
     await dialog.getByTestId('confirm-submit').click()
     await expect

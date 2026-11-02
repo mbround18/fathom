@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react'
 
-import { ConfirmDialog } from '@/components/ConfirmDialog'
+import { ConfirmAction } from '@/components/ConfirmAction'
 import { Button } from '@companion/ui'
 import { ClusterNodes } from '@/features/containers/ClusterNodes'
 import { useBackingContainers } from '@/features/containers/useBackingContainers'
@@ -321,7 +321,7 @@ export function KindClusterPanel() {
         <ProgressView key={op.requestId} op={op} />
       ))}
 
-      <ConfirmDialog
+      <ConfirmAction
         open={confirmingCreate}
         title="Create local cluster"
         items={[{ namespace: null, name }]}
@@ -351,7 +351,7 @@ export function KindClusterPanel() {
         onConfirm={confirmCreate}
         onCancel={() => setConfirmingCreate(false)}
       />
-      <ConfirmDialog
+      <ConfirmAction
         open={deleting !== undefined}
         title="Delete local cluster"
         items={[{ namespace: null, name: deleting ?? '' }]}
