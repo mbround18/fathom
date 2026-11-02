@@ -8,7 +8,7 @@
  */
 import { ArrowsClockwiseIcon, ProhibitIcon } from '@phosphor-icons/react'
 import { Badge, Button } from '@companion/ui'
-import { DataTable, LoadState, type Column } from '@companion/ui/kit'
+import { DataTable, H2, LoadState, type Column } from '@companion/ui/kit'
 import { useEffect, useId } from 'react'
 
 import { useEnroll } from '@/features/hosts/enroll-store'
@@ -17,7 +17,6 @@ import type { AdminApiTokenInfo, ApiTokenState, EnrollmentInfo, EnrollmentState 
 
 import { useSettings } from './store'
 
-const H2 = 'font-display text-base font-semibold'
 
 const ENROLLMENT_STATES: readonly EnrollmentState[] = ['pending', 'used', 'revoked', 'burned', 'expired']
 const API_TOKEN_STATES: readonly ApiTokenState[] = ['active', 'expired', 'revoked']

@@ -19,7 +19,7 @@ import { ChangeDialog } from './ChangeDialog'
 import { GrantEditor } from './GrantEditor'
 import { ROLE_LABEL } from './labels'
 
-import { Field, InlineForm, ListState, Pane } from './parts'
+import { InlineField, InlineForm, ListState, Pane } from './parts'
 import { useGovernance } from './store'
 
 const ROW = 'flex min-h-10 min-w-0 flex-wrap items-center gap-x-3 gap-y-1 border-t border-border px-4 py-2 text-sm first:border-t-0'
@@ -39,12 +39,12 @@ function NewWorkspace({ onDone }: { onDone: () => void }) {
         onDone()
       }}
     >
-      <Field label="Slug" htmlFor={slugId}>
+      <InlineField label="Slug" htmlFor={slugId}>
         <Input id={slugId} value={slug} maxLength={63} pattern="[a-z0-9][a-z0-9\-]{0,62}" title="Lowercase letters, digits and dashes" autoComplete="off" onChange={(e) => setSlug(e.target.value)} />
-      </Field>
-      <Field label="Name" htmlFor={nameId}>
+      </InlineField>
+      <InlineField label="Name" htmlFor={nameId}>
         <Input id={nameId} value={name} maxLength={64} autoComplete="off" onChange={(e) => setName(e.target.value)} />
-      </Field>
+      </InlineField>
       <Button type="submit" disabled={!slug.trim() || !name.trim()}>
         Preview
       </Button>
@@ -70,12 +70,12 @@ function NewProject({ workspace, onDone }: { workspace: WorkspaceInfo; onDone: (
         onDone()
       }}
     >
-      <Field label="Project slug" htmlFor={slugId}>
+      <InlineField label="Project slug" htmlFor={slugId}>
         <Input id={slugId} value={slug} maxLength={63} pattern="[a-z0-9][a-z0-9\-]{0,62}" title="Lowercase letters, digits and dashes" autoComplete="off" onChange={(e) => setSlug(e.target.value)} />
-      </Field>
-      <Field label="Project name" htmlFor={nameId}>
+      </InlineField>
+      <InlineField label="Project name" htmlFor={nameId}>
         <Input id={nameId} value={name} maxLength={64} autoComplete="off" onChange={(e) => setName(e.target.value)} />
-      </Field>
+      </InlineField>
       <Button type="submit" disabled={!slug.trim() || !name.trim()}>
         Preview
       </Button>
@@ -212,9 +212,9 @@ function NewTeam({ onDone }: { onDone: () => void }) {
         onDone()
       }}
     >
-      <Field label="Team name" htmlFor={nameId}>
+      <InlineField label="Team name" htmlFor={nameId}>
         <Input id={nameId} value={name} maxLength={64} autoComplete="off" onChange={(e) => setName(e.target.value)} />
-      </Field>
+      </InlineField>
       <Button type="submit" disabled={!name.trim()}>
         Preview
       </Button>
@@ -238,7 +238,7 @@ function AddMember({ team }: { team: TeamInfo }) {
         setUser('')
       }}
     >
-      <Field label="User" htmlFor={userId}>
+      <InlineField label="User" htmlFor={userId}>
         {candidates ? (
           <Select id={userId} value={user} onChange={(e) => setUser(e.target.value)}>
             <option value="">Choose a user…</option>
@@ -252,7 +252,7 @@ function AddMember({ team }: { team: TeamInfo }) {
         ) : (
           <Input id={userId} value={user} placeholder="User id" autoComplete="off" onChange={(e) => setUser(e.target.value)} />
         )}
-      </Field>
+      </InlineField>
       <Button type="submit" disabled={!user.trim()}>
         Add member
       </Button>

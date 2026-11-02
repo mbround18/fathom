@@ -14,7 +14,7 @@ import { useId, useState } from 'react'
 import type { TeamInfo, TeamRole } from '@/protocol/wire'
 
 import { MAX_PROFILES, PROFILE_PATTERN, ROLE_LABEL, TEAM_ROLES } from './labels'
-import { Field, InlineForm } from './parts'
+import { InlineField, InlineForm } from './parts'
 import { useGovernance } from './store'
 
 function ProfilePicker({
@@ -120,7 +120,7 @@ export function GrantEditor({ team, knownProfiles }: { team: TeamInfo; knownProf
         setProfiles([])
       }}
     >
-      <Field label="Workspace" htmlFor={wsId}>
+      <InlineField label="Workspace" htmlFor={wsId}>
         <Select id={wsId} value={workspace} onChange={(e) => setWorkspace(e.target.value)}>
           <option value="">Choose a workspace…</option>
           {usable.map((w) => (
@@ -129,8 +129,8 @@ export function GrantEditor({ team, knownProfiles }: { team: TeamInfo; knownProf
             </option>
           ))}
         </Select>
-      </Field>
-      <Field label="Role" htmlFor={roleId}>
+      </InlineField>
+      <InlineField label="Role" htmlFor={roleId}>
         <Select id={roleId} value={role} onChange={(e) => setRole(e.target.value as TeamRole)}>
           {TEAM_ROLES.map((r) => (
             <option key={r} value={r}>
@@ -138,7 +138,7 @@ export function GrantEditor({ team, knownProfiles }: { team: TeamInfo; knownProf
             </option>
           ))}
         </Select>
-      </Field>
+      </InlineField>
       <ProfilePicker known={knownProfiles} chosen={profiles} onChange={setProfiles} />
       <Button type="submit" disabled={!workspace}>
         Add grant

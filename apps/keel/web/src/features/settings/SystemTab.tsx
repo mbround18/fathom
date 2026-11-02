@@ -15,7 +15,7 @@
  */
 import { HardDrivesIcon, PlayIcon, PlusIcon, ShieldStarIcon, TrashIcon, TreeStructureIcon } from '@phosphor-icons/react'
 import { Badge, Button, Input } from '@companion/ui'
-import { EmptyState, Link, LoadState } from '@companion/ui/kit'
+import { EmptyState, H2, Link, LoadState } from '@companion/ui/kit'
 import { useEffect, useId, useState } from 'react'
 
 import { NewBinding } from '@/features/bindings/BindingsPage'
@@ -33,7 +33,6 @@ import { UpdateLine } from './UpdateLine'
 /** The System workspace's slug, typed to confirm Remove. */
 const SYSTEM_SLUG = 'keel-system'
 
-const H2 = 'font-display text-base font-semibold'
 const SECTION = 'flex min-w-0 flex-col gap-2 border border-border p-3'
 
 /** `base, web  db` → `['base', 'web', 'db']`, without repeats. */

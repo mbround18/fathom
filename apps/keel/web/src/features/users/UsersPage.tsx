@@ -17,7 +17,7 @@ import { useSettings } from '@/features/settings/store'
 import { canSeeSettings } from '@/features/settings/tabs'
 import { ChangeDialog } from '@/features/teams/ChangeDialog'
 import { INSTANCE_ROLE_LABEL, INSTANCE_ROLES } from '@/features/teams/labels'
-import { Field, InlineForm, ListState, NativeSelect, Pane } from '@/features/teams/parts'
+import { InlineField, InlineForm, ListState, NativeSelect, Pane } from '@/features/teams/parts'
 import { useGovernance } from '@/features/teams/store'
 import type { ApiTokenInfo, InstanceRole, UserInfo } from '@/protocol/wire'
 
@@ -167,10 +167,10 @@ function NewToken({ onDone }: { onDone: () => void }) {
         onDone()
       }}
     >
-      <Field label="Token name" htmlFor={nameId}>
+      <InlineField label="Token name" htmlFor={nameId}>
         <Input id={nameId} value={name} maxLength={64} autoComplete="off" className="text-xs" onChange={(e) => setName(e.target.value)} />
-      </Field>
-      <Field label="Workspace" htmlFor={wsId}>
+      </InlineField>
+      <InlineField label="Workspace" htmlFor={wsId}>
         <Select id={wsId} value={workspace} onChange={(e) => setWorkspace(e.target.value)}>
           <option value="">Choose a workspace…</option>
           {(workspaces ?? [])
@@ -181,8 +181,8 @@ function NewToken({ onDone }: { onDone: () => void }) {
               </option>
             ))}
         </Select>
-      </Field>
-      <Field label="Actions" htmlFor={actionsId}>
+      </InlineField>
+      <InlineField label="Actions" htmlFor={actionsId}>
         <Input
           id={actionsId}
           value={actions}
@@ -191,10 +191,10 @@ function NewToken({ onDone }: { onDone: () => void }) {
           className="font-mono text-xs"
           onChange={(e) => setActions(e.target.value)}
         />
-      </Field>
-      <Field label="Expires in days" htmlFor={daysId}>
+      </InlineField>
+      <InlineField label="Expires in days" htmlFor={daysId}>
         <Input id={daysId} type="number" min={1} max={366} value={days} className="text-xs" onChange={(e) => setDays(e.target.value)} />
-      </Field>
+      </InlineField>
       <Button type="submit" size="sm" disabled={!ready}>
         Preview
       </Button>

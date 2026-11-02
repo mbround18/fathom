@@ -90,7 +90,7 @@ export function NativeSelect({ className = '', ...props }: ComponentProps<'selec
 }
 
 /** A labelled field in an inline form; stacks on narrow screens and stops growing at a name's width. */
-export function Field({ label, htmlFor, children }: { label: string; htmlFor: string; children: ReactNode }) {
+export function InlineField({ label, htmlFor, children }: { label: string; htmlFor: string; children: ReactNode }) {
   return (
     <div className="flex min-w-0 flex-1 basis-48 flex-col gap-1 sm:max-w-72">
       <label htmlFor={htmlFor} className={LABEL}>

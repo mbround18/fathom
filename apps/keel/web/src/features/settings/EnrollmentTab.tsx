@@ -9,7 +9,7 @@
  */
 import { ArrowCounterClockwiseIcon, ArrowsClockwiseIcon, WarningIcon } from '@phosphor-icons/react'
 import { Badge, Button } from '@companion/ui'
-import { LoadState, Tabs } from '@companion/ui/kit'
+import { H2, LoadState, Tabs } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react'
 
 import { useSettings, type SettingsInfo } from './store'
@@ -29,7 +29,6 @@ const Markdown = lazy(() => import('@/help/GuideMarkdown'))
 const TEXTAREA =
   'block w-full min-w-0 resize-y border border-input bg-background p-2 font-mono text-xs outline-none focus-visible:border-accent-neon aria-[invalid=true]:border-status-err'
 const SECTION = 'flex min-w-0 flex-col gap-2'
-const H2 = 'font-display text-base font-semibold'
 
 /** The server's limit on the instructions (keel-server settings.rs). */
 const MAX_INSTRUCTIONS_BYTES = 20 * 1024
