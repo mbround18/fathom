@@ -6,22 +6,20 @@
  * "Learn more": the longer explanation lives in that guide, not on the page. Write the ref as a
  * literal, `guide={{ guide: 'hosts' }}`, so `guide-links.test.ts` can check it. `tip` sits right
  * after the title, outside the `h1`, for a glossary term's `TermTip`.
+ *
+ * `size="pane"` (spec 065 R9) is a pane's compact one-row header instead: `lead` (a slot number, a
+ * slot menu), the title as an `h2`, an optional `count`, then `actions` on the right. `rootProps`
+ * go on the `header`, for a pane's drag handlers. A title that must not be upper-cased wraps itself
+ * in a `normal-case` span.
  */
-import type { ReactNode } from 'react'
+import type { HTMLAttributes, ReactNode } from 'react'
 
 import { H1 } from './form'
 import { GuideLink } from './GuideLink'
 import type { GuideRef } from './provider'
 
-export function PageHeader({
-  id,
-  title,
-  tip,
-  description,
-  guide,
-  actions,
-  children,
-}: {
+interface PageProps {
+  size?: 'page'
   /** The heading's id, for the page's `aria-labelledby`. */
   id: string
   title: ReactNode
@@ -33,7 +31,26 @@ export function PageHeader({
   actions?: ReactNode
   /** A toolbar row under the title (pickers, filters). */
   children?: ReactNode
-}) {
+}
+
+interface PaneProps {
+  size: 'pane'
+  /** The heading's id, for the pane's `aria-labelledby`. */
+  id?: string
+  title: ReactNode
+  tip?: ReactNode
+  /** Before the title: a slot number, a slot menu. */
+  lead?: ReactNode
+  /** After the title, muted: how many items the pane holds. */
+  count?: ReactNode
+  actions?: ReactNode
+  /** On the `header` element: drag handlers, `data-*` markers. */
+  rootProps?: HTMLAttributes<HTMLElement> & { [data: `data-${string}`]: string | undefined }
+}
+
+export function PageHeader(props: PageProps | PaneProps) {
+  if (props.size === 'pane') return <PaneHeader {...props} />
+  const { id, title, tip, description, guide, actions, children } = props
   return (
     <header className="flex min-w-0 flex-col gap-3 border-b border-border pb-4">
       <div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-2">
@@ -57,6 +74,28 @@ export function PageHeader({
         {actions !== undefined && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
       </div>
       {children !== undefined && <div className="flex min-w-0 flex-wrap items-center gap-2">{children}</div>}
+    </header>
+  )
+}
+
+function PaneHeader({ id, title, tip, lead, count, actions, rootProps }: PaneProps) {
+  return (
+    <header
+      {...rootProps}
+      data-pane-header=""
+      className="flex h-[max(2rem,var(--touch-target))] min-w-0 shrink-0 items-center gap-2 border-b border-border bg-card px-2"
+    >
+      {lead}
+      <h2 id={id} className="min-w-0 truncate font-display text-xs font-semibold tracking-wider uppercase">
+        {title}
+      </h2>
+      {tip}
+      {count !== undefined && (
+        <span data-pane-count className="shrink-0 text-xs text-muted-foreground tabular-nums">
+          {count}
+        </span>
+      )}
+      {actions !== undefined && <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div>}
     </header>
   )
 }

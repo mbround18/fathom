@@ -2,12 +2,18 @@
  * The preview → confirm dialog (spec 060 T053) for a change the server previewed: its summary as
  * sent, what else it affects, whether it asks for a passkey, then Cancel or Confirm. Nothing
  * changes until Confirm; Cancel and Escape send nothing.
+ *
+ * `typedConfirm` (spec 065 R9) is for a change too large to confirm with one click: Confirm stays
+ * off until the user types `word`, and Enter in that field confirms once it matches. The field
+ * starts empty each time the dialog opens.
  */
 import { FingerprintIcon } from '@phosphor-icons/react'
 import { Button } from '../button'
-import type { ReactNode } from 'react'
+import { Input } from '../input'
+import { useId, useState, type ReactNode } from 'react'
 
 import { Dialog } from './Dialog'
+import { LABEL } from './form'
 
 export interface Preview {
   summary: string
@@ -59,6 +65,7 @@ export function ConfirmDialog({
   busy = false,
   busyLabel,
   tone = 'default',
+  typedConfirm,
   children,
   ...rest
 }: {
@@ -72,9 +79,18 @@ export function ConfirmDialog({
   busyLabel?: string
   /** `destructive` for a change that removes, cancels or denies: the confirm button says so. */
   tone?: 'default' | 'destructive'
+  /** Confirm only after the user types `word` (a count, a name). */
+  typedConfirm?: { word: string }
   children?: ReactNode
   [data: `data-${string}`]: string | boolean | undefined
 }) {
+  const typedId = useId()
+  // The text belongs to the preview it was typed for, so a new opening starts empty.
+  const [typed, setTyped] = useState<{ for: Preview | null; text: string }>({ for: null, text: '' })
+  // Closing forgets it too, for an app that reopens with the same preview object.
+  if (preview === null && typed.for !== null) setTyped({ for: null, text: '' })
+  const text = typed.for === preview ? typed.text : ''
+  const armed = typedConfirm === undefined || text.trim() === typedConfirm.word
   return (
     <Dialog
       {...rest}
@@ -87,7 +103,7 @@ export function ConfirmDialog({
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
-          <Button variant={tone === 'destructive' ? 'destructive' : 'default'} disabled={busy} onClick={onConfirm}>
+          <Button variant={tone === 'destructive' ? 'destructive' : 'default'} disabled={busy || !armed} onClick={onConfirm}>
             {preview?.step_up && <FingerprintIcon aria-hidden />}
             {busy && busyLabel ? busyLabel : confirmLabel}
           </Button>
@@ -98,6 +114,28 @@ export function ConfirmDialog({
         <>
           <PreviewDetails preview={preview} />
           {children}
+          {typedConfirm && (
+            <div data-typed-confirm className="flex min-w-0 flex-col gap-1">
+              <label htmlFor={typedId} className={LABEL}>
+                Type <strong className="font-mono text-foreground">{typedConfirm.word}</strong> to confirm
+              </label>
+              <Input
+                id={typedId}
+                autoComplete="off"
+                spellCheck={false}
+                value={text}
+                onChange={(e) => {
+                  setTyped({ for: preview, text: e.target.value })
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter') return
+                  e.preventDefault()
+                  if (armed && !busy) onConfirm()
+                }}
+                className="font-mono"
+              />
+            </div>
+          )}
         </>
       )}
     </Dialog>

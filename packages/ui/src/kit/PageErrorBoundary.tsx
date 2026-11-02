@@ -2,6 +2,9 @@
  * Catches a page that throws while rendering, so the shell and nav stay up: "Something went wrong
  * showing this page." with the error's message and a Reload. The route table keys it on the path,
  * so moving to another page clears it. `data-pane-state="error"`.
+ *
+ * `resetKey` (spec 065) clears it without a re-mount: a pane that keeps its boundary passes what it
+ * shows (its target), and a new value renders the children again.
  */
 import { ArrowClockwiseIcon, WarningOctagonIcon } from '@phosphor-icons/react'
 import { Button } from '../button'
@@ -11,11 +14,21 @@ interface State {
   error: Error | null
 }
 
-export class PageErrorBoundary extends Component<{ children: ReactNode }, State> {
+interface Props {
+  children: ReactNode
+  /** A new value clears the error. */
+  resetKey?: unknown
+}
+
+export class PageErrorBoundary extends Component<Props, State> {
   override state: State = { error: null }
 
   static getDerivedStateFromError(error: unknown): State {
     return { error: error instanceof Error ? error : new Error(String(error)) }
+  }
+
+  override componentDidUpdate(prev: Props) {
+    if (this.state.error && !Object.is(prev.resetKey, this.props.resetKey)) this.setState({ error: null })
   }
 
   override render() {
