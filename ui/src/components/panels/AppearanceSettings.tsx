@@ -7,7 +7,7 @@ import { SHORTCUTS } from '@/lib/shortcuts'
 import type { Density, ThemeAccent, ThemeEffects, ThemeMode } from '@/protocol/types'
 import { useStore } from '@/store'
 
-function Select<T extends string>({
+function AppearanceSelect<T extends string>({
   label,
   value,
   options,
@@ -45,25 +45,25 @@ export function AppearanceSettings() {
   return (
     <fieldset className="flex flex-col gap-2" data-testid="appearance-settings">
       <legend className="text-xs font-semibold tracking-wider uppercase">Appearance</legend>
-      <Select<ThemeMode>
+      <AppearanceSelect<ThemeMode>
         label="Mode"
         value={theme.mode}
         options={['dark', 'light']}
         onChange={(mode) => setTheme({ mode })}
       />
-      <Select<ThemeAccent>
+      <AppearanceSelect<ThemeAccent>
         label="Accent"
         value={theme.accent}
         options={['cyan', 'magenta']}
         onChange={(accent) => setTheme({ accent })}
       />
-      <Select<ThemeEffects>
+      <AppearanceSelect<ThemeEffects>
         label="Effects"
         value={theme.effects}
         options={['on', 'off']}
         onChange={(effects) => setTheme({ effects })}
       />
-      <Select<Density | 'auto'>
+      <AppearanceSelect<Density | 'auto'>
         label="Density"
         value={density ?? 'auto'}
         options={['auto', 'comfortable', 'compact']}

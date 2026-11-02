@@ -29,7 +29,7 @@ import { useStore } from '@/store'
 export const TERMINAL_NOTE =
   'These are the fields Fathom can describe in advance. Anything this form does not cover belongs in a terminal: Fathom will not accept a command line it cannot show you first.'
 
-function Field({
+function CreateField({
   label,
   children,
   hint,
@@ -224,7 +224,7 @@ export function CreateContainerForm({ onDone }: { onDone: () => void }) {
 
   return (
     <Frame testId="create-container-form">
-      <Field label="Image">
+      <CreateField label="Image">
         <Input
           data-testid="create-container-image"
           value={image}
@@ -232,16 +232,16 @@ export function CreateContainerForm({ onDone }: { onDone: () => void }) {
           placeholder="busybox:latest"
           onChange={(e) => setImage(e.target.value)}
         />
-      </Field>
-      <Field label="Name" hint="Left empty, the runtime names it.">
+      </CreateField>
+      <CreateField label="Name" hint="Left empty, the runtime names it.">
         <Input
           data-testid="create-container-name"
           value={name}
           autoComplete="off"
           onChange={(e) => setName(e.target.value)}
         />
-      </Field>
-      <Field
+      </CreateField>
+      <CreateField
         label="Ports"
         hint="Host port, then container port. An empty host port only exposes it."
       >
@@ -253,8 +253,8 @@ export function CreateContainerForm({ onDone }: { onDone: () => void }) {
           valueLabel="Container port"
           addLabel="Add a port"
         />
-      </Field>
-      <Field label="Environment">
+      </CreateField>
+      <CreateField label="Environment">
         <PairRows
           testId="create-container-env"
           rows={env}
@@ -263,8 +263,8 @@ export function CreateContainerForm({ onDone }: { onDone: () => void }) {
           valueLabel="Value"
           addLabel="Add a variable"
         />
-      </Field>
-      <Field label="Volumes" hint="Source on this machine, then the path inside the container.">
+      </CreateField>
+      <CreateField label="Volumes" hint="Source on this machine, then the path inside the container.">
         <PairRows
           testId="create-container-volume"
           rows={volumes}
@@ -273,16 +273,16 @@ export function CreateContainerForm({ onDone }: { onDone: () => void }) {
           valueLabel="Target"
           addLabel="Add a volume"
         />
-      </Field>
-      <Field label="Networks" hint="Comma separated.">
+      </CreateField>
+      <CreateField label="Networks" hint="Comma separated.">
         <Input
           data-testid="create-container-networks"
           value={networks}
           autoComplete="off"
           onChange={(e) => setNetworks(e.target.value)}
         />
-      </Field>
-      <Field
+      </CreateField>
+      <CreateField
         label="Command"
         hint="One word per box. This is not a shell line: each word is passed through as it is written."
       >
@@ -325,8 +325,8 @@ export function CreateContainerForm({ onDone }: { onDone: () => void }) {
             <PlusIcon data-icon="inline-start" /> Add a word
           </Button>
         </div>
-      </Field>
-      <Field label="Restart policy">
+      </CreateField>
+      <CreateField label="Restart policy">
         <select
           data-testid="create-container-restart"
           className="h-8 min-w-0 border border-input bg-transparent px-2 text-xs"
@@ -339,7 +339,7 @@ export function CreateContainerForm({ onDone }: { onDone: () => void }) {
           <option value="unless-stopped">unless-stopped</option>
           <option value="always">always</option>
         </select>
-      </Field>
+      </CreateField>
       <div className="flex min-w-0 items-center gap-2 text-xs">
         <Checkbox
           id={detachId}
@@ -387,7 +387,7 @@ export function BuildImageForm({ onDone }: { onDone: () => void }) {
 
   return (
     <Frame testId="build-image-form">
-      <Field label="Tag">
+      <CreateField label="Tag">
         <Input
           data-testid="build-image-tag"
           value={tag}
@@ -395,8 +395,8 @@ export function BuildImageForm({ onDone }: { onDone: () => void }) {
           placeholder="my-app:dev"
           onChange={(e) => setTag(e.target.value)}
         />
-      </Field>
-      <Field label="Build context" hint="A directory on this machine.">
+      </CreateField>
+      <CreateField label="Build context" hint="A directory on this machine.">
         <Input
           data-testid="build-image-context"
           value={context}
@@ -404,24 +404,24 @@ export function BuildImageForm({ onDone }: { onDone: () => void }) {
           placeholder="/srv/my-app"
           onChange={(e) => setContext(e.target.value)}
         />
-      </Field>
-      <Field label="Dockerfile" hint="Left empty, the builder looks in the context.">
+      </CreateField>
+      <CreateField label="Dockerfile" hint="Left empty, the builder looks in the context.">
         <Input
           data-testid="build-image-dockerfile"
           value={dockerfile}
           autoComplete="off"
           onChange={(e) => setDockerfile(e.target.value)}
         />
-      </Field>
-      <Field label="Target stage">
+      </CreateField>
+      <CreateField label="Target stage">
         <Input
           data-testid="build-image-target"
           value={target}
           autoComplete="off"
           onChange={(e) => setTarget(e.target.value)}
         />
-      </Field>
-      <Field label="Build arguments">
+      </CreateField>
+      <CreateField label="Build arguments">
         <PairRows
           testId="build-image-arg"
           rows={args}
@@ -430,7 +430,7 @@ export function BuildImageForm({ onDone }: { onDone: () => void }) {
           valueLabel="Value"
           addLabel="Add an argument"
         />
-      </Field>
+      </CreateField>
       <div className="flex min-w-0 items-center gap-2 text-xs">
         <Checkbox
           id={cacheId}
@@ -463,15 +463,15 @@ export function CreateNetworkForm({ onDone }: { onDone: () => void }) {
 
   return (
     <Frame testId="create-network-form">
-      <Field label="Name">
+      <CreateField label="Name">
         <Input
           data-testid="create-network-name"
           value={name}
           autoComplete="off"
           onChange={(e) => setName(e.target.value)}
         />
-      </Field>
-      <Field label="Driver" hint="Left empty, the runtime's default.">
+      </CreateField>
+      <CreateField label="Driver" hint="Left empty, the runtime's default.">
         <Input
           data-testid="create-network-driver"
           value={driver}
@@ -479,8 +479,8 @@ export function CreateNetworkForm({ onDone }: { onDone: () => void }) {
           placeholder="bridge"
           onChange={(e) => setDriver(e.target.value)}
         />
-      </Field>
-      <Field label="Subnet">
+      </CreateField>
+      <CreateField label="Subnet">
         <Input
           data-testid="create-network-subnet"
           value={subnet}
@@ -488,16 +488,16 @@ export function CreateNetworkForm({ onDone }: { onDone: () => void }) {
           placeholder="172.30.0.0/16"
           onChange={(e) => setSubnet(e.target.value)}
         />
-      </Field>
-      <Field label="Gateway">
+      </CreateField>
+      <CreateField label="Gateway">
         <Input
           data-testid="create-network-gateway"
           value={gateway}
           autoComplete="off"
           onChange={(e) => setGateway(e.target.value)}
         />
-      </Field>
-      <Field label="Labels">
+      </CreateField>
+      <CreateField label="Labels">
         <PairRows
           testId="create-network-label"
           rows={labels}
@@ -506,7 +506,7 @@ export function CreateNetworkForm({ onDone }: { onDone: () => void }) {
           valueLabel="Value"
           addLabel="Add a label"
         />
-      </Field>
+      </CreateField>
       <div className="flex min-w-0 items-center gap-2 text-xs">
         <Checkbox
           id={internalId}
@@ -548,15 +548,15 @@ export function CreateVolumeForm({ onDone }: { onDone: () => void }) {
 
   return (
     <Frame testId="create-volume-form">
-      <Field label="Name">
+      <CreateField label="Name">
         <Input
           data-testid="create-volume-name"
           value={name}
           autoComplete="off"
           onChange={(e) => setName(e.target.value)}
         />
-      </Field>
-      <Field label="Driver" hint="Left empty, the runtime's default.">
+      </CreateField>
+      <CreateField label="Driver" hint="Left empty, the runtime's default.">
         <Input
           data-testid="create-volume-driver"
           value={driver}
@@ -564,8 +564,8 @@ export function CreateVolumeForm({ onDone }: { onDone: () => void }) {
           placeholder="local"
           onChange={(e) => setDriver(e.target.value)}
         />
-      </Field>
-      <Field label="Labels">
+      </CreateField>
+      <CreateField label="Labels">
         <PairRows
           testId="create-volume-label"
           rows={labels}
@@ -574,7 +574,7 @@ export function CreateVolumeForm({ onDone }: { onDone: () => void }) {
           valueLabel="Value"
           addLabel="Add a label"
         />
-      </Field>
+      </CreateField>
       <Footer
         testId="create-volume"
         canPreview={name.trim() !== ''}

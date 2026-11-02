@@ -2,16 +2,15 @@
  * 040-manifest-export: copy to the clipboard and download as a file, with toasts. Both are
  * local to the browser/webview; nothing goes to the backend.
  */
+import { copyText } from '@companion/ui/kit'
 import { toast } from 'sonner'
 
-export function copyText(text: string, what = 'YAML'): void {
-  const done = () => toast.success(`Copied ${what}`, { testId: 'manifest-copy-toast' })
-  const fail = () => toast.error(`Could not copy ${what}`, { testId: 'manifest-copy-toast' })
-  try {
-    void navigator.clipboard.writeText(text).then(done, fail)
-  } catch {
-    fail()
-  }
+/** The kit's `copyText`, with the export's toast either way. */
+export function copyWithToast(text: string, what = 'YAML'): void {
+  void copyText(text).then((ok) => {
+    if (ok) toast.success(`Copied ${what}`, { testId: 'manifest-copy-toast' })
+    else toast.error(`Could not copy ${what}`, { testId: 'manifest-copy-toast' })
+  })
 }
 
 export function downloadText(text: string, filename: string, type = 'application/yaml'): void {

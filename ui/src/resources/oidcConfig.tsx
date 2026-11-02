@@ -156,58 +156,58 @@ export function OidcConfigView() {
       </header>
 
       <div className="oidc-generator-form grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="Issuer URL" testId="rbac-oidc-issuer-url">
+        <OidcField label="Issuer URL" testId="rbac-oidc-issuer-url">
           <Input
             value={form.issuerUrl}
             placeholder="https://accounts.example.com"
             onChange={(e) => setForm((f) => ({ ...f, issuerUrl: e.target.value }))}
           />
-        </Field>
-        <Field label="Client ID" testId="rbac-oidc-client-id">
+        </OidcField>
+        <OidcField label="Client ID" testId="rbac-oidc-client-id">
           <Input
             value={form.clientId}
             placeholder="fathom-cluster"
             onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}
           />
-        </Field>
-        <Field label="Username claim" testId="rbac-oidc-username-claim">
+        </OidcField>
+        <OidcField label="Username claim" testId="rbac-oidc-username-claim">
           <Input
             value={form.usernameClaim}
             onChange={(e) => setForm((f) => ({ ...f, usernameClaim: e.target.value }))}
           />
-        </Field>
-        <Field label="Groups claim" testId="rbac-oidc-groups-claim">
+        </OidcField>
+        <OidcField label="Groups claim" testId="rbac-oidc-groups-claim">
           <Input
             value={form.groupsClaim}
             onChange={(e) => setForm((f) => ({ ...f, groupsClaim: e.target.value }))}
           />
-        </Field>
-        <Field label="Username prefix (optional)" testId="rbac-oidc-username-prefix">
+        </OidcField>
+        <OidcField label="Username prefix (optional)" testId="rbac-oidc-username-prefix">
           <Input
             value={form.usernamePrefix}
             onChange={(e) => setForm((f) => ({ ...f, usernamePrefix: e.target.value }))}
           />
-        </Field>
-        <Field label="Groups prefix (optional)" testId="rbac-oidc-groups-prefix">
+        </OidcField>
+        <OidcField label="Groups prefix (optional)" testId="rbac-oidc-groups-prefix">
           <Input
             value={form.groupsPrefix}
             onChange={(e) => setForm((f) => ({ ...f, groupsPrefix: e.target.value }))}
           />
-        </Field>
-        <Field label="Audience (optional)" testId="rbac-oidc-audience">
+        </OidcField>
+        <OidcField label="Audience (optional)" testId="rbac-oidc-audience">
           <Input
             value={form.audience}
             placeholder="https://kubernetes.example.com"
             onChange={(e) => setForm((f) => ({ ...f, audience: e.target.value }))}
           />
-        </Field>
-        <Field label="Extra scopes (optional, comma-separated)" testId="rbac-oidc-extra-scopes">
+        </OidcField>
+        <OidcField label="Extra scopes (optional, comma-separated)" testId="rbac-oidc-extra-scopes">
           <Input
             value={form.extraScopes}
             placeholder="openid, profile, email"
             onChange={(e) => setForm((f) => ({ ...f, extraScopes: e.target.value }))}
           />
-        </Field>
+        </OidcField>
       </div>
 
       <div>
@@ -302,7 +302,7 @@ export function OidcConfigView() {
   )
 }
 
-function Field({
+function OidcField({
   label,
   testId,
   children,

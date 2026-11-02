@@ -137,7 +137,7 @@ export function renderBundle(docs: readonly string[]): string {
   return `${docs.map((d) => d.replace(/\n+$/, '')).join('\n---\n')}\n`
 }
 
-function slug(s: string): string {
+function fileSlug(s: string): string {
   return s
     .toLowerCase()
     .replace(/[^a-z0-9.-]+/g, '-')
@@ -149,10 +149,10 @@ export function exportFilename(
   kind: string,
   objects: readonly { namespace?: string | null; name: string }[],
 ): string {
-  const k = slug(kind) || 'objects'
+  const k = fileSlug(kind) || 'objects'
   const [only] = objects
   if (objects.length === 1 && only) {
-    const parts = [k, only.namespace ? slug(only.namespace) : undefined, slug(only.name)]
+    const parts = [k, only.namespace ? fileSlug(only.namespace) : undefined, fileSlug(only.name)]
     return `${parts.filter((p): p is string => p !== undefined && p !== '').join('-')}.yaml`
   }
   return `${k}-${String(objects.length)}-objects.yaml`

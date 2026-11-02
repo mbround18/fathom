@@ -4,7 +4,7 @@ import { Popover } from 'radix-ui'
 import { cn } from '@companion/theme'
 import { useStore, type ConnectionStatus } from '@/store'
 
-const STATUS: Record<ConnectionStatus, { label: string; dot: string }> = {
+const CONNECTION_STATUS: Record<ConnectionStatus, { label: string; dot: string }> = {
   starting: { label: 'starting', dot: 'bg-status-warn animate-pulse' },
   ready: { label: 'ready', dot: 'bg-status-ok' },
   'backend-gone': { label: 'backend gone', dot: 'bg-status-err' },
@@ -18,7 +18,7 @@ export function StatusBar() {
   const context = useStore((s) => s.session.activeContext)
   const pendingIds = useStore((s) => Object.keys(s.pending).join(','))
   const pendingCount = pendingIds === '' ? 0 : pendingIds.split(',').length
-  const { label, dot } = STATUS[status]
+  const { label, dot } = CONNECTION_STATUS[status]
 
   return (
     <footer

@@ -30,7 +30,7 @@ import { useStore } from '@/store'
 import { ALL_TOOL_TABS } from './shell/stack-tabs'
 import { useOpenTool } from './shell/useOpenTool'
 
-const slug = (label: string) => label.replace(/\s+/g, '-').toLowerCase()
+const navIdSlug = (label: string) => label.replace(/\s+/g, '-').toLowerCase()
 
 export function NavTree() {
   const navigate = useStore((s) => s.navigate)
@@ -91,7 +91,7 @@ export function NavTree() {
     const current = active === s.key
     const ported = descriptorFor(s.key) !== undefined || PANEL_SECTIONS.has(s.key)
     const absent = visibility.installed(s.key) === false
-    const descId = `nav-desc-${slug(s.key)}`
+    const descId = `nav-desc-${navIdSlug(s.key)}`
     return (
       <li key={s.key} className="flex">
         <button
@@ -127,7 +127,7 @@ export function NavTree() {
     <nav aria-label="Sections" className="flex flex-col py-1">
       {groups.map((group) => {
         const open = expanded.includes(group.label)
-        const id = `nav-group-${slug(group.label)}`
+        const id = `nav-group-${navIdSlug(group.label)}`
         const basic = group.sections.filter((x) => !x.advanced)
         const advanced = group.sections.filter((x) => x.advanced)
         const more = moreKey(group.label)

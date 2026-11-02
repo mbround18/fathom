@@ -9,7 +9,7 @@ import { useId } from 'react'
 import { Button, Switch } from '@companion/ui'
 import { cn } from '@companion/theme'
 
-import { copyText, downloadText } from './io'
+import { copyWithToast, downloadText } from './io'
 
 export interface ManifestActionsProps {
   /** The text to copy/download; `undefined` disables both (not loaded yet). */
@@ -67,7 +67,7 @@ export function ManifestActions({
         data-testid={`${idPrefix}-copy`}
         disabled={disabled}
         onClick={() => {
-          if (text) copyText(text, what)
+          if (text) copyWithToast(text, what)
         }}
         className="h-[max(2rem,var(--touch-target))]"
       >
