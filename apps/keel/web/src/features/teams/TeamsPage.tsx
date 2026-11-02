@@ -8,12 +8,11 @@
  */
 import { ArchiveIcon, CaretDownIcon, CaretRightIcon, FolderPlusIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react'
 import { Badge, Button, Input } from '@companion/ui'
-import { CopyBlock, EmptyState, H3, Page, PageHeader, Select } from '@companion/ui/kit'
+import { CopyBlock, EmptyState, H3, Page, PageHeader, Select, TermTip } from '@companion/ui/kit'
 import { useEffect, useId, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { canSeeSettings } from '@/features/settings/tabs'
-import { TermTip } from '@/help/TermTip'
 import type { GrantInfo, TeamInfo, WorkspaceInfo } from '@/protocol/wire'
 
 import { ChangeDialog } from './ChangeDialog'

@@ -23,13 +23,13 @@ import {
   SectionIntro,
   Select,
   STATUS,
+  TermTip,
   useReveal,
 } from '@companion/ui/kit'
 import { useId, useRef, useState, type SyntheticEvent } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { canAdminister, canOperate, useWorkspaces } from '@/features/hosts/workspaces'
-import { TermTip } from '@/help/TermTip'
 import type { BindingInfo, CredentialInfo, CredentialKind, JobSummary, Transport } from '@/protocol/wire'
 
 import { ErrorLine, Field, PreviewDialog, WorkspacePicker } from './parts'

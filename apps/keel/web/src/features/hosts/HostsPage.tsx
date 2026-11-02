@@ -22,6 +22,7 @@ import {
   PageHeader,
   SectionIntro,
   STATUS,
+  TermTip,
   useReveal,
   type Column,
 } from '@companion/ui/kit'
@@ -29,7 +30,6 @@ import { useEffect, useId, useMemo } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { WorkspaceSelect } from '@/app/WorkspacePicker'
-import { TermTip } from '@/help/TermTip'
 import type { HostInfo, HostStatus } from '@/protocol/wire'
 
 import { EnrollDialog } from './EnrollDialog'

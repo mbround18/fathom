@@ -26,6 +26,7 @@ import {
   SectionIntro,
   Select,
   STATUS,
+  TermTip,
   useReveal,
 } from '@companion/ui/kit'
 import { useId, useState } from 'react'
@@ -33,7 +34,6 @@ import { useId, useState } from 'react'
 import { useSession } from '@/app/session-store'
 import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
 import { canAdminister } from '@/features/hosts/workspaces'
-import { TermTip } from '@/help/TermTip'
 import type { ReviewState, ReviewInfo, SignatureStatus, SignerInfo, SignerKind } from '@/protocol/wire'
 
 import {

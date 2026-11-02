@@ -61,3 +61,26 @@ describe('glossary (spec 063 FR-020)', () => {
     expect(new Set(terms).size).toBe(terms.length)
   })
 })
+
+/** Every `.tsx` file under `src/`, as text (JSX only lives there; `glossary.ts`'s doc example doesn't count). */
+const SOURCES = import.meta.glob<string>('../../src/**/*.tsx', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+})
+
+/** Each `<TermTip term="…"` in `src/`, with the file it is in. */
+const USED = Object.entries(SOURCES).flatMap(([file, text]) =>
+  [...text.matchAll(/<TermTip\b[^>]*?\bterm="([^"]*)"/g)].map((m) => [file, m[1] ?? ''] as const),
+)
+
+describe('TermTip terms (spec 065 T012)', () => {
+  // The kit's TermTip takes any string, so this is what keeps a typo from rendering nothing.
+  it('finds the TermTips in src/', () => {
+    expect(USED.length).toBeGreaterThan(0)
+  })
+
+  it('names only TermIds', () => {
+    expect(USED.filter(([, term]) => !(term in GLOSSARY))).toEqual([])
+  })
+})

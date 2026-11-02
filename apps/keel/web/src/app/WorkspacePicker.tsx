@@ -4,11 +4,10 @@
  * Teams to create one, anyone else is told who grants them (spec 063 FR-013).
  */
 import { Button } from '@companion/ui'
-import { EmptyState, LABEL, Link, Select } from '@companion/ui/kit'
+import { EmptyState, LABEL, Link, Select, TermTip } from '@companion/ui/kit'
 import { useEffect, useId } from 'react'
 
 import { canSeeSettings } from '@/features/settings/tabs'
-import { TermTip } from '@/help/TermTip'
 
 import { useSession } from './session-store'
 

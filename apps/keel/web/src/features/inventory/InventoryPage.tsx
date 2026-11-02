@@ -26,6 +26,7 @@ import {
   Page,
   PageHeader,
   Select,
+  TermTip,
   useReveal,
 } from '@companion/ui/kit'
 import { lazy, Suspense, useId, useState, type ReactNode, type SyntheticEvent } from 'react'
@@ -33,7 +34,6 @@ import { lazy, Suspense, useId, useState, type ReactNode, type SyntheticEvent } 
 import { useSession } from '@/app/session-store'
 import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
 import { canAdminister } from '@/features/hosts/workspaces'
-import { TermTip } from '@/help/TermTip'
 import type { InventoryProblem } from '@/protocol/wire'
 
 import { useInventory, type Opened } from './store'

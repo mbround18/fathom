@@ -17,6 +17,7 @@ import {
   Page,
   PageHeader,
   STATUS,
+  TermTip,
 } from '@companion/ui/kit'
 import { useId, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
 
@@ -25,7 +26,6 @@ import { useSession } from '@/app/session-store'
 import { ErrorLine, Field, PreviewDialog, WorkspacePicker } from '@/features/bindings/parts'
 import { short, useRepos } from '@/features/bindings/store'
 import { canAdminister } from '@/features/hosts/workspaces'
-import { TermTip } from '@/help/TermTip'
 import type { DeliveryInfo, ReceiverInfo, ReceiverProvider } from '@/protocol/wire'
 
 const PROVIDERS: { provider: ReceiverProvider; label: string }[] = [
