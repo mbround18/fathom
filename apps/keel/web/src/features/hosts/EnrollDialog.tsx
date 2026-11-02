@@ -19,7 +19,7 @@ import { HOST_NAME, MAX_PROFILES, useEnroll, type Minted } from './enroll-store'
 import { parseProfiles } from './store'
 import { useWorkspaces } from './workspaces'
 
-const Markdown = lazy(() => import('@/ui/Markdown'))
+const Markdown = lazy(() => import('@/help/GuideMarkdown'))
 
 /** Re-renders every second while mounted; the current time. */
 function useNow(): number {

@@ -1,6 +1,6 @@
 /**
- * Heading anchors for the guides (spec 063 R7). The same rule runs in the help page, which gives
- * each `##`/`###` its `id`, and in `tests/unit/guide-links.test.ts`, which checks that every
+ * Heading anchors for the guides (spec 063 R7). The same rule runs in `Markdown`, which gives
+ * each `##`/`###` of a guide its `id`, and in an app's guide-link tests, which check that every
  * `GuideRef` in the app points at a heading that exists. It matches GitHub's anchors for the
  * guides' plain headings, so `hosts.md#enroll-a-host` works in the repository too.
  */

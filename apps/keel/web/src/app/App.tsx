@@ -4,23 +4,19 @@
  * reaches a page without a session.
  */
 import { Button } from '@companion/ui'
-import { KitProvider, type KitContext } from '@companion/ui/kit'
+import { KitProvider } from '@companion/ui/kit'
 import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 
-import { guideHref } from '@/help/guides'
-
+import { KEEL_KIT } from './kit'
 import { AppRoutes, PageFallback } from './routes'
 import { useSession } from './session-store'
 import { Shell } from './Shell'
 
 const SignIn = lazy(() => import('@/pages/SignIn'))
 
-/** What Keel hands the shared kit (spec 065): how to reach its guides. */
-const KIT: KitContext = { guideHref }
-
 export function App() {
   return (
-    <KitProvider value={KIT}>
+    <KitProvider value={KEEL_KIT}>
       <Gate />
     </KitProvider>
   )

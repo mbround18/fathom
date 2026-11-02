@@ -9,7 +9,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import Markdown from '@/ui/Markdown'
+import Markdown from '@/help/GuideMarkdown'
 
 const DIR = '../../../../../../docs/guides/keel/'
 

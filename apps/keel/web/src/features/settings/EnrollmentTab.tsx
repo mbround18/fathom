@@ -24,7 +24,7 @@ import {
   validate,
 } from './template'
 
-const Markdown = lazy(() => import('@/ui/Markdown'))
+const Markdown = lazy(() => import('@/help/GuideMarkdown'))
 
 const TEXTAREA =
   'block w-full min-w-0 resize-y border border-input bg-background p-2 font-mono text-xs outline-none focus-visible:border-accent-neon aria-[invalid=true]:border-status-err'

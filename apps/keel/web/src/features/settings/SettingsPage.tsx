@@ -8,12 +8,11 @@
  */
 import { CertificateIcon, GearSixIcon, IdentificationCardIcon, KeyIcon, ShieldStarIcon } from '@phosphor-icons/react'
 import { useEffect, type ReactNode } from 'react'
-import { EmptyState, navigate, Page, Tabs, type Params } from '@companion/ui/kit'
+import { EmptyState, navigate, Page, PageHeader, Tabs, type Params } from '@companion/ui/kit'
 
 import { useSession } from '@/app/session-store'
 import { EnrollDialog } from '@/features/hosts/EnrollDialog'
 import { ChangeDialog } from '@/features/teams/ChangeDialog'
-import { PageHeader } from '@/ui/PageHeader'
 
 import { EnrollmentTab } from './EnrollmentTab'
 import { IdentityTab } from './IdentityTab'

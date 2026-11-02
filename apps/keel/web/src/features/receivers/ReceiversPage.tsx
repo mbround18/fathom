@@ -15,6 +15,7 @@ import {
   LABEL,
   LoadFailed,
   Page,
+  PageHeader,
   STATUS,
 } from '@companion/ui/kit'
 import { useId, useRef, useState, type RefObject, type SyntheticEvent } from 'react'
@@ -26,7 +27,6 @@ import { short, useRepos } from '@/features/bindings/store'
 import { canAdminister } from '@/features/hosts/workspaces'
 import { TermTip } from '@/help/TermTip'
 import type { DeliveryInfo, ReceiverInfo, ReceiverProvider } from '@/protocol/wire'
-import { PageHeader } from '@/ui/PageHeader'
 
 const PROVIDERS: { provider: ReceiverProvider; label: string }[] = [
   { provider: 'github', label: 'GitHub' },

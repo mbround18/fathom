@@ -9,7 +9,7 @@
  */
 import { PlusIcon, ProhibitIcon, TrashIcon } from '@phosphor-icons/react'
 import { Badge, Button, Input } from '@companion/ui'
-import { Page, Select } from '@companion/ui/kit'
+import { Page, PageHeader, Select } from '@companion/ui/kit'
 import { useEffect, useId, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
@@ -20,7 +20,6 @@ import { INSTANCE_ROLE_LABEL, INSTANCE_ROLES } from '@/features/teams/labels'
 import { Field, InlineForm, ListState, NativeSelect, Pane } from '@/features/teams/parts'
 import { useGovernance } from '@/features/teams/store'
 import type { ApiTokenInfo, InstanceRole, UserInfo } from '@/protocol/wire'
-import { PageHeader } from '@/ui/PageHeader'
 
 const ROW = 'flex min-h-9 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-t border-border px-3 py-1.5 text-xs first:border-t-0'
 

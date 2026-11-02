@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-
-import { slug, slugger } from '@/help/slug'
+import { slug, slugger } from '@companion/ui/kit'
 
 describe('slug (spec 063 R7)', () => {
   it('lower-cases and hyphenates a heading', () => {

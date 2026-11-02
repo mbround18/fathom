@@ -38,11 +38,18 @@ export function isGuideSlug(s: string): s is GuideSlug {
 }
 
 /**
- * The in-app route for a guide: `/help/<slug>`, plus `#<anchor>` when given. It takes the kit's
- * `GuideRef` (spec 065), whose `guide` is any string, so it can be the kit's `guideHref`.
+ * The in-app route for a guide: `/help/<slug>`, or `/help` for the README index, plus `#<anchor>`
+ * when given. It takes the kit's `GuideRef` (spec 065), whose `guide` is any string, so it can be
+ * the kit's `guideHref`.
  */
 export function guideHref(ref: KitGuideRef): string {
-  return ref.anchor === undefined ? `/help/${ref.guide}` : `/help/${ref.guide}#${ref.anchor}`
+  const hash = ref.anchor === undefined ? '' : `#${ref.anchor}`
+  return ref.guide === 'README' ? `/help${hash}` : `/help/${ref.guide}${hash}`
+}
+
+/** Whether a Markdown link target names a guide, the README index included. */
+export function isGuide(s: string): boolean {
+  return s === 'README' || isGuideSlug(s)
 }
 
 const DIR = '../../../../../docs/guides/keel/'

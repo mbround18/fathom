@@ -15,6 +15,7 @@ import {
   navigate,
   NoMatch,
   Page,
+  PageHeader,
   useSearchParam,
 } from '@companion/ui/kit'
 import { useCallback, useMemo } from 'react'
@@ -23,7 +24,6 @@ import { useSession } from '@/app/session-store'
 import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
 import { canOperate } from '@/features/hosts/workspaces'
 import type { RunInfo } from '@/protocol/wire'
-import { PageHeader } from '@/ui/PageHeader'
 
 import { waitingText } from './approval'
 import { ErrorLine, StateBadge } from './parts'

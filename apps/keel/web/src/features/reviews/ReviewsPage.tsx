@@ -22,6 +22,7 @@ import {
   LoadState,
   NoMatch,
   Page,
+  PageHeader,
   SectionIntro,
   Select,
   STATUS,
@@ -34,7 +35,6 @@ import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
 import { canAdminister } from '@/features/hosts/workspaces'
 import { TermTip } from '@/help/TermTip'
 import type { ReviewState, ReviewInfo, SignatureStatus, SignerInfo, SignerKind } from '@/protocol/wire'
-import { PageHeader } from '@/ui/PageHeader'
 
 import {
   FLAG_LABELS,

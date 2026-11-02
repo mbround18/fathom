@@ -19,6 +19,7 @@ import {
   LoadState,
   NoMatch,
   Page,
+  PageHeader,
   SectionIntro,
   STATUS,
   useReveal,
@@ -30,7 +31,6 @@ import { useSession } from '@/app/session-store'
 import { WorkspaceSelect } from '@/app/WorkspacePicker'
 import { TermTip } from '@/help/TermTip'
 import type { HostInfo, HostStatus } from '@/protocol/wire'
-import { PageHeader } from '@/ui/PageHeader'
 
 import { EnrollDialog } from './EnrollDialog'
 import { useEnroll } from './enroll-store'

@@ -24,6 +24,7 @@ import {
   LoadFailed,
   LoadState,
   Page,
+  PageHeader,
   Select,
   useReveal,
 } from '@companion/ui/kit'
@@ -34,7 +35,6 @@ import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
 import { canAdminister } from '@/features/hosts/workspaces'
 import { TermTip } from '@/help/TermTip'
 import type { InventoryProblem } from '@/protocol/wire'
-import { PageHeader } from '@/ui/PageHeader'
 
 import { useInventory, type Opened } from './store'
 

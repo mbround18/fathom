@@ -39,3 +39,6 @@ export {
 export { Tabs, type TabItem } from './Tabs'
 export { DataTable, type Column } from './DataTable'
 export { GuideLink } from './GuideLink'
+export { PageHeader } from './PageHeader'
+export { default as Markdown } from './Markdown'
+export { slug, slugger } from './slug'

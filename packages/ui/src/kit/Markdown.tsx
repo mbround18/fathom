@@ -10,21 +10,25 @@
  * - links open in a new tab with `rel="noopener noreferrer"`;
  * - images are never fetched: each becomes a link to its URL, labelled with its alt text.
  *
- * `guideLinks` renders a guide from `docs/guides/keel/`, with the same rules plus:
+ * `guideLinks` renders one of the app's guides, with the same rules plus:
  *
  * - `##` and `###` headings get an `id` from one `slugger()` per render (R7), so `#anchor` works;
- * - a relative link to another guide (`hosts.md#enroll-a-host`) becomes its `/help` route, in the
- *   same tab, and `#anchor` stays on the page;
- * - an image under `img/` shows the copy bundled from `docs/guides/keel/img/`. Any other image is
- *   still a link.
+ * - a relative link to another guide (`hosts.md#enroll-a-host`), one the app's `isGuide` knows,
+ *   becomes the route its `guideHref` builds, in the same tab, and `#anchor` stays on the page;
+ * - an image under `img/` shows the copy the app's `guideImage` bundles. Any other image is still
+ *   a link.
+ *
+ * The app hands those three over in `KitProvider` (spec 065); without them a guide's links and
+ * images follow the ordinary rules.
  */
-import type { ComponentProps, ReactNode } from 'react'
+import { useMemo, type ComponentProps, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { H2, H3, Link } from '@companion/ui/kit'
 
-import { guideHref, isGuideSlug } from '@/help/guides'
-import { slugger } from '@/help/slug'
+import { H2, H3 } from './form'
+import { Link as KitLink } from './Link'
+import { useKit, type KitContext } from './provider'
+import { slugger } from './slug'
 
 interface MdNode {
   type: string
@@ -76,22 +80,12 @@ const GUIDE_FILE = /^(?:\.\/)?([A-Za-z0-9-]+)\.md(?:#(.*))?$/
 /** `img/hosts.png` or `./img/hosts.png`: an image bundled with the guides. */
 const GUIDE_IMAGE = /^(?:\.\/)?img\/([^/?#]+)$/
 
-const IMG_DIR = '../../../../../docs/guides/keel/img/'
-
-const IMAGES = import.meta.glob<string>('../../../../../docs/guides/keel/img/*', {
-  query: '?url',
-  import: 'default',
-  eager: true,
-})
-
 /** A guide link's in-app route, or `null` when it names no guide. */
-function guideRoute(href: string): string | null {
+function guideRoute(href: string, { guideHref, isGuide }: KitContext): string | null {
   const m = GUIDE_FILE.exec(href)
-  if (!m) return null
+  if (!m || guideHref === undefined || isGuide === undefined) return null
   const [, file = '', anchor] = m
-  const hash = anchor ? `#${anchor}` : ''
-  if (file === 'README') return `/help${hash}`
-  return isGuideSlug(file) ? guideHref(anchor ? { guide: file, anchor } : { guide: file }) : null
+  return isGuide(file) ? guideHref(anchor ? { guide: file, anchor } : { guide: file }) : null
 }
 
 function ExternalLink({ href, children }: { href: string | undefined; children: ReactNode }) {
@@ -120,42 +114,46 @@ const components: Components = {
   img: ({ src, alt }) => <ImageLink src={src} alt={alt} />,
 }
 
-const guideComponents: Components = {
-  a: ({ href, children }) => {
-    if (href?.startsWith('#'))
-      return (
-        <a href={href} className={LINK_CLASS}>
-          {children}
-        </a>
+/** A guide's renderers, over the app's link, guide routes and bundled images. */
+function guideComponents(kit: KitContext): Components {
+  const { Link = KitLink, guideImage } = kit
+  return {
+    a: ({ href, children }) => {
+      if (href?.startsWith('#'))
+        return (
+          <a href={href} className={LINK_CLASS}>
+            {children}
+          </a>
+        )
+      const route = href === undefined ? null : guideRoute(href, kit)
+      if (route !== null)
+        return (
+          <Link to={route} className={LINK_CLASS}>
+            {children}
+          </Link>
+        )
+      return <ExternalLink href={href}>{children}</ExternalLink>
+    },
+    img: ({ src, alt }) => {
+      const name = typeof src === 'string' ? GUIDE_IMAGE.exec(src)?.[1] : undefined
+      const url = name === undefined ? undefined : guideImage?.(name)
+      return url === undefined ? (
+        <ImageLink src={src} alt={alt} />
+      ) : (
+        <img src={url} alt={alt ?? ''} loading="lazy" className="my-2 block h-auto max-w-full border border-border" />
       )
-    const route = href === undefined ? null : guideRoute(href)
-    if (route !== null)
-      return (
-        <Link to={route} className={LINK_CLASS}>
-          {children}
-        </Link>
-      )
-    return <ExternalLink href={href}>{children}</ExternalLink>
-  },
-  img: ({ src, alt }) => {
-    const name = typeof src === 'string' ? GUIDE_IMAGE.exec(src)?.[1] : undefined
-    const url = name === undefined ? undefined : IMAGES[`${IMG_DIR}${name}`]
-    return url === undefined ? (
-      <ImageLink src={src} alt={alt} />
-    ) : (
-      <img src={url} alt={alt ?? ''} loading="lazy" className="my-2 block h-auto max-w-full border border-border" />
-    )
-  },
-  h2: ({ id, children }) => (
-    <h2 id={id} className={`${H2} mt-6 scroll-mt-4`}>
-      {children}
-    </h2>
-  ),
-  h3: ({ id, children }) => (
-    <h3 id={id} className={`${H3} mt-4 scroll-mt-4`}>
-      {children}
-    </h3>
-  ),
+    },
+    h2: ({ id, children }) => (
+      <h2 id={id} className={`${H2} mt-6 scroll-mt-4`}>
+        {children}
+      </h2>
+    ),
+    h3: ({ id, children }) => (
+      <h3 id={id} className={`${H3} mt-4 scroll-mt-4`}>
+        {children}
+      </h3>
+    ),
+  }
 }
 
 const BODY =
@@ -171,11 +169,13 @@ export default function Markdown({
   guideLinks = false,
   ...rest
 }: { text: string; guideLinks?: boolean } & Omit<ComponentProps<'div'>, 'children'>) {
+  const kit = useKit()
+  const forGuide = useMemo(() => guideComponents(kit), [kit])
   return (
     <div {...rest} data-markdown className={`${BODY} ${guideLinks ? GUIDE_BODY : SMALL_HEADINGS}`}>
       <ReactMarkdown
         remarkPlugins={guideLinks ? [remarkGfm, remarkHtmlAsText, remarkHeadingIds] : [remarkGfm, remarkHtmlAsText]}
-        components={guideLinks ? guideComponents : components}
+        components={guideLinks ? forGuide : components}
         skipHtml={false}
       >
         {text}

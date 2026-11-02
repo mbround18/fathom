@@ -19,6 +19,7 @@ import {
   LoadFailed,
   LoadState,
   Page,
+  PageHeader,
   SectionIntro,
   Select,
   STATUS,
@@ -30,7 +31,6 @@ import { useSession } from '@/app/session-store'
 import { canAdminister, canOperate, useWorkspaces } from '@/features/hosts/workspaces'
 import { TermTip } from '@/help/TermTip'
 import type { BindingInfo, CredentialInfo, CredentialKind, JobSummary, Transport } from '@/protocol/wire'
-import { PageHeader } from '@/ui/PageHeader'
 
 import { ErrorLine, Field, PreviewDialog, WorkspacePicker } from './parts'
 import { short, useRepos } from './store'

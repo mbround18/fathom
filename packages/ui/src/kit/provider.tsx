@@ -23,6 +23,8 @@ export interface KitContext {
   guideHref?: (ref: GuideRef) => string
   /** Tells whether a Markdown link target (`slug.md`) is one of the app's guides. */
   isGuide?: (slug: string) => boolean
+  /** The bundled URL of a guide's image (`img/<name>`); absent or `undefined`: shown as a link. */
+  guideImage?: (name: string) => string | undefined
   /** The app's glossary. Absent: TermTip renders nothing. */
   glossary?: Readonly<Record<string, GlossaryEntry>>
 }

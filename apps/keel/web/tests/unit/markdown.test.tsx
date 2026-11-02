@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import Markdown from '@/ui/Markdown'
+import Markdown from '@/help/GuideMarkdown'
 
 function md(text: string, guideLinks = false): HTMLElement {
   const { container } = render(<Markdown text={text} guideLinks={guideLinks} />)
