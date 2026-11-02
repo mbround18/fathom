@@ -38,6 +38,7 @@ export {
 } from './form'
 export { Tabs, type TabItem } from './Tabs'
 export { DataTable, type Column } from './DataTable'
+export { type RowAction, type RowActions, type SortState, type TableSelection, type TableSort } from './table'
 export { GuideLink } from './GuideLink'
 export { PageHeader } from './PageHeader'
 export { default as Markdown } from './Markdown'
