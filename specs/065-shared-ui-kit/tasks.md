@@ -17,23 +17,23 @@ commits. Tick tasks in a final, separate commit.
 
 ## Phase 1: Setup
 
-- [ ] T001 Add the `"./kit": "./src/kit/index.ts"` export and the `test`, `e2e` and `harness` scripts to `packages/ui/package.json`. Add the dev dependencies (workspace versions): vitest, jsdom, @testing-library/react, @testing-library/jest-dom, @testing-library/user-event, @playwright/test, vite, @vitejs/plugin-react, @tailwindcss/vite, tailwindcss, tw-animate-css, shadcn, and `@axe-core/playwright`, the one new package (owner-approved). Move `react-markdown`, `remark-gfm` and `@tanstack/react-virtual` into its `dependencies`. Run `pnpm install`.
-- [ ] T002 [P] Create `packages/ui/vitest.config.ts` (jsdom, forks pool, `VITEST_WORKERS`, mirroring `apps/keel/web/vitest.config.ts`) and `packages/ui/tests/unit/setup.ts`.
-- [ ] T003 [P] Create the harness per contracts/harness.md:
+- [X] T001 Add the `"./kit": "./src/kit/index.ts"` export and the `test`, `e2e` and `harness` scripts to `packages/ui/package.json`. Add the dev dependencies (workspace versions): vitest, jsdom, @testing-library/react, @testing-library/jest-dom, @testing-library/user-event, @playwright/test, vite, @vitejs/plugin-react, @tailwindcss/vite, tailwindcss, tw-animate-css, shadcn, and `@axe-core/playwright`, the one new package (owner-approved). Move `react-markdown`, `remark-gfm` and `@tanstack/react-virtual` into its `dependencies`. Run `pnpm install`.
+- [X] T002 [P] Create `packages/ui/vitest.config.ts` (jsdom, forks pool, `VITEST_WORKERS`, mirroring `apps/keel/web/vitest.config.ts`) and `packages/ui/tests/unit/setup.ts`.
+- [X] T003 [P] Create the harness per contracts/harness.md:
   - `packages/ui/vite.harness.config.ts`;
   - `packages/ui/harness/index.html`, `main.tsx` and `harness.css` (the same imports and base rules as `apps/keel/web/src/index.css`);
   - the piece index and the `?piece&state&theme` routing, with `window.__kitReady`.
-- [ ] T004 [P] Create `packages/ui/playwright.config.ts` (project `kit`, `KIT_E2E_PORT` defaulting to 4190, `autoWorkers()`, `webServer` running the harness) and `packages/ui/tests/support/a11y.ts` (`expectAccessible` looping light/dark × 360/1280 with AxeBuilder and the WCAG 2.2 AA tags, plus a no-sideways-scroll assertion, and `KIT_SHOTS` capture).
-- [ ] T005 Create `packages/ui/src/kit/index.ts` and `packages/ui/src/kit/provider.tsx` (`KitProvider`, `useKit`, and the `KitContext`, `GuideRef` and `GlossaryEntry` types from data-model.md), with a unit test in `packages/ui/tests/unit/provider.test.tsx`.
+- [X] T004 [P] Create `packages/ui/playwright.config.ts` (project `kit`, `KIT_E2E_PORT` defaulting to 4190, `autoWorkers()`, `webServer` running the harness) and `packages/ui/tests/support/a11y.ts` (`expectAccessible` looping light/dark × 360/1280 with AxeBuilder and the WCAG 2.2 AA tags, plus a no-sideways-scroll assertion, and `KIT_SHOTS` capture).
+- [X] T005 Create `packages/ui/src/kit/index.ts` and `packages/ui/src/kit/provider.tsx` (`KitProvider`, `useKit`, and the `KitContext`, `GuideRef` and `GlossaryEntry` types from data-model.md), with a unit test in `packages/ui/tests/unit/provider.test.tsx`.
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T006 Add the Keel visual goldens **on the current code, before anything moves** (R12):
+- [X] T006 Add the Keel visual goldens **on the current code, before anything moves** (R12):
   - add the `s065` project to `apps/keel/web/playwright.config.ts`;
   - write `apps/keel/web/tests/e2e/s065/visual.spec.ts`, covering the runs list (empty and with rows), run detail with the cancel confirm dialog open, teams (forms), users (failed to load), help (Markdown, a guide link, an open term popover), settings tabs, the shell (approvals badge and update dot), and a page crash;
   - capture each at 360 and 1280 px, light and dark, with `toHaveScreenshot` (`maxDiffPixelRatio: 0`, animations disabled, the clock fixed);
   - generate with `--update-snapshots` and commit the goldens.
-- [ ] T007 Wire the kit into CI in `scripts/ci.sh` (R13): add `pnpm --filter @companion/ui test` and `e2e` to `job_shared`, and in `changed_slices`, map `packages/ui/**` to the shared, keel, depths and fathom slices.
+- [X] T007 Wire the kit into CI in `scripts/ci.sh` (R13): add `pnpm --filter @companion/ui test` and `e2e` to `job_shared`, and in `changed_slices`, map `packages/ui/**` to the shared, keel, depths and fathom slices.
 
 ## Phase 3: User Story 1 – Keel keeps working, from shared parts (P1) 🎯 MVP
 
