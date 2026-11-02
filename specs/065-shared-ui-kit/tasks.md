@@ -147,8 +147,8 @@ Each task below writes `packages/ui/harness/pieces/<id>.tsx` (every state), `pac
 - `pnpm -w run lint:packages` passes;
 - a planted copy fails it.
 
-- [ ] T031 [P] [US4] Write `scripts/check-kit-copies.mjs` (R10): it reads the export names from `packages/ui/src/kit/index.ts`, scans `apps/keel/web/src`, `apps/depths/web/src` and `ui/src`, and honours `packages/ui/kit-allow.json`. An allow-list entry must have a non-empty `reason`, and a stale entry fails. Hook it into the root `package.json` `lint:packages`, and add `packages/ui/tests/unit/check-kit-copies.test.ts` with fixture directories.
-- [ ] T032 [P] [US4] Add a "Shared UI kit" section to `CONTRIBUTING.md`, with one line per piece on when to use it, a short example for empty, failed-to-load and confirm, how to run the harness and a single piece's spec, the `KitProvider` fields, and the allow-list rule (FR-014).
+- [x] T031 [P] [US4] Write `scripts/check-kit-copies.mjs` (R10): it reads the export names from `packages/ui/src/kit/index.ts`, scans `apps/keel/web/src`, `apps/depths/web/src` and `ui/src`, and honours `packages/ui/kit-allow.json`. An allow-list entry must have a non-empty `reason`, and a stale entry fails. Hook it into the root `package.json` `lint:packages`, and add `packages/ui/tests/unit/check-kit-copies.test.ts` with fixture directories.
+- [x] T032 [P] [US4] Add a "Shared UI kit" section to `CONTRIBUTING.md`, with one line per piece on when to use it, a short example for empty, failed-to-load and confirm, how to run the harness and a single piece's spec, the `KitProvider` fields, and the allow-list rule (FR-014).
 
 ## Phase 8: Polish and the gate
 
