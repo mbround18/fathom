@@ -8,6 +8,8 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, type Page } from '@playwright/test'
 
+import { settled } from './settle'
+
 const THEMES = ['dark', 'light'] as const
 const SIZES = [
   { width: 360, height: 740 },
@@ -47,6 +49,7 @@ export async function expectAccessible(
       await page.setViewportSize(size)
       await openPiece(page, at, theme)
       await opts.prepare?.(page)
+      await settled(page)
       if (process.env.KIT_SHOTS) {
         await page.screenshot({ path: `${process.env.KIT_SHOTS}/${at.piece}-${at.state}-${theme}-${String(size.width)}.png`, fullPage: true })
       }

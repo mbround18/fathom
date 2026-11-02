@@ -51,9 +51,13 @@ function NavLink({
   const current = path === to || path.startsWith(`${to}/`)
   const dotRef = useRef<HTMLSpanElement>(null)
   const hasDot = dot !== undefined
-  // On a phone the strip scrolls and the pinned item is last, so bring the dot into view when it appears.
+  // On a phone the strip scrolls and the pinned item is last, so bring the dot into view when it
+  // appears, then the current page: when both don't fit, the page the user is on wins.
   useEffect(() => {
-    if (hasDot) dotRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    if (!hasDot) return
+    const dot = dotRef.current
+    dot?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    dot?.closest('nav')?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [hasDot])
   return (
     <Link to={to} aria-current={current ? 'page' : undefined} className={`${NAV_LINK} ${className}`}>
