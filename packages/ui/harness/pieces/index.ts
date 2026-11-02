@@ -1,6 +1,8 @@
 import type { Fixture } from '../fixture'
 
-import kitProvider from './kit-provider'
+/** Every `<id>.tsx` beside this file is a piece's fixture; none needs registering here. */
+const modules = import.meta.glob<{ default: Fixture }>('./*.tsx', { eager: true })
 
-/** Every piece's fixture, by id. Add a piece here when you add its `<id>.tsx`. */
-export const PIECES: readonly Fixture[] = [kitProvider]
+export const PIECES: readonly Fixture[] = Object.values(modules)
+  .map((m) => m.default)
+  .sort((a, b) => a.id.localeCompare(b.id))
