@@ -5,6 +5,10 @@
  *
  * `onClose` runs for Escape, the close button and a click outside; a dialog that must warn before
  * closing (the enrolment token) decides there whether to close.
+ *
+ * It opens from app state, not a Radix `DialogTrigger`, so Radix has nowhere to put focus back on
+ * close and drops it on the page. The dialog notes what had focus as it opens and returns focus
+ * there when it closes, unless that element is gone or another dialog has taken focus.
  */
 import {
   Dialog as Root,
@@ -14,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../dialog'
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 
 const WIDTH = { sm: 'sm:max-w-sm', md: 'sm:max-w-md', lg: 'sm:max-w-xl' } as const
 
@@ -37,6 +41,7 @@ export function Dialog({
   children?: ReactNode
   [data: `data-${string}`]: string | boolean | undefined
 }) {
+  const opener = useRef<HTMLElement | null>(null)
   return (
     <Root
       open={open}
@@ -46,6 +51,18 @@ export function Dialog({
     >
       <DialogContent
         {...rest}
+        onOpenAutoFocus={() => {
+          // Radix fires this before it moves focus in, so focus is still on the opener.
+          const el = document.activeElement
+          opener.current = el instanceof HTMLElement && el !== document.body ? el : null
+        }}
+        onCloseAutoFocus={(e) => {
+          const el = opener.current
+          opener.current = null
+          if (!el?.isConnected || document.activeElement?.closest('[role="dialog"][data-state="open"]')) return
+          e.preventDefault()
+          el.focus()
+        }}
         className={`flex max-h-[calc(100dvh-2rem)] max-w-[calc(100%-1rem)] min-w-0 flex-col gap-3 overflow-hidden ${WIDTH[size]}`}
       >
         <DialogHeader className="pr-8">
