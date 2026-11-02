@@ -12,7 +12,8 @@ functionality." Expanded: move the screen-level patterns built and polished in K
 063, 064) into the existing shared package `packages/ui`, so Keel, Depths and the Fathom desktop
 app share one look, feel and behaviour. Behaviour must not change for Keel. Depths adopts the
 shared pieces where it has equivalents. Fathom adopts the leaf pieces and keeps its pane layout.
-App-specific content stays in the apps. No new dependencies. Out of scope: redesigning the look,
+App-specific content stays in the apps. No new runtime dependencies. Each shared piece gets its
+own isolated, accessibility-checked browser test. Out of scope: redesigning the look,
 changing the theme tokens, and suite mode.
 
 ## Why
@@ -85,14 +86,17 @@ message while the navigation keeps working.
 
 ---
 
-### User Story 3 - Fathom uses the same leaf pieces (Priority: P3)
+### User Story 3 - Fathom uses the shared pieces inside its panes (Priority: P3)
 
 The Fathom desktop app keeps its own layout: panes, tabs, the command palette and the phone
-stack. Inside a pane, it uses the shared pieces for empty lists, failed loads, crashes, confirm
-dialogs and copyable text.
+stack. Inside a pane, it uses the shared pieces for:
+
+- empty lists, failed loads and crashes;
+- confirm dialogs and copyable text;
+- pane headers and resource tables, which take on the shared header and table.
 
 **Why this priority**: Fathom's layout is unlike the web apps', and it has the largest suite. So
-it adopts only the pieces that fit inside its panes.
+it adopts the pieces that fit inside its panes, and keeps the panes themselves.
 
 **Independent Test**: Fathom's unit and browser suites pass. A pane whose load fails shows the
 shared failed-to-load state. A pane that throws shows the crash state inside that pane only, and
@@ -106,6 +110,8 @@ the other panes keep working.
    crash state, and the other panes keep working.
 3. **Given** a Fathom action that asks for confirmation, **When** it opens, **Then** the dialog
    is the shared confirm dialog.
+4. **Given** a Fathom pane with a header and a resource table, **When** it shows, **Then** both
+   are the shared header and table. Sorting, selection and the row actions work as before.
 
 ---
 
@@ -171,7 +177,9 @@ use it. A check fails when an app holds its own copy of a piece that the kit pro
   app's words or rules.
 - **FR-003**: Each shared piece MUST keep the visible output, the accessible names and roles, and
   the test markers of the Keel piece it replaces.
-- **FR-004**: The kit MUST NOT add a new third-party dependency to the workspace.
+- **FR-004**: The kit MUST NOT add a new third-party runtime dependency to the workspace. The one
+  exception is the accessibility scanner used by the kit's own browser tests, a development-only
+  dependency the owner approved (2026-11-01).
 - **FR-005**: Brand marks and icons MUST stay in the branding package, and colour and type tokens
   in the theme package. The kit uses them and does not copy them.
 
@@ -193,8 +201,11 @@ use it. A check fails when an app holds its own copy of a piece that the kit pro
 
 **Fathom**
 
-- **FR-012**: Fathom MUST use the shared empty, failed-to-load, crash, confirm-dialog and
-  copyable-text pieces inside its panes. Its pane layout, tabs and navigation stay as they are.
+- **FR-012**: Fathom MUST use the shared empty, failed-to-load, crash, confirm-dialog,
+  copyable-text, header and table pieces inside its panes. Its pane layout, tabs, command palette
+  and navigation stay as they are. Where the shared table lacks something Fathom's resource table
+  does (such as sorting, selection or row actions), the shared table gains it, and Keel's tables
+  keep their current behaviour.
 - **FR-013**: A crash inside one Fathom pane MUST NOT take down the other panes.
 
 **Keeping it shared**
@@ -205,6 +216,14 @@ use it. A check fails when an app holds its own copy of a piece that the kit pro
   the kit, unless the app's piece is on a short allow-list with a reason.
 - **FR-016**: The shared pieces MUST have their own unit tests in the shared package. The apps'
   tests cover how each app uses them.
+- **FR-017**: Each shared piece MUST have its own isolated browser test, run against a test page
+  that shows that piece alone, inside the shared package. Each test checks that the piece works
+  (its states, keyboard use and focus) and that it is accessible: an automated accessibility scan
+  finds no violations, in light and dark, at 360 and 1280 px.
+- **FR-018**: Each shared piece MUST pass a design review (the impeccable skill) of its isolated
+  test page before its app adoption lands. Findings are fixed in the kit, once, for all apps.
+- **FR-019**: The isolated browser tests MUST run on their own, without any app or server, and
+  one piece's test MUST be runnable alone.
 
 ### Key Entities
 
@@ -231,6 +250,8 @@ use it. A check fails when an app holds its own copy of a piece that the kit pro
   rest of the app usable. Each app has a browser test for this.
 - **SC-006**: A developer can find the right piece for an empty list, a failed load and a
   confirmation from the contributor guide in under 2 minutes.
+- **SC-007**: 100% of the shared pieces have an isolated browser test that passes, with zero
+  accessibility-scan violations in light and dark at 360 and 1280 px.
 
 ## Assumptions
 
@@ -240,7 +261,14 @@ use it. A check fails when an app holds its own copy of a piece that the kit pro
 - **Keel's look is the reference.** Where Depths or Fathom differ from Keel, the shared piece
   follows Keel. The owner chose Keel's polish in spec 063 and its critique pass.
 - **Fathom keeps its layout.** Fathom's panes, tabs, command palette and phone stack are not
-  replaced. Its navigation stays its own.
+  replaced, and its navigation stays its own. Its pane headers and resource tables do move to
+  the shared ones (owner's choice, 2026-11-01).
+- **Copies are caught by a check**, not just the guide (owner's choice, 2026-11-01).
+- **Keel wins** where the apps differ (owner's choice, 2026-11-01).
+- **Each piece is tested alone** (owner's request, 2026-11-01): an isolated browser test with an
+  accessibility scan, plus a design review. The scanner is the one approved new dependency, for
+  tests only. The test pages live inside the shared package. A browsable gallery app of every
+  piece is a later follow-up, not part of this spec.
 - **Help content stays per app.** The guide and glossary machinery is shared. Each app's guides
   and terms stay with that app, and an app may have none.
 - **Routing moves only if it is generic.** Keel's and Depths' small routers are expected to be

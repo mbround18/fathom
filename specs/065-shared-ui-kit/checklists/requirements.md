@@ -35,5 +35,7 @@
   apps. It names no languages, libraries or file layouts beyond that.
 - The test markers (`data-` attributes) are named in one edge case because keeping them is what
   lets the existing suites pass unchanged (SC-002).
-- No clarification was asked: the owner is away. The defaults (reuse the existing package, Keel
-  is the reference, Fathom keeps its layout) are in Assumptions for the owner to overrule.
+- The owner answered the open choices on 2026-11-01: go all the way, Keel wins, Fathom moves its
+  pane headers and resource tables too, copies are caught by a lint check, and each piece gets an
+  isolated browser test with an accessibility scanner (the one approved dev-only dependency).
+  These are recorded in Assumptions.
