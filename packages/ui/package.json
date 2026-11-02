@@ -3,20 +3,30 @@
   "private": true,
   "version": "0.1.0",
   "license": "Apache-2.0",
-  "description": "Shared React components: primitives, container tables, argv preview",
+  "description": "Shared React components: primitives, container tables, argv preview, and the screen kit (./kit)",
   "type": "module",
   "sideEffects": false,
-  "exports": { ".": "./src/index.ts" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./kit": "./src/kit/index.ts"
+  },
   "scripts": {
-    "typecheck": "node node_modules/typescript7/bin/tsc -p tsconfig.json"
+    "typecheck": "node node_modules/typescript7/bin/tsc -p tsconfig.json",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "harness": "vite --config vite.harness.config.ts"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.14.21",
     "class-variance-authority": "^0.7.1",
     "cmdk": "^1.1.1",
     "cn": "^0.5.0",
-    "react-resizable-panels": "^4.14.8"
+    "react-markdown": "^10.1.0",
+    "react-resizable-panels": "^4.14.8",
+    "remark-gfm": "^4.0.1"
   },
   "peerDependencies": {
+    "@companion/theme": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
     "radix-ui": "^1.8.1",
     "react": "^19.3.1",
@@ -24,13 +34,28 @@
     "sonner": "^2.0.8"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@companion/theme": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
+    "@playwright/test": "^1.64.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "jsdom": "^30.1.3",
     "radix-ui": "^1.8.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "shadcn": "^4.22.1",
     "sonner": "^2.0.8",
-    "typescript7": "npm:typescript@^7.0.2"
+    "tailwindcss": "^4.3.3",
+    "tw-animate-css": "^1.4.0",
+    "typescript7": "npm:typescript@^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
   }
 }

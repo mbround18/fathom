@@ -1,0 +1,67 @@
+/* The same imports and base rules as apps/keel/web/src/index.css, so a piece looks as it does in
+   Keel. Keep the two in step. */
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import '@companion/theme/tokens.css';
+@import '@companion/theme/effects.css';
+
+@source '../../theme/src';
+@source '../src';
+@source '.';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  * {
+    @apply border-border outline-ring;
+  }
+
+  html {
+    @apply font-mono;
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+}
+
+@theme {
+  --text-xs: max(12px, 0.75rem);
+  --text-sm: max(12px, 0.875rem);
+}
+
+@media (prefers-contrast: more) {
+  :root,
+  .dark {
+    --border: var(--foreground);
+    --input: var(--foreground);
+    --muted-foreground: var(--foreground);
+  }
+}
+
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+    box-shadow: none;
+  }
+  button,
+  input,
+  textarea {
+    border-color: ButtonText;
+  }
+}
