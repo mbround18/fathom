@@ -39,6 +39,8 @@ export {
 export { Tabs, type TabItem } from './Tabs'
 export { DataTable, type Column } from './DataTable'
 export { type RowAction, type RowActions, type SortState, type TableSelection, type TableSort } from './table'
+export { DataGrid, type GridColumn, type GridCursor, type RowMenuRequest } from './DataGrid'
+export { computeVisibleColumns, type BudgetColumn } from './column-budget'
 export { GuideLink } from './GuideLink'
 export { PageHeader } from './PageHeader'
 export { default as Markdown } from './Markdown'
