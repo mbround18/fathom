@@ -44,14 +44,14 @@ commits. Tick tasks in a final, separate commit.
 - Keel's unit and e2e suites pass;
 - `git diff` of `apps/keel/web/tests` shows import-path changes only, plus `s065`.
 
-- [ ] T008 [US1] Move the router and link into `packages/ui/src/kit/router.ts` and `Link.tsx`, with the event `companion:navigate` (R4). Delete `apps/keel/web/src/app/router.ts` and `Link.tsx`, and rewrite Keel's imports.
-- [ ] T009 [US1] Move the refusal type and `isTransportFailure` into `packages/ui/src/kit/refusal.ts`, with the `ListHandlers` and `ListLoad` types (R3). `apps/keel/web/src/app/load.ts` keeps `OFFLINE`, `refusalOf` and `loadList`, and re-exports the type.
-- [ ] T010 [US1] Move `RefusalText`, `LoadFailed`, `LoadState`, `ErrorLine`, `Page`, `PageErrorBoundary`, `NoMatch`, `EmptyState`, `empty-variant`, `Dialog`, `ConfirmDialog`, `CopyBlock`, `clipboard`, `reveal`, `form`, `Tabs` and `DataTable` from `apps/keel/web/src/ui/` into `packages/ui/src/kit/`, unchanged except imports. Coupled pieces take `guideHref` and `Link` from `useKit()`.
-- [ ] T011 [US1] Move `PageHeader`, `GuideLink`, `Markdown` and `help/slug.ts` into `packages/ui/src/kit/`. `GuideLink` renders nothing without `guideHref`. Markdown reads `isGuide` and `guideHref` from `useKit()` and stays a default export.
-- [ ] T012 [US1] Move `TermTip` into `packages/ui/src/kit/TermTip.tsx`, taking `term: string` from `useKit().glossary` (R6). Extend `apps/keel/web/tests/unit/glossary.test.ts` so every `term="…"` used in Keel's source is a `TermId`.
-- [ ] T013 [US1] Extract `NavShell` into `packages/ui/src/kit/NavShell.tsx` from the markup in `apps/keel/web/src/app/Shell.tsx` (R7, data-model Navigation). Keel's `Shell.tsx` keeps `AccountMenu`, `EnrolBanner` and the data wiring, and renders `NavShell`.
-- [ ] T014 [US1] Wrap Keel's root in `KitProvider` with `guideHref`, `isGuideSlug` and `GLOSSARY` in `apps/keel/web/src/app/App.tsx`. Delete `apps/keel/web/src/ui/` and every remaining moved file, then export every piece from `packages/ui/src/kit/index.ts` per contracts/kit-api.md.
-- [ ] T015 [US1] Check the move:
+- [X] T008 [US1] Move the router and link into `packages/ui/src/kit/router.ts` and `Link.tsx`, with the event `companion:navigate` (R4). Delete `apps/keel/web/src/app/router.ts` and `Link.tsx`, and rewrite Keel's imports.
+- [X] T009 [US1] Move the refusal type and `isTransportFailure` into `packages/ui/src/kit/refusal.ts`, with the `ListHandlers` and `ListLoad` types (R3). `apps/keel/web/src/app/load.ts` keeps `OFFLINE`, `refusalOf` and `loadList`, and re-exports the type.
+- [X] T010 [US1] Move `RefusalText`, `LoadFailed`, `LoadState`, `ErrorLine`, `Page`, `PageErrorBoundary`, `NoMatch`, `EmptyState`, `empty-variant`, `Dialog`, `ConfirmDialog`, `CopyBlock`, `clipboard`, `reveal`, `form`, `Tabs` and `DataTable` from `apps/keel/web/src/ui/` into `packages/ui/src/kit/`, unchanged except imports. Coupled pieces take `guideHref` and `Link` from `useKit()`.
+- [X] T011 [US1] Move `PageHeader`, `GuideLink`, `Markdown` and `help/slug.ts` into `packages/ui/src/kit/`. `GuideLink` renders nothing without `guideHref`. Markdown reads `isGuide` and `guideHref` from `useKit()` and stays a default export.
+- [X] T012 [US1] Move `TermTip` into `packages/ui/src/kit/TermTip.tsx`, taking `term: string` from `useKit().glossary` (R6). Extend `apps/keel/web/tests/unit/glossary.test.ts` so every `term="…"` used in Keel's source is a `TermId`.
+- [X] T013 [US1] Extract `NavShell` into `packages/ui/src/kit/NavShell.tsx` from the markup in `apps/keel/web/src/app/Shell.tsx` (R7, data-model Navigation). Keel's `Shell.tsx` keeps `AccountMenu`, `EnrolBanner` and the data wiring, and renders `NavShell`.
+- [X] T014 [US1] Wrap Keel's root in `KitProvider` with `guideHref`, `isGuideSlug` and `GLOSSARY` in `apps/keel/web/src/app/App.tsx`. Delete `apps/keel/web/src/ui/` and every remaining moved file, then export every piece from `packages/ui/src/kit/index.ts` per contracts/kit-api.md.
+- [X] T015 [US1] Check the move:
   - `pnpm --filter @companion/ui typecheck`;
   - Keel's `lint`, `typecheck`, `test` and `build`;
   - `e2e --project s065`;
