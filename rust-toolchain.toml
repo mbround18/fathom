@@ -7,5 +7,5 @@
 # CI uses. (1.99.0: those 13 errors came from async-trait 0.1.89's generated `#[must_use]`;
 # 0.1.92 dropped it. `Atomic::fetch_update` was renamed `try_update`.)
 [toolchain]
-channel = "1.99.0"
+channel = "1.99.1"
 components = ["clippy", "rustfmt"]

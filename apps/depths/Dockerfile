@@ -1,7 +1,7 @@
 # Depths image (spec 050, research R11). Build from the repo root:
 #   make depths-image    (or: docker build -f apps/depths/Dockerfile -t depths:dev .)
 # Web assets are copied beside the binary and served from STATIC_DIR, never embedded.
-ARG RUST_VERSION=1.99.0
+ARG RUST_VERSION=1.99.1
 
 # Cache mounts keep downloads (crates, the pnpm store, apt packages) across builds, so even a build
 # whose layers are invalidated (a lockfile change) only fetches what is new. They are BuildKit
@@ -45,18 +45,17 @@ RUN --mount=type=cache,id=depths-cargo-registry,target=/usr/local/cargo/registry
         echo "depths-volume-helper is not static" >&2; exit 1; fi
 
 # ---- Web: one lockfile for the workspace; install only the Depths app and its packages
-FROM node:24-trixie-slim AS web
-ENV npm_config_store_dir=/pnpm-store COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-RUN corepack enable
+FROM node:26-trixie-slim AS web
+ENV npm_config_store_dir=/pnpm-store
 WORKDIR /src
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
+# Node 26 no longer bundles corepack: install the pnpm that packageManager names.
+RUN npm install -g --silent "$(node -p 'require("./package.json").packageManager')"
 RUN --mount=type=cache,id=depths-pnpm-store,target=/pnpm-store \
-    --mount=type=cache,id=depths-corepack,target=/root/.cache/node/corepack \
     pnpm fetch
 COPY packages/ ./packages/
 COPY apps/depths/web/ ./apps/depths/web/
 RUN --mount=type=cache,id=depths-pnpm-store,target=/pnpm-store \
-    --mount=type=cache,id=depths-corepack,target=/root/.cache/node/corepack \
     pnpm install --offline --frozen-lockfile --filter @companion/depths-web... \
     && pnpm --filter @companion/depths-web build
 

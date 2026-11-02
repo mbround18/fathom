@@ -2,7 +2,7 @@
 #   make keel image    (or: docker build -f apps/keel/Dockerfile -t mbround18/keel:latest .)
 # Web assets are copied beside the binary and served from KEEL_STATIC_DIR, never embedded.
 # The server has no ansible-core: Ansible runs only in the host runners (constitution).
-ARG RUST_VERSION=1.99.0
+ARG RUST_VERSION=1.99.1
 
 # Cache mounts keep downloads (crates, the pnpm store) across builds, so a build whose layers are
 # invalidated (a lockfile change) only fetches what is new. They are BuildKit build cache:
@@ -33,13 +33,13 @@ RUN --mount=type=cache,id=keel-cargo-registry,target=/usr/local/cargo/registry \
     && mkdir -p /out/var/lib/keel
 
 # ---- Web: one lockfile for the workspace; install only the Keel app and its packages
-FROM node:24-trixie-slim AS web
-ENV npm_config_store_dir=/pnpm-store COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-RUN corepack enable
+FROM node:26-trixie-slim AS web
+ENV npm_config_store_dir=/pnpm-store
 WORKDIR /src
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
+# Node 26 no longer bundles corepack: install the pnpm that packageManager names.
+RUN npm install -g --silent "$(node -p 'require("./package.json").packageManager')"
 RUN --mount=type=cache,id=keel-pnpm-store,target=/pnpm-store \
-    --mount=type=cache,id=keel-corepack,target=/root/.cache/node/corepack \
     pnpm fetch
 COPY packages/ ./packages/
 COPY apps/keel/web/ ./apps/keel/web/
@@ -48,7 +48,6 @@ COPY specs/060-keel-enroll-settings/contracts/template-vectors.json ./specs/060-
 # The in-app help (spec 063 R6) bundles the Keel guides, and tests/unit checks their anchors.
 COPY docs/guides/keel/ ./docs/guides/keel/
 RUN --mount=type=cache,id=keel-pnpm-store,target=/pnpm-store \
-    --mount=type=cache,id=keel-corepack,target=/root/.cache/node/corepack \
     pnpm install --offline --frozen-lockfile --filter @companion/keel-web... \
     && pnpm --filter @companion/keel-web build
 
