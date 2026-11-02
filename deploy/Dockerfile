@@ -1,9 +1,10 @@
 # Hosted image (spec 031). Build from repo root: docker build -f deploy/Dockerfile -t fathom-server .
-FROM node:22-alpine AS ui
-RUN corepack enable
+FROM node:26-alpine AS ui
 WORKDIR /src
 # One lockfile for the pnpm workspace: fetch from it alone, then install only the Fathom UI.
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+# Node 26 no longer bundles corepack: install the pnpm that packageManager names.
+RUN npm install -g --silent "$(node -p 'require("./package.json").packageManager')"
 RUN pnpm fetch
 COPY ui/ ./ui/
 RUN pnpm install --offline --frozen-lockfile --filter fathom-ui
