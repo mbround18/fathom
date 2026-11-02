@@ -58,6 +58,13 @@ The feature list below is the high-level shape; `docs/MVP.md` tracks each area.
   rmcp 3.7 for the MCP server, keyring 4 (Secret Service now spoken over pure-Rust zbus), Tauri
   2.12, Rust 1.99.0, and the UI on React/Vite/Vitest/Playwright latest with xterm moved to
   `@xterm/xterm` 6. The UI is type-checked by TypeScript 7.
+- Depths on the shared UI kit (`065-shared-ui-kit`): the same frame as Keel, with a sidebar
+  grouped into Stacks, Account and Admin, and the updates count as a badge on Updates. Every page
+  has the kit's header. A list that fails to load (stacks, mounts, folders, sessions, networks,
+  passkeys, users, audit, updates) says "Failed to load …" with the reason and a Retry button,
+  instead of a bare message or an endless "Loading…". Empty lists and filters that match nothing
+  say so, with a Clear filter button. A page that crashes shows an error in place and leaves the
+  navigation working. A preview's command steps each have a labelled Copy button.
 
 ### Fixed
 
