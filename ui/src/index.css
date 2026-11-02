@@ -16,7 +16,14 @@
  * kept here, unlayered so they win over the kit's utilities: a row's checkbox takes taps across
  * its whole lead cell (the cell is the touch target, as the old 44px checkbox was), and a column
  * header sorts from anywhere in the header, not only on its label.
+ *
+ * Fathom's root font is 15px, so the kit's rem sizes come out under the 24px target size. The
+ * boxes themselves get px floors here, so the controls stay 24px whatever the base font.
  */
+[data-testid='resource-table'] [data-slot='checkbox'] {
+  width: 24px;
+  height: 24px;
+}
 [data-testid='resource-table'] [role='gridcell'] > [data-slot='checkbox'] {
   position: static;
 }
@@ -26,6 +33,7 @@
 [data-testid='resource-table'] [role='columnheader'] > button[data-sort-key] {
   align-self: stretch;
   flex: 1 1 auto;
+  min-height: 24px;
 }
 
 @layer base {
