@@ -66,13 +66,17 @@ The feature list below is the high-level shape; `docs/MVP.md` tracks each area.
   say so, with a Clear filter button. A page that crashes shows an error in place and leaves the
   navigation working. A preview's command steps each have a labelled Copy button.
 - Fathom on the shared UI kit (`065-shared-ui-kit`), keeping its own pane layout. Resource lists
-  run on the kit's data grid; sorting, selection, row menus and typed bulk delete work as before.
+  run on the kit's data grid; sorting, selection, row menus and typed bulk delete work as before,
+  and a sort now holds when its column is hidden at a narrow width.
   Confirmation dialogs are the kit's: the affected items are listed without the ✖ mark, and
   clicking outside the dialog now cancels it. Pane headers are the kit's pane header. A list that
   fails to load says "Failed to load …" with the reason and a Retry button, and a pane that
   crashes shows an error in that pane only, with the header and the other panes still working;
   showing something else in the pane clears it. The daemon's install command has a labelled Copy
   button.
+- Keel's screens moved into the shared UI kit (`@companion/ui/kit`) without a visible change, except
+  two fixes that reach every app on the kit: a closed dialog gives focus back to what opened it, and
+  on a phone the navigation strip keeps the current page in view when the update dot appears.
 
 ### Fixed
 
