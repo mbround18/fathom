@@ -130,14 +130,14 @@ Each task below writes `packages/ui/harness/pieces/<id>.tsx` (every state), `pac
 
   Add a harness fixture with 10,000 rows. The spec asserts no more than about 60 rows in the DOM, keyboard navigation, sort, selection, actions, and axe.
 - [x] T027 [US3] Add `PageHeader` `size="pane"`, with `lead`, `count` and `rootProps` (R9). Add `typedConfirm` to `ConfirmDialog` (R9). Add harness states and spec cases for both.
-- [ ] T028 [US3] Rewrite `ui/src/components/ResourceTable.tsx` as an adapter over `DataGrid`. The store, descriptors, compiled search, capabilities and `RowActionMenu` stay in Fathom. Keep every `data-testid` and role its suite uses.
-- [ ] T029 [US3] Adopt the following in Fathom:
+- [x] T028 [US3] Rewrite `ui/src/components/ResourceTable.tsx` as an adapter over `DataGrid`. The store, descriptors, compiled search, capabilities and `RowActionMenu` stay in Fathom. Keep every `data-testid` and role its suite uses.
+- [x] T029 [US3] Adopt the following in Fathom:
   - the kit's pane header in `ui/src/components/shell/PaneHost.tsx`, with `paneDragProps` on `rootProps` and `PaneSlotMenu` in `lead`;
   - the kit's `ConfirmDialog` (with `typedConfirm`) in place of `ui/src/components/ConfirmDialog.tsx`;
   - `CopyBlock` for copyable values;
   - `LoadFailed`, `EmptyState` and `NoMatch` in list panes;
   - a `PageErrorBoundary` around each pane, with `resetKey` set to the pane's view (FR-013).
-- [ ] T030 [US3] Add `ui/tests/e2e/kit-panes.spec.ts`: one pane that fails to load shows the shared state while the others work, and one pane that throws is contained. Run `perf-10k.spec.ts` and `perf-containers-500.spec.ts`, then Fathom's `lint`, `typecheck` and `test`, then its e2e suite.
+- [x] T030 [US3] Add `ui/tests/e2e/kit-panes.spec.ts`: one pane that fails to load shows the shared state while the others work, and one pane that throws is contained. Run `perf-10k.spec.ts` and `perf-containers-500.spec.ts`, then Fathom's `lint`, `typecheck` and `test`, then its e2e suite.
 
 ## Phase 7: User Story 4 – A developer builds a new screen from the kit (P3)
 
