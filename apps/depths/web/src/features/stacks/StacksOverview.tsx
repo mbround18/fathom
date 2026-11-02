@@ -126,17 +126,18 @@ export default function StacksOverview() {
   const list = useStacks((s) => s.list)
   const setStatus = useStacks((s) => s.setStatus)
   const listFailed = useStacks((s) => s.listFailed)
-  const retry = useStacks((s) => s.retry)
   const counts = useMemo(() => {
     const out = new Map<StackStatus, number>()
     for (const s of list?.stacks ?? []) out.set(s.status, (out.get(s.status) ?? 0) + 1)
     return out
   }, [list])
 
+  // The overview only sits beside the stack list, which says why the list failed and offers Retry.
   if (!list) {
+    if (listFailed) return null
     return (
       <div className="p-3">
-        <LoadState loading failed={listFailed} what="stacks" onRetry={retry} label="Loading stacks…" />
+        <LoadState loading what="stacks" label="Loading stacks…" />
       </div>
     )
   }
