@@ -11,7 +11,7 @@ mod support;
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use axum::body::Body;
 use depths_protocol::{Cmd, LogTarget, Role, StackOp, StatsTarget, UserId};
@@ -734,6 +734,16 @@ fn observe(replies: &[Value]) -> Result<Outcome, String> {
     }
 }
 
+/// Releases the fake runtime's held step on drop. A failed assertion with an operation still held
+/// would otherwise leave its blocking task spinning, and the test runtime waits on it forever.
+struct Release<'a>(&'a AtomicBool);
+
+impl Drop for Release<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Live sockets kept open for one sample; their servers stop on drop.
 #[derive(Default)]
 struct Held {
@@ -830,6 +840,7 @@ async fn sweep(who: Who, f: Features) -> Vec<String> {
             continue;
         }
         let a = sweep_app(f);
+        let _release = Release(&a.runtime.hold);
         let mut held = Held::default();
         let mut ws = socket(&a, who.subject(), &mut held).await;
         let id = prepare(&a, &mut ws, who, prep, &mut held).await;
@@ -844,7 +855,6 @@ async fn sweep(who: Who, f: Features) -> Vec<String> {
                 prep.scope()
             ));
         }
-        a.runtime.hold.store(false, Ordering::SeqCst);
     }
     wrong
 }
@@ -1022,6 +1032,7 @@ async fn a_pending_person_is_closed_4403_after_the_hello() {
 async fn losing_access_mid_socket_closes_4403_on_any_command() {
     for (prep, template) in samples() {
         let a = sweep_app(ON);
+        let _release = Release(&a.runtime.hold);
         let mut held = Held::default();
         let mut ws = socket(&a, USER, &mut held).await;
         // Set up as the user while they still had access (their preview, op, shell).
@@ -1039,7 +1050,6 @@ async fn losing_access_mid_socket_closes_4403_on_any_command() {
             .unwrap();
         closes_unanswered(&mut ws, 4403, &format!("{sent}")).await;
         assert_eq!(runtime_calls(&a), before, "{sent}");
-        a.runtime.hold.store(false, Ordering::SeqCst);
     }
 }
 
