@@ -56,7 +56,7 @@ The feature list below is the high-level shape; `docs/MVP.md` tracks each area.
 
 - Dependencies brought up to date for rc.2: kube 4 and k8s-openapi 0.28 (Kubernetes API 1.34),
   rmcp 3.7 for the MCP server, keyring 4 (Secret Service now spoken over pure-Rust zbus), Tauri
-  2.12, Rust 1.99.0, and the UI on React/Vite/Vitest/Playwright latest with xterm moved to
+  2.12, Rust 1.99.1, Node 26, and the UI on React/Vite/Vitest/Playwright latest with xterm moved to
   `@xterm/xterm` 6. The UI is type-checked by TypeScript 7.
 - Depths on the shared UI kit (`065-shared-ui-kit`): the same frame as Keel, with a sidebar
   grouped into Stacks, Account and Admin, and the updates count as a badge on Updates. Every page

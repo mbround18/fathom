@@ -152,9 +152,9 @@ Each task below writes `packages/ui/harness/pieces/<id>.tsx` (every state), `pac
 
 ## Phase 8: Polish and the gate
 
-- [ ] T033 Run the `s065` goldens again after every merge. Run `scripts/hygiene.sh`.
-- [ ] T034 Main session, once: `scripts/ci.sh all`. Report the wall time, the slowest steps, the change from the last pass, and one idea to speed it up.
-- [ ] T035 Before handing the walk-through to the owner, check `CHANGELOG.md` for 065 against what shipped.
+- [X] T033 Run the `s065` goldens again after every merge. Run `scripts/hygiene.sh`.
+- [X] T034 Main session, once: `scripts/ci.sh all`. Report the wall time, the slowest steps, the change from the last pass, and one idea to speed it up.
+- [X] T035 Before handing the walk-through to the owner, check `CHANGELOG.md` for 065 against what shipped.
 
 ## Dependencies
 
