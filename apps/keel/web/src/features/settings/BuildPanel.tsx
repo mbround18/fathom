@@ -6,11 +6,10 @@
  */
 import { CubeIcon } from '@phosphor-icons/react'
 import { useEffect } from 'react'
-import { H2, LoadState } from '@companion/ui/kit'
+import { DetailRow as Row, H2, LoadState, ShortCopy, Time, Unknown } from '@companion/ui/kit'
 
 import type { KeelBuild } from '@/protocol/wire'
 
-import { Row, ShortCopy, Time, Unknown } from './build-parts'
 import { shortDigest, shortRevision, useUpdates } from './updates'
 
 const DEV = 'development build'

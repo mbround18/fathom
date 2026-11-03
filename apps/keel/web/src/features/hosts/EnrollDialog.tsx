@@ -9,8 +9,8 @@
  */
 import { FingerprintIcon, PlusIcon, WarningIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
-import { CopyBlock, Dialog, FIELD, LABEL, Link, TermTip } from '@companion/ui/kit'
-import { lazy, Suspense, useEffect, useId, useState, type KeyboardEvent } from 'react'
+import { CopyBlock, Dialog, FIELD, LABEL, Link, TermTip, useNow } from '@companion/ui/kit'
+import { lazy, Suspense, useId, useState, type KeyboardEvent } from 'react'
 
 import { RefusalText } from '@/features/teams/parts'
 
@@ -20,22 +20,8 @@ import { useWorkspaces } from './workspaces'
 
 const Markdown = lazy(() => import('@/help/GuideMarkdown'))
 
-/** Re-renders every second while mounted; the current time. */
-function useNow(): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const t = setInterval(() => {
-      setNow(Date.now())
-    }, 1000)
-    return () => {
-      clearInterval(t)
-    }
-  }, [])
-  return now
-}
-
 function Countdown({ expiresAt }: { expiresAt: string }) {
-  const now = useNow()
+  const now = useNow(1000)
   const end = Date.parse(expiresAt)
   const left = Math.max(0, Math.floor((end - now) / 1000))
   const text = Number.isNaN(end)

@@ -24,14 +24,13 @@ import {
   WarningIcon,
 } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
-import { CopyBlock, H2, Link, LoadState } from '@companion/ui/kit'
+import { CopyBlock, DetailRow as Row, H2, Link, LoadState, ShortCopy, Time, Unknown } from '@companion/ui/kit'
 import type { ReactNode } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { RefusalText } from '@/features/teams/parts'
 import type { AvailableImage, KeelBuild, UpdatePath, UpdateStatus } from '@/protocol/wire'
 
-import { Row, ShortCopy, Time, Unknown } from './build-parts'
 import { canUpdate, cardState, failedRunId, shortDigest, shortRevision, showDot, useUpdates, when, type CardState } from './updates'
 
 const MUTED = 'text-xs text-muted-foreground'

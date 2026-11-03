@@ -1,1 +1,7 @@
-[]
+[
+  {
+    "file": "apps/keel/web/src/features/settings/TokensTab.tsx",
+    "name": "Time",
+    "reason": "Table cells show UTC minutes without the ' UTC' suffix and in muted text, to keep the token tables narrow at 360 px; the full RFC 3339 value is the title."
+  }
+]
