@@ -81,7 +81,9 @@ The feature list below is the high-level shape; `docs/MVP.md` tracks each area.
   UTC and relative times, expiry badges, shortened values and fingerprints with Copy, secrets
   that stay out of the page until revealed (and hide again), a secret input, chip lists, a PEM
   field that checks what is pasted or loaded, and a stage list for issuance steps. Keel's build
-  panel and update card use them; their build times' tooltip now shows the UTC minute.
+  panel and update card use them; their build times' tooltip now shows the UTC minute. Fathom's
+  certificate chain uses the stage list: the stuck link reads "Stuck: reason: message" under its
+  name, and the other links carry no mark rather than one the chain cannot vouch for.
 
 ### Fixed
 

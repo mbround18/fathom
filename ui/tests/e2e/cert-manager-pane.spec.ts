@@ -93,8 +93,9 @@ test.describe('cert-manager certificates pane', () => {
       ]),
     )
 
-    await expect(page.getByTestId('cert-chain-stage')).toHaveCount(4)
-    const stuck = page.locator('[data-testid="cert-chain-stage"][data-stuck="true"]')
+    const stages = page.getByRole('list', { name: 'Certificate chain' }).getByRole('listitem')
+    await expect(stages).toHaveCount(4)
+    const stuck = stages.and(page.locator('[data-state="stuck"]'))
     await expect(stuck).toHaveCount(1)
     await expect(stuck).toHaveAttribute('data-stage', 'Challenge')
     await expect(stuck).toContainText('HTTP-01 propagation failed')
