@@ -77,6 +77,11 @@ The feature list below is the high-level shape; `docs/MVP.md` tracks each area.
 - Keel's screens moved into the shared UI kit (`@companion/ui/kit`) without a visible change, except
   two fixes that reach every app on the kit: a closed dialog gives focus back to what opened it, and
   on a phone the navigation strip keeps the current page in view when the update dot appears.
+- The shared UI kit gained the pieces a certificate and secret manager needs: definition lists,
+  UTC and relative times, expiry badges, shortened values and fingerprints with Copy, secrets
+  that stay out of the page until revealed (and hide again), a secret input, chip lists, a PEM
+  field that checks what is pasted or loaded, and a stage list for issuance steps. Keel's build
+  panel and update card use them; their build times' tooltip now shows the UTC minute.
 
 ### Fixed
 
