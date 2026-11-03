@@ -270,7 +270,9 @@ cargo fmt
 # CI, exactly as GitHub runs it (containers via paws + Docker)
 scripts/ci.sh                          # the slices your diff touches (changed)
 scripts/ci.sh keel                     # one slice: shared|fathom|fathom-full|depths|keel
-scripts/ci.sh all                      # every slice, full e2e matrix: the release gate
+scripts/ci.sh validate                 # what your diff touches, without Playwright
+scripts/ci.sh all                      # every slice, Fathom e2e at three widths
+CI_E2E=full scripts/ci.sh all          # every slice, full e2e matrix: the release gate
 
 # While iterating: the same slices on the host, minus Playwright, web builds and containers
 make gate                              # GATE_SLICES="shared keel" to pick, GATE_BASE to diff against
@@ -285,8 +287,11 @@ and treat a slice that grows as a bug: the slowest step is where to cut first.
 CI run. CI is sliced per app: `changed`, the default, diffs against `origin/main` (`CI_BASE`) and
 runs only the slices that touch, so a Keel change gates Keel's crates, bindings and web app in
 minutes. Docs and specs run nothing; a shared crate or a lockfile runs `shared` and every app that
-uses it. The `fathom` slice runs its e2e on chromium at phone, laptop and wide; `fathom-full` (and
-`all`) runs the whole 7-width chromium and webkit matrix, over an hour, before a release. It needs
+uses it. The `fathom` slice runs its e2e on chromium at phone, laptop and wide; `fathom-full` runs
+the whole 7-width chromium and webkit matrix, over an hour, before a release. `CI_E2E` picks the
+e2e for every slice: `quick` (the default), `full` (the matrix for `fathom` and `all` too) or
+`none` (no Playwright at all: lint, typecheck, unit tests, clippy, cargo tests and the binding
+drift checks only). `validate` is `changed` with `CI_E2E=none`. It needs
 [`paws`](https://github.com/mbround18/paws) with `paws run`
 (`cargo install --locked --git https://github.com/mbround18/paws --branch feat/fathom-local-ci paws-cli`
 until that is released) and Docker. It builds from your working tree minus everything `.gitignore`d,

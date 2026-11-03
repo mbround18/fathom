@@ -2,7 +2,7 @@
 # Fathom CI, run through paws (https://github.com/mbround18/paws) so the same command is the CI
 # job locally and on GitHub (.github/workflows/ci.yml calls this script, nothing else).
 #
-#   scripts/ci.sh [changed|shared|fathom|fathom-full|depths|keel|all]      default: changed
+#   scripts/ci.sh [changed|validate|shared|fathom|fathom-full|depths|keel|all]      default: changed
 #
 # One slice per app, so a change pays only for the app it touches:
 #   shared       fmt, cargo-deny, the shared crates' own tests and dependency guards, and the
@@ -12,13 +12,17 @@
 #   depths       Depths' crates, bindings and web app
 #   keel         Keel's crates, bindings and web app
 #   changed      the slices that the diff against CI_BASE touches (committed and uncommitted)
-#   all          shared, fathom-full, depths and keel: the release gate
+#   validate     changed with CI_E2E=none: lint, types, unit and cargo tests, no Playwright
+#   all          shared, fathom, depths and keel; CI_E2E=full makes it the release gate
 #
 # Each job is one `paws run`: a container (rust:1-bookworm, or the Playwright image for the UI)
 # built from the working tree filtered by .gitignore on the host, so a local run sees what a fresh
 # checkout sees: no target/, no node_modules/, no ui/dist. Uncommitted edits ARE included.
 #
 # Knobs (environment):
+#   CI_E2E              quick: Fathom e2e at three chromium widths  (default)
+#                       full:  Fathom's whole e2e matrix, as fathom-full always runs it
+#                       none:  no Playwright step in any slice
 #   CARGO_BUILD_JOBS    cargo parallelism inside the container      (default 4)
 #   PLAYWRIGHT_WORKERS  Playwright workers inside the container     (default 2)
 #   CI_NICE             nice level for paws and every step          (default 10)
@@ -43,6 +47,11 @@ cd "$(dirname "$0")/.."
 : "${CI_NICE:=10}"
 : "${CI_MIN_FREE_GB:=8}"
 : "${CI_RUN_ID:=$(date +%s%N)}"
+: "${CI_E2E:=quick}"
+case "$CI_E2E" in
+  quick | full | none) ;;
+  *) echo "ci: CI_E2E is quick, full or none, not '$CI_E2E'" >&2; exit 2 ;;
+esac
 export CARGO_BUILD_JOBS PLAYWRIGHT_WORKERS VITEST_WORKERS CI_RUN_ID DAGGER_NO_NAG=1
 
 # System libraries for the Tauri crate (webkit2gtk-4.1 et al.), cmake for protobuf-src's protoc
@@ -109,6 +118,12 @@ CARGO_DENY="{ [ -x /opt/cargo-tools/bin/cargo-deny ] \
 || $N cargo install --locked --root /opt/cargo-tools cargo-deny; } \
 && $N /opt/cargo-tools/bin/cargo-deny check"
 
+# e2e_step <cmd>: sets E2E to the Playwright step's arguments, or to none with CI_E2E=none.
+e2e_step() {
+  E2E=()
+  [ "$CI_E2E" = none ] || E2E=(--step "$1")
+}
+
 # SHARED_CRATES, slices_for and changed_slices: which slices a diff needs.
 . scripts/lib/slices.sh
 
@@ -121,25 +136,27 @@ job_shared() {
     --step "$N cargo clippy $SHARED_CRATES --all-targets -- -D warnings" \
     --step "$N cargo test $SHARED_CRATES" \
     --step "$CARGO_DENY" || return 1
+  e2e_step "$N pnpm --filter @companion/ui e2e --workers=\"\$PLAYWRIGHT_WORKERS\""
   node_run . \
     --step "$N pnpm -w run lint:packages" \
     --step "$N pnpm -w run typecheck:packages" \
     --step "$N pnpm --filter @companion/ui test" \
     --step "$N pnpm --filter @companion/theme test" \
     --step "$N pnpm --filter @companion/terminal test" \
-    --step "$N pnpm --filter @companion/ui e2e --workers=\"\$PLAYWRIGHT_WORKERS\"" \
-    --step "$N pnpm audit --prod --audit-level high"
+    --step "$N pnpm audit --prod --audit-level high" \
+    "${E2E[@]}"
 }
 
 # Fathom: the root crate, its daemon, server, desktop app and tools, and the shared crates they
 # build on.
 FATHOM_CRATES="-p fathom -p fathom-daemon -p fathom-server -p fathom-devbridge -p pipeline \
 -p container-runtime -p audit-log -p web-auth"
-# Per change: one engine at three widths. fathom-full runs every project in ui/playwright.config.ts.
+# CI_E2E=quick: one engine at three widths. full runs every project in ui/playwright.config.ts.
 FATHOM_E2E_QUICK="--project=chromium-phone --project=chromium-laptop --project=chromium-wide"
 
 fathom_slice() {
-  local e2e_projects=$1
+  local e2e_projects=$FATHOM_E2E_QUICK
+  [ "$CI_E2E" = full ] && e2e_projects=""
   # Constitution Principle III: generated bindings must not drift. Snapshot, regenerate, compare
   # (diff -r also reports newly generated files, like `git add -N` + `git diff` did).
   local drift="rm -rf /tmp/generated-before && cp -r ui/src/protocol/generated /tmp/generated-before \
@@ -154,17 +171,18 @@ echo 'error: ui/src/protocol/generated is stale. Run cargo test -p fathom --test
     --step "$N scripts/check-no-ldap.sh" \
     --step "$N cargo test $FATHOM_CRATES" \
     --step "$drift" || return 1
+  e2e_step "$N pnpm e2e $e2e_projects --workers=\"\$PLAYWRIGHT_WORKERS\""
   # Installing from ui/ installs the whole workspace against the root pnpm-lock.yaml.
   node_run ui \
     --step "$N pnpm lint" \
     --step "$N pnpm typecheck" \
     --step "$N pnpm test" \
     --step "$N pnpm build" \
-    --step "$N pnpm e2e $e2e_projects --workers=\"\$PLAYWRIGHT_WORKERS\""
+    "${E2E[@]}"
 }
 
-job_fathom() { fathom_slice "$FATHOM_E2E_QUICK"; }
-job_fathom-full() { fathom_slice ""; }
+job_fathom() { fathom_slice; }
+job_fathom-full() { CI_E2E=full fathom_slice; }
 
 # need_mem <GB> <job>: refuse to start a Playwright job the machine has no room for.
 need_mem() {
@@ -213,12 +231,13 @@ echo 'error: apps/depths/web/src/protocol/generated is stale. Run cargo test -p 
     --step "$N cargo clippy $DEPTHS_CRATES --all-targets -- -D warnings" \
     --step "$N cargo test $DEPTHS_CRATES" \
     --step "$depths_drift" || return 1
+  e2e_step "$N pnpm --filter $DEPTHS_WEB e2e --workers=\"\$PLAYWRIGHT_WORKERS\""
   node_run apps/depths/web \
     --step "$N pnpm --filter $DEPTHS_WEB lint" \
     --step "$N pnpm --filter $DEPTHS_WEB typecheck" \
     --step "$N pnpm --filter $DEPTHS_WEB test" \
     --step "$N pnpm --filter $DEPTHS_WEB build" \
-    --step "$N pnpm --filter $DEPTHS_WEB e2e --workers=\"\$PLAYWRIGHT_WORKERS\""
+    "${E2E[@]}"
 }
 
 # Spec 055: Keel's crates (and the shared ones it builds on), its bindings, then its web app
@@ -238,12 +257,13 @@ echo 'error: apps/keel/web/src/protocol/generated is stale. Run cargo test -p ke
     --step "$N cargo clippy $KEEL_CRATES --all-targets -- -D warnings" \
     --step "$N cargo test $KEEL_CRATES" \
     --step "$keel_drift" || return 1
+  e2e_step "$N pnpm --filter $KEEL_WEB e2e --workers=\"\$PLAYWRIGHT_WORKERS\""
   node_run apps/keel/web \
     --step "$N pnpm --filter $KEEL_WEB lint" \
     --step "$N pnpm --filter $KEEL_WEB typecheck" \
     --step "$N pnpm --filter $KEEL_WEB test" \
     --step "$N pnpm --filter $KEEL_WEB build" \
-    --step "$N pnpm --filter $KEEL_WEB e2e --workers=\"\$PLAYWRIGHT_WORKERS\""
+    "${E2E[@]}"
 }
 
 job_changed() {
@@ -321,18 +341,19 @@ if [ -z "${GITHUB_ACTIONS:-}" ] && command -v flock >/dev/null; then
     echo "ci: waiting for it to finish (CI_LOCK_WAIT=0 to exit instead)" >&2
     flock 9
   fi
-  echo "pid $$ in $PWD since $(date '+%H:%M:%S'): $0 ${1:-changed}" > "$lock.owner"
+  echo "pid $$ in $PWD since $(date '+%H:%M:%S'): $0 ${1:-changed} (CI_E2E=$CI_E2E)" > "$lock.owner"
 fi
 
 case "${1:-changed}" in
   shared | fathom | fathom-full | depths | keel) run_job "$1" ;;
   changed) job_changed ;;
+  validate) CI_E2E=none job_changed ;;
   all)
     # Like the workflow's matrix (fail-fast: false): every slice runs, then one verdict. One at a
     # time (two Playwright suites at once do not fit), the quick slices first so they report early.
     overall=$(date +%s)
     failed=()
-    for job in shared depths keel fathom-full; do
+    for job in shared depths keel fathom; do
       run_job "$job" || failed+=("$job")
     done
     if [ "${#failed[@]}" -gt 0 ]; then
@@ -342,7 +363,7 @@ case "${1:-changed}" in
     echo "ci: all passed in $(($(date +%s) - overall))s"
     ;;
   *)
-    echo "usage: $0 [changed|shared|fathom|fathom-full|depths|keel|all]" >&2
+    echo "usage: $0 [changed|validate|shared|fathom|fathom-full|depths|keel|all]" >&2
     exit 2
     ;;
 esac
