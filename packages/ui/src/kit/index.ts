@@ -24,6 +24,7 @@ export { useReveal } from './reveal'
 export {
   Field,
   FIELD,
+  FIELD_AREA,
   FIELD_DENSE,
   FORM_WIDTH,
   FormPanel,
@@ -53,3 +54,7 @@ export { ExpiryBadge, expiryTone, type ExpiryTone, type ExpiryWindow } from './E
 export { Fingerprint, ShortCopy, shorten } from './ShortCopy'
 export { SecretValue } from './SecretValue'
 export { SecretInput } from './SecretInput'
+export { ChipList } from './ChipList'
+export { checkPem, describePem, type PemBlock, type PemCheck } from './pem'
+export { PemField } from './PemField'
+export { StageList, type Stage, type StageState } from './StageList'

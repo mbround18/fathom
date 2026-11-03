@@ -15,6 +15,9 @@ const FIELD_LOOK =
   'focus-visible:border-accent-neon focus-visible:ring-1 focus-visible:ring-accent-neon/60 ' +
   'disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-status-err'
 
+/** A multi-line field (a textarea), the same look as FIELD, at least four lines tall. */
+export const FIELD_AREA = `min-h-24 px-2 py-1 ${FIELD_LOOK}`
+
 /** A native input or select, styled like `@companion/ui`'s Input, with a visible focus ring. */
 export const FIELD = `h-8 px-2 ${FIELD_LOOK}`
 
