@@ -22,7 +22,7 @@ function Stages() {
       <StageList
         label="Issuance of widgets-tls"
         stages={[
-          { key: 'certificate', title: 'Certificate widgets-tls', status: 'Not ready', state: 'done' },
+          { key: 'certificate', title: 'Certificate widgets-tls', status: 'Not ready' },
           { key: 'request', title: 'CertificateRequest widgets-tls-1', status: 'Approved', state: 'done' },
           { key: 'order', title: 'Order widgets-tls-1-2093', status: 'Pending', state: 'current' },
           {
@@ -53,7 +53,7 @@ const fixture: Fixture = {
         <DetailList label="widgets-tls" columns={2}>
           <DetailRow term="Subject">CN=widgets.example.test</DetailRow>
           <DetailRow term="Issuer">CN=Example Widget CA R3</DetailRow>
-          <DetailRow term="Expires" data="expires">
+          <DetailRow term="Not after" data="expires">
             <ExpiryBadge notAfter="2026-11-23T12:00:00Z" now={NOW} />
           </DetailRow>
           <DetailRow term="Fingerprint">

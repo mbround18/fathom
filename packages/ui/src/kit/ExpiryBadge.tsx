@@ -60,7 +60,7 @@ export function ExpiryBadge({
   const ticking = useNow()
   const at = now ?? ticking
   const tone = expiryTone(notAfter, at, thresholds)
-  if (tone === null) return <span className="text-xs text-muted-foreground">{label} unknown</span>
+  if (tone === null) return <span className={cn(STATUS, 'font-normal text-muted-foreground')}>{label} unknown</span>
   const { className, Icon } = LOOK[tone]
   const utc = formatUtc(notAfter)
   return (

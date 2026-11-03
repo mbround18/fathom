@@ -79,10 +79,21 @@ describe('StageList', () => {
     const items = screen.getAllByRole('listitem')
     expect(items.map((li) => li.getAttribute('data-state'))).toEqual(['done', 'current', 'stuck', 'pending'])
     expect(items[1]).toHaveAttribute('aria-current', 'step')
-    expect(items[2]).toHaveTextContent('Stuck')
-    expect(items[2]).toHaveTextContent('DNS record not found')
+    expect(items[2]).toHaveTextContent('Stuck: DNS record not found')
     fireEvent.click(screen.getByRole('button', { name: /Challenge widgets-1-0/ }))
     expect(open).toHaveBeenCalledOnce()
     expect(screen.getAllByRole('button')).toHaveLength(1)
+  })
+
+  it('says stuck on the title line when there is no note', () => {
+    render(<StageList label="Issuance" stages={[{ key: 'c', title: 'Challenge c-0', state: 'stuck', status: 'Pending' }]} />)
+    expect(screen.getByRole('listitem')).toHaveTextContent('Challenge c-0PendingStuck')
+  })
+
+  it('claims nothing for a stage without a state', () => {
+    render(<StageList label="Chain" stages={[{ key: 'c', title: 'Certificate c', status: 'False' }]} />)
+    const item = screen.getByRole('listitem')
+    expect(item).not.toHaveAttribute('data-state')
+    expect(item).toHaveTextContent(/^Certificate cFalse$/)
   })
 })

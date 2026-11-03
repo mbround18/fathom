@@ -14,7 +14,8 @@ export interface Stage {
   title: ReactNode
   /** A short state after the title: "Ready", "Pending", "Issued 3 days ago". */
   status?: ReactNode
-  state: StageState
+  /** Left out when the caller can't truthfully say: the stage then shows no mark at all. */
+  state?: StageState | undefined
   /** Why it is stuck, or anything else worth a line under the title. */
   note?: ReactNode
   onOpen?: () => void
@@ -31,23 +32,35 @@ export function StageList({ label, stages }: { label: string; stages: readonly S
   return (
     <ol aria-label={label} className="flex min-w-0 flex-col gap-1">
       {stages.map((s) => {
-        const { Icon, className, word } = ICON[s.state]
+        const look = s.state === undefined ? undefined : ICON[s.state]
+        const stuck = s.state === 'stuck'
         const body = (
           <>
-            <Icon aria-hidden weight={s.state === 'pending' ? 'regular' : 'bold'} className={cn('mt-0.5 size-3.5 shrink-0', className)} />
+            {look ? (
+              <look.Icon aria-hidden weight={s.state === 'pending' ? 'regular' : 'bold'} className={cn('mt-0.5 size-3.5 shrink-0', look.className)} />
+            ) : (
+              <span aria-hidden className="mt-0.5 size-3.5 shrink-0" />
+            )}
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
               <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
                 <span className="min-w-0 font-mono break-all">{s.title}</span>
                 {s.status !== undefined && <span className="text-muted-foreground">{s.status}</span>}
-                <span className={cn('font-medium', s.state === 'stuck' ? 'text-status-err' : 'sr-only')}>{word}</span>
+                {look && !(stuck && s.note !== undefined) && <span className={stuck ? 'font-medium text-status-err' : 'sr-only'}>{look.word}</span>}
               </span>
-              {s.note !== undefined && <span className="text-muted-foreground break-words">{s.note}</span>}
+              {s.note !== undefined && (
+                // A stuck stage's note says why, so it leads with the word; on the red tint it is
+                // the foreground dimmed, not grey, to keep its contrast.
+                <span className={cn('break-words', stuck ? 'text-foreground/85' : 'text-muted-foreground')}>
+                  {stuck && <span className="font-medium text-status-err">{look?.word}: </span>}
+                  {s.note}
+                </span>
+              )}
             </span>
           </>
         )
         const box = cn(
           'flex w-full min-w-0 items-start gap-2 border px-2 py-1.5 text-left text-xs',
-          s.state === 'stuck' ? 'border-status-err bg-status-err/10' : 'border-border/60 bg-card/60',
+          stuck ? 'border-status-err bg-status-err/10' : 'border-border/60 bg-card/60',
         )
         return (
           <li key={s.key} data-stage={s.key} data-state={s.state} aria-current={s.state === 'current' ? 'step' : undefined}>
