@@ -37,6 +37,7 @@ fn hello(host: Uuid) -> Frame {
         override_quorum: 1,
         ledger_head: None,
         bases: Vec::new(),
+        age_recipient: None,
     }
 }
 

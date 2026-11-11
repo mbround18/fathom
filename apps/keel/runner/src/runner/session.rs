@@ -153,6 +153,8 @@ impl Runner {
             override_quorum: self.policy.override_quorum,
             ledger_head,
             bases,
+            // Read from `age_recipient_file` in spec 066 T043.
+            age_recipient: None,
         };
         send(&out, hello)?;
         // Results Keel missed while it restarted, oldest first, then a Ping whose Pong

@@ -59,6 +59,7 @@ fn every_frame() -> Vec<Frame> {
                 job: "site".into(),
                 commit: "a".repeat(40),
             }],
+            age_recipient: Some(format!("age1{}", "q".repeat(58))),
         },
         Frame::RenewCert {},
         Frame::Cert {
@@ -567,4 +568,17 @@ fn an_outside_run_checks_its_bounds() {
         at_limits.check().is_ok(),
         "the limits themselves are allowed"
     );
+}
+
+/// Spec 066 R7: an old runner's `Hello` has no `age_recipient`, and one without a key omits it.
+#[test]
+fn hello_age_recipient_is_optional_on_the_wire() {
+    let old = serde_json::json!({
+        "frame": "Hello", "host_id": "h-1", "version": "0.1.0", "ansible_core": "2.19.1",
+        "python": "3.12.3", "allowed_profiles": [], "require_signed": false,
+        "override_quorum": 1, "ledger_head": null, "bases": []
+    });
+    let frame: Frame = serde_json::from_value(old.clone()).unwrap();
+    assert!(matches!(frame, Frame::Hello { age_recipient: None, .. }));
+    assert_eq!(serde_json::to_value(&frame).unwrap(), old);
 }

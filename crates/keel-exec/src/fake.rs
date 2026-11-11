@@ -152,6 +152,7 @@ impl FakeRunner {
                 override_quorum: 1,
                 ledger_head: None,
                 bases: Vec::new(),
+                age_recipient: None,
             },
             scripts: HashMap::new(),
             default_script: Script::finish(0),

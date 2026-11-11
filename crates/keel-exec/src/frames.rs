@@ -254,6 +254,10 @@ pub enum Frame {
         override_quorum: u32,
         ledger_head: Option<String>,
         bases: Vec<Base>,
+        /// The host's age public key (`age1…`), read from a public file next to the private key
+        /// (spec 066 R7). Omitted by old runners and when the box has none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        age_recipient: Option<String>,
     },
     /// Either side may start a renewal; the server answers with `Cert`.
     RenewCert {},
@@ -489,6 +493,7 @@ impl fmt::Debug for Frame {
                 override_quorum,
                 ledger_head,
                 bases,
+                age_recipient,
             } => d
                 .field("host_id", host_id)
                 .field("version", version)
@@ -498,7 +503,8 @@ impl fmt::Debug for Frame {
                 .field("require_signed", require_signed)
                 .field("override_quorum", override_quorum)
                 .field("ledger_head", ledger_head)
-                .field("bases", bases),
+                .field("bases", bases)
+                .field("age_recipient", age_recipient),
             Frame::RenewCert {} | Frame::Ping | Frame::Pong | Frame::ReadLedger => &mut d,
             Frame::Cert { cert } => d.field("cert", cert),
             Frame::Krl { bytes } => d.field("bytes", &Len(bytes.len())),

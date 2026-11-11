@@ -585,6 +585,7 @@ where
         python,
         override_quorum,
         ledger_head,
+        age_recipient,
         ..
     }) = hello
     else {
@@ -611,8 +612,8 @@ where
     }
     let row: Option<(Uuid,)> = sqlx::query_as(
         "update hosts set state = 'online', runner_version = $2, ansible_version = $3, \
-         python_version = $4, override_quorum = $5, ledger_head = $6, last_seen_at = now() \
-         where id = $1 and state <> 'revoked' returning workspace_id",
+         python_version = $4, override_quorum = $5, ledger_head = $6, age_recipient = $7, \
+         last_seen_at = now() where id = $1 and state <> 'revoked' returning workspace_id",
     )
     .bind(host)
     .bind(truncate(&version, 64))
@@ -620,6 +621,8 @@ where
     .bind(truncate(&python, 64))
     .bind(i32::try_from(override_quorum).unwrap_or(i32::MAX))
     .bind(ledger_head.map(|h| truncate(&h, 128)))
+    // A runner that sends none (or an old one) clears it; a malformed one is dropped, not stored.
+    .bind(age_recipient.filter(|r| is_age_recipient(r)))
     .fetch_optional(&app.db)
     .await?;
     let Some((workspace,)) = row else {
@@ -1925,4 +1928,28 @@ pub async fn history(app: &AppState, run: Uuid, after_seq: u64) -> Result<Vec<Ev
     }
     out.sort_by_key(|(s, _)| *s);
     Ok(out.into_iter().map(|(_, e)| e).collect())
+}
+
+/// An age X25519 public key: `age1` and 58 bech32 characters (spec 066 R7). Matches the
+/// `hosts.age_recipient` check constraint, so a bad value never fails the hello.
+fn is_age_recipient(v: &str) -> bool {
+    const BECH32: &[u8] = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+    v.len() == 62
+        && v.starts_with("age1")
+        && v.as_bytes()[4..].iter().all(|b| BECH32.contains(b))
+}
+
+#[cfg(test)]
+mod age_recipient_tests {
+    use super::is_age_recipient;
+
+    #[test]
+    fn only_well_formed_age_keys_pass() {
+        let ok = format!("age1{}", "q".repeat(58));
+        assert!(is_age_recipient(&ok));
+        assert!(!is_age_recipient(&format!("age1{}", "b".repeat(58))));
+        assert!(!is_age_recipient(&format!("age1{}", "q".repeat(57))));
+        assert!(!is_age_recipient("AGE-SECRET-KEY-1QQQ"));
+        assert!(!is_age_recipient(""));
+    }
 }
