@@ -172,31 +172,46 @@ pub struct OpenedChange {
     /// The pull request's web URL.
     pub url: String,
     pub branch: String,
+    pub number: u64,
 }
 
 /// What a [`Forge::probe`] found.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ForgeAccess {
     /// The token may write to the repository (`permissions.push`).
     pub can_push: bool,
+    pub default_branch: String,
 }
 
 /// Errors a [`Forge`] reports. Never carries the token.
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ForgeError {
-    #[error("forge rejected the token")]
+    /// The binding URL names no owner and repository the forge can be asked about.
+    #[error("cannot tell the repository from {0:?}")]
+    Url(String),
+    #[error("the forge rejected the token")]
     Unauthorized,
-    #[error("repository not found on the forge")]
+    #[error("the forge has no such repository, branch or file")]
     NotFound,
     /// A file changed since the edit was computed (the `sha` precondition failed), or the branch
     /// already exists.
-    #[error("conflict: {0}")]
+    #[error("a file changed on the forge since the edit was made: {0}")]
     Conflict(String),
-    /// Any other refusal, as `forge_refused`.
-    #[error("forge refused ({status}): {message}")]
+    /// Any other refusal.
+    #[error("the forge refused ({status}): {message}")]
     Refused { status: u16, message: String },
-    #[error("forge unavailable: {0}")]
+    #[error("could not reach the forge: {0}")]
     Unavailable(String),
+    #[error("unexpected forge response: {0}")]
+    Response(String),
+}
+
+impl ForgeError {
+    /// The protocol refusal code: every forge failure is `forge_refused`.
+    #[must_use]
+    pub fn code(&self) -> &'static str {
+        "forge_refused"
+    }
 }
 
 /// A code forge's API: Forgejo/Gitea or GitHub (adapters in `keel-forge`).

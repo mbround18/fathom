@@ -6,7 +6,7 @@ use serde_json::json;
 
 use crate::forgejo::{Permissions, Pull};
 use crate::{
-    ChangeRequest, Forge, ForgeError, Http, OpenedChange, Probe, RepoRef, b64, encode_path,
+    ChangeRequest, Forge, ForgeAccess, ForgeError, ForgeFuture, Http, OpenedChange, RepoRef, b64, encode_path,
 };
 
 #[derive(Debug, Clone)]
@@ -54,19 +54,29 @@ impl Github {
 }
 
 impl Forge for Github {
-    async fn probe(&self) -> Result<Probe, ForgeError> {
+    fn probe(&self) -> ForgeFuture<'_, ForgeAccess> {
+        Box::pin(self.probe_inner())
+    }
+
+    fn open_change<'a>(&'a self, change: &'a ChangeRequest) -> ForgeFuture<'a, OpenedChange> {
+        Box::pin(self.open_change_inner(change))
+    }
+}
+
+impl Github {
+    async fn probe_inner(&self) -> Result<ForgeAccess, ForgeError> {
         let url = self.http.url(&self.repo_path());
         let repo: Repo = self
             .http
             .send(self.auth(self.http.client().get(url)))
             .await?;
-        Ok(Probe {
+        Ok(ForgeAccess {
             can_push: repo.permissions.is_some_and(|p| p.push),
             default_branch: repo.default_branch,
         })
     }
 
-    async fn open_change(&self, change: &ChangeRequest) -> Result<OpenedChange, ForgeError> {
+    async fn open_change_inner(&self, change: &ChangeRequest) -> Result<OpenedChange, ForgeError> {
         let rp = self.repo_path();
         let c = self.http.client();
         let url = self.http.url(&format!(

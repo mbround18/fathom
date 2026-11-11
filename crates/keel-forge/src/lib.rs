@@ -5,10 +5,11 @@
 //! its edit against, so a file changed on the forge since then is refused
 //! ([`ForgeError::Conflict`]) rather than overwritten.
 //!
-//! The [`Forge`] trait is defined here for now; spec 066 puts the port in `keel-core`'s
-//! `ports.rs`, and integration moves it there (or re-exports it) once both land.
+//! The [`Forge`] port and its types live in `keel-core`'s `ports.rs`; they are re-exported here.
 
-use std::future::Future;
+pub use keel_core::ports::{
+    ChangeRequest, FileEdit, Forge, ForgeAccess, ForgeError, ForgeFuture, OpenedChange,
+};
 
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
@@ -32,76 +33,6 @@ pub enum Provider {
 pub struct RepoRef {
     pub owner: String,
     pub repo: String,
-}
-
-/// One file in a change. `expected_blob_sha` is the blob the edit was computed against; `None`
-/// creates the file (and fails if it exists).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileEdit {
-    pub path: String,
-    pub expected_blob_sha: Option<String>,
-    pub new_content: Vec<u8>,
-}
-
-/// A pull request to open: `files` committed to `new_branch` (created from `base_branch`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChangeRequest {
-    pub base_branch: String,
-    pub new_branch: String,
-    pub title: String,
-    pub body: String,
-    pub files: Vec<FileEdit>,
-}
-
-/// The opened pull request.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpenedChange {
-    pub url: String,
-    pub branch: String,
-    pub number: u64,
-}
-
-/// What the connection's token may do on the repository.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Probe {
-    pub can_push: bool,
-    pub default_branch: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum ForgeError {
-    #[error("cannot tell the repository from {0:?}")]
-    Url(String),
-    #[error("the forge rejected the token")]
-    Unauthorized,
-    #[error("the forge has no such repository, branch or file")]
-    NotFound,
-    /// A file changed on the forge since the edit was computed (the `sha` precondition).
-    #[error("a file changed on the forge since the edit was made: {0}")]
-    Conflict(String),
-    #[error("the forge refused ({status}): {message}")]
-    Refused { status: u16, message: String },
-    #[error("could not reach the forge: {0}")]
-    Transport(String),
-    #[error("unexpected forge response: {0}")]
-    Response(String),
-}
-
-impl ForgeError {
-    /// The protocol refusal code: every forge failure is `forge_refused`.
-    #[must_use]
-    pub fn code(&self) -> &'static str {
-        "forge_refused"
-    }
-}
-
-/// The forge port.
-pub trait Forge {
-    fn probe(&self) -> impl Future<Output = Result<Probe, ForgeError>> + Send;
-    fn open_change(
-        &self,
-        change: &ChangeRequest,
-    ) -> impl Future<Output = Result<OpenedChange, ForgeError>> + Send;
 }
 
 /// A connection to one repository, as configured on a workspace.
@@ -140,17 +71,17 @@ impl ForgeClient {
 }
 
 impl Forge for ForgeClient {
-    async fn probe(&self) -> Result<Probe, ForgeError> {
+    fn probe(&self) -> ForgeFuture<'_, ForgeAccess> {
         match self {
-            Self::Forgejo(f) => f.probe().await,
-            Self::Github(g) => g.probe().await,
+            Self::Forgejo(f) => f.probe(),
+            Self::Github(g) => g.probe(),
         }
     }
 
-    async fn open_change(&self, change: &ChangeRequest) -> Result<OpenedChange, ForgeError> {
+    fn open_change<'a>(&'a self, change: &'a ChangeRequest) -> ForgeFuture<'a, OpenedChange> {
         match self {
-            Self::Forgejo(f) => f.open_change(change).await,
-            Self::Github(g) => g.open_change(change).await,
+            Self::Forgejo(f) => f.open_change(change),
+            Self::Github(g) => g.open_change(change),
         }
     }
 }
@@ -264,7 +195,7 @@ impl Http {
             .user_agent("keel")
             .timeout(std::time::Duration::from_secs(30))
             .build()
-            .map_err(|e| ForgeError::Transport(e.to_string()))?;
+            .map_err(|e| ForgeError::Unavailable(e.to_string()))?;
         Ok(Self {
             base: base.trim_end_matches('/').to_owned(),
             token,
@@ -284,7 +215,7 @@ impl Http {
         let resp = req
             .send()
             .await
-            .map_err(|e| ForgeError::Transport(e.without_url().to_string()))?;
+            .map_err(|e| ForgeError::Unavailable(e.without_url().to_string()))?;
         let status = resp.status().as_u16();
         if (200..300).contains(&status) {
             return resp

@@ -75,6 +75,12 @@ The mutating ones join `Cmd::is_mutating`.
 - `no_sops_rule`
 - `playbook_not_found`
 - `job_exists`
+- `recipient_exists`: the sops rule already lists the host's age key.
+- `unparseable`: the file at the head does not parse, so no edit is computed.
+- `invalid` (existing): a name, recipient or job body the edit rejects.
+
+A rule without an `age` list (PGP only, or `key_groups` without `age`) refuses with
+`unsupported_layout`.
 
 ## Events (`event.rs`)
 

@@ -7,6 +7,7 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
+keel-core = { path = "../keel-core" }
 base64 = "0.23"
 # As web-auth and oci-registry: in reqwest 0.13 `default-tls` is rustls.
 reqwest = { version = "0.13.5", features = ["json", "default-tls"] }
