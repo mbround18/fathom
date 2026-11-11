@@ -122,7 +122,7 @@ test('an admin sees the System tab without the System workspace', async ({ page,
   // Spec 061 FR-024: the tab opens to admins, with the running build and nothing of spec 060's.
   await expect(page).toHaveURL(/\/settings\/system(\?ws=[^#]*)?$/)
   const tabs = page.getByRole('tablist', { name: 'Settings' }).getByRole('tab')
-  await expect(tabs).toHaveText(['Enrollment', 'Tokens', 'Identity', 'System'])
+  await expect(tabs).toHaveText(['Workspace', 'Enrollment', 'Tokens', 'Identity', 'System'])
   await expect(page.locator('[data-build-panel]')).toBeVisible()
   await expect(page.locator('[data-system]')).toHaveCount(0)
   expect(backend.received.some((c) => c.type === 'GetSystem')).toBe(false)

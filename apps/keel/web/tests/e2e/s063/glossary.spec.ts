@@ -189,18 +189,21 @@ test.describe('on a phone', () => {
 })
 
 test('a term reads the same on every page', async ({ page, backend }) => {
+  // The workspace term moved to the shell's switcher (spec 066), so this compares a term two pages
+  // still draw themselves: fingerprint, on the SSH CA section of Hosts and the signers of Reviews.
   admin(backend)
   new FakeReviews(backend)
   const texts: string[] = []
   for (const path of ['/hosts', '/reviews']) {
     await page.goto(path)
-    const icon = trigger(page, 'workspace')
+    if (path === '/hosts') await page.getByText('SSH certificate authority').click()
+    const icon = trigger(page, 'fingerprint')
     await icon.focus()
-    const tip = content(page, 'workspace')
+    const tip = content(page, 'fingerprint')
     await expect(tip).toBeVisible()
     texts.push((await tip.textContent()) ?? '')
     await page.keyboard.press('Escape')
   }
-  expect(texts[0]).toContain('Keeps a set of hosts, bindings, inventories and runs apart')
+  expect(texts[0]).toContain('A short code that identifies a key')
   expect(texts[1]).toBe(texts[0])
 })

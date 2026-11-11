@@ -59,7 +59,7 @@ test('a workspace with no projects sends you to Teams, which shows each id to co
   await expect(form.locator('[data-no-projects]')).toContainText('This workspace has no projects yet.')
   await expect(form.getByRole('button', { name: 'Preview binding' })).toBeDisabled()
   await form.getByRole('link', { name: 'Create one in Teams' }).click()
-  await expect(page).toHaveURL(/\/teams$/)
+  await expect(page).toHaveURL(/\/teams(\?ws=[^#]*)?$/)
 
   // Once the workspace has a project, Teams shows its id with a Copy button.
   g.workspaces[0]?.projects.push({ id: PROJECT, slug: 'infra', name: 'Infra' })

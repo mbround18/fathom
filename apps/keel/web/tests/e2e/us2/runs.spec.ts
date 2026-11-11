@@ -31,7 +31,7 @@ test('the run list opens a run whose log streams live', async ({ page, backend }
   await expect(list.locator('tr[data-run-state="running"]')).toContainText(HEAD.slice(0, 12))
 
   await list.getByRole('link', { name: 'web' }).click()
-  await expect(page).toHaveURL(/\/runs\/run-0002$/)
+  await expect(page).toHaveURL(/\/runs\/run-0002(\?ws=[^#]*)?$/)
   await expect(page.getByRole('heading', { name: 'Run of web', level: 1 })).toBeVisible()
   const sub = await backend.waitForCmd('SubscribeRun')
   expect(sub.data).toEqual({ run: 'run-0002', from_seq: 0 })

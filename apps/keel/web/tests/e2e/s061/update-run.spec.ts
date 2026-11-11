@@ -58,7 +58,7 @@ test('an owner previews the update, confirms with a passkey and follows the run'
   await expect(card(page).locator('[data-update-run="in_progress"]')).toContainText('An update run is in progress.')
   await expect(card(page).getByRole('button', { name: 'Update Keel' })).toHaveCount(0)
   await card(page).getByRole('link', { name: 'Open the update run' }).click()
-  await expect(page).toHaveURL(new RegExp(`/runs/${id}$`))
+  await expect(page).toHaveURL(new RegExp(`/runs/${id}(\\?ws=[^#]*)?$`))
   await expect(page.locator('[data-param="keel_server_image_digest"]')).toHaveText(AVAILABLE_DIGEST)
 })
 

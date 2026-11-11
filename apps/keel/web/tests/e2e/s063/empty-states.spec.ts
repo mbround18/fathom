@@ -92,7 +92,7 @@ test.describe('an operator', () => {
   test('the Runs action goes to Bindings', async ({ page }) => {
     await page.goto('/runs')
     await page.locator('[data-empty-action]').getByRole('link', { name: 'Go to bindings' }).click()
-    await expect(page).toHaveURL(/\/bindings$/)
+    await expect(page).toHaveURL(/\/bindings(\?ws=[^#]*)?$/)
   })
 
   test('is offered no change to trusted signers', async ({ page }) => {
@@ -184,7 +184,7 @@ test.describe('no workspace', () => {
     await expect(empty.locator('[data-guide-link]')).toHaveAttribute('href', '/help/getting-started#create-a-workspace')
     await expect(empty.locator('[data-guide-link]')).toHaveAccessibleName('Learn more: Create a workspace')
     await empty.getByRole('link', { name: 'Create a workspace', exact: true }).click()
-    await expect(page).toHaveURL(/\/teams$/)
+    await expect(page).toHaveURL(/\/teams(\?ws=[^#]*)?$/)
   })
 
   test('a plain user is told an owner or admin grants workspaces', async ({ page, backend }) => {

@@ -30,7 +30,7 @@ test('an admin reads one line when an update is available, and nothing about the
   await expect(tab).not.toContainText('0.3.0')
   await expect(tab).not.toContainText('2'.repeat(12))
   await expect(page.locator('[data-update-dot]')).toHaveCount(0)
-  await expect(settingsLink(page)).toHaveAccessibleName('System Settings')
+  await expect(settingsLink(page)).toHaveAccessibleName('Settings')
   await expect(page.getByRole('button', { name: 'Check now' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Update Keel' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Hide the navigation dot' })).toHaveCount(0)

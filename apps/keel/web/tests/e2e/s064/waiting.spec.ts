@@ -66,7 +66,7 @@ test('"Waiting for approval" lists the held runs, oldest first, and is kept in t
   await expect(rows(page)).toHaveCount(3)
 
   await filter.getByRole('button', { name: 'Waiting for approval' }).click()
-  await expect(page).toHaveURL(/\/runs\?state=pending_approval$/)
+  await expect(page).toHaveURL(/\/runs\?state=pending_approval(&ws=[^#]*)?$/)
   await expect(filter).toHaveAttribute('data-runs-filter', 'pending_approval')
   await expect(filter.getByRole('button', { name: 'Waiting for approval' })).toHaveAttribute('aria-pressed', 'true')
   await expect(rows(page)).toHaveCount(2)
@@ -82,7 +82,7 @@ test('"Waiting for approval" lists the held runs, oldest first, and is kept in t
   await expect(rows(page)).toHaveCount(2)
 
   await filter.getByRole('button', { name: 'All' }).click()
-  await expect(page).toHaveURL(/\/runs$/)
+  await expect(page).toHaveURL(/\/runs(\?ws=[^#]*)?$/)
   await expect(rows(page)).toHaveCount(3)
 })
 
@@ -93,7 +93,7 @@ test('with nothing waiting, the filter says so and clears', async ({ page, backe
   const empty = page.locator('[data-empty="no-match"]')
   await expect(empty).toContainText('No runs waiting for approval.')
   await empty.getByRole('button', { name: 'Clear filter' }).click()
-  await expect(page).toHaveURL(/\/runs$/)
+  await expect(page).toHaveURL(/\/runs(\?ws=[^#]*)?$/)
   await expect(rows(page)).toHaveCount(1)
 })
 

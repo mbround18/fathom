@@ -490,6 +490,22 @@ export class FakeBackend {
       case 'CountPendingApprovals':
         // Nothing waits until a spec installs ./fake-runs.ts, which answers it from its runs.
         return [{ type: 'PendingApprovals', data: { counts: [] } }]
+      case 'ListWorkspaces': {
+        // The workspaces the user's grants name; ./fake-governance.ts answers it from its own list.
+        const seen = new Map<string, string>()
+        for (const g of me.grants) seen.set(g.workspace, g.workspace_slug)
+        const items = [...seen].map(([id, slug]) => ({
+          id,
+          slug,
+          name: slug,
+          created: '2026-01-01T00:00:00Z',
+          archived: false,
+          projects: [],
+          system: false,
+          primary_binding: null,
+        }))
+        return [{ type: 'Workspaces', data: { items } }]
+      }
       default: {
         const answer = this.updates.respond(me, cmd) ?? this.repos.respond(cmd) ?? this.inventories.respond(cmd)
         if (answer) return answer
