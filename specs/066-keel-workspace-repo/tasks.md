@@ -20,15 +20,15 @@ description: "Task list for spec 066, Keel workspaces, repository catalog and ho
 
 ## Phase 1: Foundation
 
-- [ ] T001 Write `server/migrations/0014_workspace_repo.sql` per data-model.md. Confirm the
+- [X] T001 Write `server/migrations/0014_workspace_repo.sql` per data-model.md. Confirm the
   credentials check constraint's name and UUID generation against earlier migrations.
-- [ ] T002 Add the protocol types and commands from contracts/protocol.md:
+- [X] T002 Add the protocol types and commands from contracts/protocol.md:
   - put the new types in `proto/repository.rs`;
   - extend `WorkspaceInfo`, `HostInfo`, `CredentialKind` and `Preview`;
   - extend action names and `is_mutating`;
   - extend the TS export list;
   - regenerate `web/src/protocol/generated`.
-- [ ] T003 Fill the new fields in the server, as `None`, empty or the current value:
+- [X] T003 Fill the new fields in the server, as `None`, empty or the current value:
   - `WorkspaceInfo.primary_binding` from the column;
   - `HostInfo.age_recipient` from the column;
   - `inventory_status: unknown`;
@@ -37,9 +37,10 @@ description: "Task list for spec 066, Keel workspaces, repository catalog and ho
   Route the new commands to handlers that refuse with `not_implemented`.
 - [ ] T004 Create the empty `core/catalog/` modules, `core/inventory_edit.rs`, the `Forge` port in
   `core/ports.rs`, and the `crates/keel-forge` skeleton. They should compile, with no logic yet.
-- [ ] T005 Add Playwright project `s066` and create `web/tests/e2e/s066/`. Add
+  The `Forge` port is in; `catalog/`, `inventory_edit.rs` and `keel-forge` come with T010–T022.
+- [X] T005 Add Playwright project `s066` and create `web/tests/e2e/s066/`. Add
   `server/tests/workspace_repo.rs` as an empty harness on `tests/common`.
-- [ ] T006 `PreviewWorkspaceCreate` also inserts the `default` project, in the same transaction
+- [X] T006 `PreviewWorkspaceCreate` also inserts the `default` project, in the same transaction
   and audit target. Update `tests/governance.rs`.
 
 ## Phase 2A: Catalog and sops (keel-core)
@@ -138,7 +139,7 @@ description: "Task list for spec 066, Keel workspaces, repository catalog and ho
 
 - [ ] T060 Write the guides `workspaces.md` and `repository.md`. Update `getting-started.md`,
   `hosts.md`, `bindings.md` and the glossary, and add the CHANGELOG entry.
-- [ ] T061 In the ansible repo, `roles/sops` writes `/etc/sops/age/recipient.txt` (0644). Pin it
+- [ ] T061 In the ansible repo, `roles/sops` writes `/etc/sops/age.pub` (0644). Pin it
   with molecule or ansible-lint, per that repo's CONTRIBUTING.
 - [ ] T062 The main session runs `scripts/ci.sh` once on the combined branch, then
   `scripts/hygiene.sh`.

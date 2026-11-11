@@ -7,7 +7,7 @@ import { autoWorkers } from '../../../ui/tests/support/workers.js'
  * transport. Every story runs against the fake backend; nothing here talks to a real server.
  *
  * Run one story: `pnpm --filter @companion/keel-web e2e --project us1`. Spec 060's specs are the
- * `s060` project, spec 061's `s061`, spec 063's `s063`, spec 064's `s064`.
+ * `s060` project, spec 061's `s061`, spec 063's `s063`, spec 064's `s064`, spec 066's `s066`.
  */
 const STORIES = ['shell', 'us1', 'us2', 'us3', 'us4', 'us5', 'us6', 'us7', 'us8', 'us9', 'us10'] as const
 
@@ -60,6 +60,12 @@ export default defineConfig({
     {
       name: 's064',
       testDir: './tests/e2e/s064',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Spec 066 (workspaces, the repository catalog and hosts). The same naming rule as `s063`.
+    {
+      name: 's066',
+      testDir: './tests/e2e/s066',
       use: { ...devices['Desktop Chrome'] },
     },
     // Spec 065: screenshot goldens taken before the shared kit move. Opt in with KEEL_GOLDENS=1:
