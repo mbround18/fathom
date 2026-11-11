@@ -140,5 +140,7 @@ description: "Task list for spec 066, Keel workspaces, repository catalog and ho
   `hosts.md`, `bindings.md` and the glossary, and add the CHANGELOG entry.
 - [X] T061 In the ansible repo, `roles/sops` writes `/etc/sops/age.pub` (0644). Pin it
   with molecule or ansible-lint, per that repo's CONTRIBUTING.
-- [ ] T062 The main session runs `scripts/ci.sh` once on the combined branch, then
-  `scripts/hygiene.sh`.
+- [X] T062 The main session runs `scripts/ci.sh` once on the combined branch, then
+  `scripts/hygiene.sh`. Keel and depths pass. Two failures came from main, not this branch: the
+  fathom contrast check on `StageList.tsx` and `cargo deny` in shared (RUSTSEC-2026-0462 on
+  rmcp 3.8.0, and a yanked async-executor 1.14.0).
