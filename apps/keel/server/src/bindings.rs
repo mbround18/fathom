@@ -381,6 +381,39 @@ pub async fn preview_create(app: &AppState, req: &Request<'_>, spec: BindingSpec
     if let Err(e) = require(app, req, ACTION, Capability::Administer, ws).await {
         return e;
     }
+    preview_create_in(
+        app,
+        req,
+        ws,
+        &slug,
+        spec,
+        "binding_create",
+        CreateAs::default(),
+    )
+    .await
+}
+
+/// What a confirmed create does besides the binding (spec 066 `PreviewWorkspaceRepository`).
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct CreateAs {
+    /// Make it the workspace's primary binding, in the same transaction.
+    pub primary: bool,
+    /// The workspace had no `default` project at preview: create it first. `spec.project` is
+    /// then the id it gets, unless another create got there first.
+    pub ensure_default: bool,
+}
+
+/// The create preview once the caller may administer `ws`: validation, the test fetch and the
+/// summary. `slug` names the project in the summary.
+pub(crate) async fn preview_create_in(
+    app: &AppState,
+    req: &Request<'_>,
+    ws: Uuid,
+    slug: &str,
+    spec: BindingSpec,
+    draft_action: &str,
+    create_as: CreateAs,
+) -> Vec<Event> {
     let Some(key) = url_key(app, spec.url.as_str()) else {
         return op_error(
             "url_invalid",
@@ -503,16 +536,19 @@ pub async fn preview_create(app: &AppState, req: &Request<'_>, spec: BindingSpec
             ));
         }
     }
+    if create_as.primary {
+        summary.push_str(" It becomes the workspace's primary repository.");
+    }
     let affected = vec![format!("{}@{}", spec.url.as_str(), spec.branch.as_str())];
     let ctx = channel(req);
     let op: PendingOp = Box::new(move |app: AppState, caller: Caller| {
-        Box::pin(async move { create(&app, &caller, id, ws, &key, &spec, ctx).await })
+        Box::pin(async move { create(&app, &caller, id, ws, &key, &spec, ctx, create_as).await })
     });
     preview(
         app,
         req,
         Draft {
-            action: "binding_create".to_owned(),
+            action: draft_action.to_owned(),
             summary,
             affected,
             step_up: false,
@@ -521,6 +557,7 @@ pub async fn preview_create(app: &AppState, req: &Request<'_>, spec: BindingSpec
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn create(
     app: &AppState,
     caller: &Caller,
@@ -529,9 +566,29 @@ async fn create(
     key: &str,
     spec: &BindingSpec,
     ctx: Value,
+    create_as: CreateAs,
 ) -> Vec<Event> {
     let result: Result<bool, sqlx::Error> = async {
         let mut tx = app.db.begin().await?;
+        let project = if create_as.ensure_default {
+            sqlx::query(
+                "insert into projects (id, workspace_id, slug, name) \
+                 values ($1, $2, 'default', 'Default') on conflict (workspace_id, slug) do nothing",
+            )
+            .bind(spec.project)
+            .bind(ws)
+            .execute(&mut *tx)
+            .await?;
+            let (p,): (Uuid,) = sqlx::query_as(
+                "select id from projects where workspace_id = $1 and slug = 'default'",
+            )
+            .bind(ws)
+            .fetch_one(&mut *tx)
+            .await?;
+            p
+        } else {
+            spec.project
+        };
         let inserted = sqlx::query(
             "insert into repo_bindings (id, project_id, url, url_key, branch, transport, \
              credential_id, known_host, allow_force_push, poll_interval, signed_mode, \
@@ -540,7 +597,7 @@ async fn create(
              on conflict (url, branch, project_id) do nothing",
         )
         .bind(id)
-        .bind(spec.project)
+        .bind(project)
         .bind(spec.url.as_str())
         .bind(key)
         .bind(spec.branch.as_str())
@@ -566,7 +623,7 @@ async fn create(
                 action: "binding_created",
                 workspace: Some(WorkspaceId(ws)),
                 target: json!({
-                    "binding": id, "project": spec.project, "url": spec.url.as_str(),
+                    "binding": id, "project": project, "url": spec.url.as_str(),
                     "branch": spec.branch.as_str(),
                 }),
                 decision: Decision::Allowed,
@@ -578,11 +635,35 @@ async fn create(
                     "poll_interval": spec.poll_interval,
                     "allow_force_push": spec.allow_force_push,
                     "override_quorum": spec.override_quorum,
-                    "request": ctx,
+                    "request": ctx.clone(),
                 }),
             },
         )
         .await?;
+        if create_as.primary {
+            sqlx::query(
+                "update workspaces set primary_binding = $1, primary_set_by = $2, \
+                 primary_set_at = now() where id = $3",
+            )
+            .bind(id)
+            .bind(caller.user.id)
+            .bind(ws)
+            .execute(&mut *tx)
+            .await?;
+            audit::record(
+                &mut tx,
+                Entry {
+                    actor: &caller.actor(),
+                    action: "workspace_primary_set",
+                    workspace: Some(WorkspaceId(ws)),
+                    target: json!({ "binding": id }),
+                    decision: Decision::Allowed,
+                    reason: None,
+                    context: json!({ "request": ctx }),
+                },
+            )
+            .await?;
+        }
         tx.commit().await?;
         Ok(true)
     }

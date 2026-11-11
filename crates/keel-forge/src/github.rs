@@ -6,7 +6,8 @@ use serde_json::json;
 
 use crate::forgejo::{Permissions, Pull};
 use crate::{
-    ChangeRequest, Forge, ForgeAccess, ForgeError, ForgeFuture, Http, OpenedChange, RepoRef, b64, encode_path,
+    ChangeRequest, Forge, ForgeAccess, ForgeError, ForgeFuture, Http, OpenedChange, RepoRef, b64,
+    encode_path,
 };
 
 #[derive(Debug, Clone)]

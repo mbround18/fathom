@@ -423,7 +423,15 @@ async fn read<T>(
 
 // ---- workspaces and projects ----------------------------------------------------------------
 
-type WorkspaceRow = (Uuid, String, String, OffsetDateTime, bool, bool, Option<Uuid>);
+type WorkspaceRow = (
+    Uuid,
+    String,
+    String,
+    OffsetDateTime,
+    bool,
+    bool,
+    Option<Uuid>,
+);
 
 /// `Workspaces`: instance admins see every workspace, a token its own, others their grants'.
 pub async fn list_workspaces(app: &AppState, caller: &Caller) -> Vec<Event> {
@@ -563,7 +571,7 @@ fn slug_taken() -> Event {
 }
 
 /// Checks the workspace exists and is not archived, for a change to it.
-async fn live_workspace(app: &AppState, ws: Uuid) -> Result<String, Vec<Event>> {
+pub(crate) async fn live_workspace(app: &AppState, ws: Uuid) -> Result<String, Vec<Event>> {
     match read(app, async |c| workspace_row(c, ws).await).await? {
         None => Err(vec![not_found("workspace")]),
         Some((_, true)) => Err(vec![archived()]),
@@ -576,7 +584,10 @@ fn archived() -> Event {
 }
 
 /// Inside a change: `Some(fail)` unless the workspace exists and is live.
-async fn live_in_tx(conn: &mut PgConnection, ws: Uuid) -> Result<Option<Fail>, sqlx::Error> {
+pub(crate) async fn live_in_tx(
+    conn: &mut PgConnection,
+    ws: Uuid,
+) -> Result<Option<Fail>, sqlx::Error> {
     let row: Option<(bool,)> =
         sqlx::query_as("select archived_at is not null from workspaces where id = $1 for update")
             .bind(ws)

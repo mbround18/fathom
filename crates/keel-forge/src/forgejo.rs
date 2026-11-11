@@ -5,7 +5,8 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::{
-    ChangeRequest, Forge, ForgeAccess, ForgeError, ForgeFuture, Http, OpenedChange, RepoRef, b64, encode_path,
+    ChangeRequest, Forge, ForgeAccess, ForgeError, ForgeFuture, Http, OpenedChange, RepoRef, b64,
+    encode_path,
 };
 
 #[derive(Debug, Clone)]

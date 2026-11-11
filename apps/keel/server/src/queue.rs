@@ -1934,9 +1934,7 @@ pub async fn history(app: &AppState, run: Uuid, after_seq: u64) -> Result<Vec<Ev
 /// `hosts.age_recipient` check constraint, so a bad value never fails the hello.
 fn is_age_recipient(v: &str) -> bool {
     const BECH32: &[u8] = b"qpzry9x8gf2tvdw0s3jn54khce6mua7l";
-    v.len() == 62
-        && v.starts_with("age1")
-        && v.as_bytes()[4..].iter().all(|b| BECH32.contains(b))
+    v.len() == 62 && v.starts_with("age1") && v.as_bytes()[4..].iter().all(|b| BECH32.contains(b))
 }
 
 #[cfg(test)]

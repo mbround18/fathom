@@ -5808,6 +5808,7 @@ dependencies = [
  "hyper-util",
  "keel-core",
  "keel-exec",
+ "keel-forge",
  "keel-git",
  "keel-protocol",
  "keel-trust",

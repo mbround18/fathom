@@ -43,6 +43,7 @@ ed25519-dalek = "2.2.0"
 hmac = "0.13"
 keel-core = { path = "../../../crates/keel-core" }
 keel-exec = { path = "../../../crates/keel-exec" }
+keel-forge = { path = "../../../crates/keel-forge" }
 keel-git = { path = "../../../crates/keel-git" }
 keel-protocol = { path = "../../../crates/keel-protocol" }
 keel-trust = { path = "../../../crates/keel-trust" }

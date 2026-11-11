@@ -102,6 +102,10 @@ pub struct Flags {
     /// Signed mode for new bindings [env: KEEL_SIGNED_MODE_DEFAULT] [default: false]
     #[arg(long, global = true)]
     pub signed_mode_default: Option<String>,
+    /// Let Keel open pull requests on a workspace's forge (spec 066)
+    /// [env: KEEL_FORGE_WRITES] [default: true]
+    #[arg(long, global = true)]
+    pub forge_writes: Option<String>,
     /// External origin, like https://keel.example.com (required) [env: KEEL_PUBLIC_URL]
     #[arg(long, global = true)]
     pub public_url: Option<String>,
@@ -389,6 +393,8 @@ pub struct Config {
     /// Principals of the listener's host certificate.
     pub runner_host_names: Vec<String>,
     pub signed_mode_default: bool,
+    /// Whether Keel may open pull requests on a forge. Off: proposals return the diff only.
+    pub forge_writes: bool,
     /// An origin only (no path).
     pub public_url: Url,
     /// May carry a password: never logged.
@@ -730,6 +736,8 @@ impl Config {
             "KEEL_SIGNED_MODE_DEFAULT",
             signed.as_deref().unwrap_or("false"),
         )?;
+        let writes = r.pick("forge_writes", flags.forge_writes, "KEEL_FORGE_WRITES");
+        let forge_writes = parse_bool("KEEL_FORGE_WRITES", writes.as_deref().unwrap_or("true"))?;
 
         let cap = r.pick("run_log_cap", flags.run_log_cap, "KEEL_RUN_LOG_CAP");
         let run_log_cap = parse_bytes("KEEL_RUN_LOG_CAP", cap.as_deref().unwrap_or("64MiB"))?;
@@ -875,6 +883,7 @@ impl Config {
             runner_max_offline,
             runner_host_names,
             signed_mode_default,
+            forge_writes,
             public_url,
             database_url,
             master_key_file,
@@ -1108,6 +1117,7 @@ mod tests {
         assert_eq!(c.runner_cert_ttl, Duration::from_secs(24 * 3600));
         assert_eq!(c.runner_max_offline, Duration::from_secs(30 * 86_400));
         assert!(!c.signed_mode_default);
+        assert!(c.forge_writes);
         assert_eq!(c.data_dir, PathBuf::from("/var/lib/keel"));
         assert_eq!(c.static_dir, PathBuf::from("/usr/share/keel/web"));
         assert_eq!(c.step_up_window, Duration::from_secs(300));
@@ -1207,6 +1217,7 @@ mod tests {
             step_up_window: Some("2m".into()),
             run_log_cap: Some("1MiB".into()),
             signed_mode_default: Some("true".into()),
+            forge_writes: Some("false".into()),
             otel_endpoint: Some("http://otel:4318".into()),
             ..Flags::default()
         };
@@ -1215,6 +1226,7 @@ mod tests {
         assert_eq!(c.step_up_window, Duration::from_secs(120));
         assert_eq!(c.run_log_cap, 1 << 20);
         assert!(c.signed_mode_default);
+        assert!(!c.forge_writes);
         assert_eq!(c.otel_endpoint.as_deref(), Some("http://otel:4318"));
         assert!(c.sources.contains(&("listen", "--listen".into())));
         assert!(
