@@ -126,6 +126,8 @@ impl Host {
             venv: self.state.join("no-venv"),
         })
         .unwrap()
+        // Never the box's own /etc/sops/age.pub.
+        .with_age_recipient_file(self.state.join("age.pub"))
     }
 
     fn write_token(&self, fingerprint: &str) {
@@ -528,6 +530,25 @@ async fn fake_executor(socket: &Path) -> mpsc::UnboundedReceiver<Frame> {
     rx
 }
 
+/// A synthetic age public key (spec 066 R7).
+const AGE_PUB: &str = "age1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqs3290gq";
+
+#[test]
+fn the_age_recipient_is_the_first_line_and_only_when_well_formed() {
+    use keel_runner::runner::read_age_recipient;
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("age.pub");
+    assert_eq!(read_age_recipient(&f), None, "missing file");
+    std::fs::write(&f, format!("  {AGE_PUB}  \r\nsecond\n")).unwrap();
+    assert_eq!(read_age_recipient(&f).as_deref(), Some(AGE_PUB));
+    std::fs::write(&f, "AGE-SECRET-KEY-1QQQQ\n").unwrap();
+    assert_eq!(read_age_recipient(&f), None, "a private key is never sent");
+    std::fs::write(&f, format!("{}\n", &AGE_PUB[..61])).unwrap();
+    assert_eq!(read_age_recipient(&f), None, "too short");
+    std::fs::write(&f, format!("{}b\n", &AGE_PUB[..61])).unwrap();
+    assert_eq!(read_age_recipient(&f), None, "'b' is not bech32");
+}
+
 #[tokio::test]
 async fn a_session_says_hello_and_relays_a_run_unchanged() {
     let pki = Pki::new();
@@ -560,6 +581,7 @@ async fn a_session_says_hello_and_relays_a_run_unchanged() {
     .await;
     let mut exec = fake_executor(&host.socket).await;
     host.write_cert(&runner_cert(&pki.runner_ca, &key_data, SystemTime::now()));
+    std::fs::write(host.state.join("age.pub"), format!("{AGE_PUB}\n# comment\n")).unwrap();
     let runner = host.runner(server.port);
 
     tokio::time::timeout(WAIT, runner.run_once())
@@ -585,9 +607,11 @@ async fn a_session_says_hello_and_relays_a_run_unchanged() {
             bases,
             allowed_profiles,
             ansible_core,
+            age_recipient,
             ..
         } => {
             assert_eq!(host_id, "h-1");
+            assert_eq!(age_recipient.as_deref(), Some(AGE_PUB));
             assert_eq!(ledger_head.as_deref(), Some("ab".repeat(32).as_str()));
             assert_eq!(bases.len(), 1);
             assert_eq!(allowed_profiles, &["base".to_owned()]);

@@ -57,6 +57,14 @@ struct Cli {
         value_parser = keel_runner::runner::spool::parse_duration
     )]
     max_offline: std::time::Duration,
+    /// The host's age public key, reported to Keel so it can tell which sops files this host
+    /// can decrypt. Optional: a missing or malformed file reports nothing.
+    #[arg(
+        long,
+        env = "KEEL_RUNNER_AGE_RECIPIENT_FILE",
+        default_value = keel_runner::runner::DEFAULT_AGE_RECIPIENT_FILE
+    )]
+    age_recipient_file: PathBuf,
 }
 
 #[tokio::main]
@@ -71,7 +79,8 @@ async fn main() {
     }) {
         Ok(r) => r
             .with_outside_log(cli.outside_log)
-            .with_max_offline(cli.max_offline),
+            .with_max_offline(cli.max_offline)
+            .with_age_recipient_file(cli.age_recipient_file),
         Err(e) => {
             eprintln!("keel-runner: {e}");
             std::process::exit(1);

@@ -204,6 +204,27 @@ pub fn renew_at(cert: &Certificate) -> u64 {
     after + cert.valid_before().saturating_sub(after) / 2
 }
 
+/// Where `roles/sops` writes the host's age public key, mode 0644 (spec 066 R7). It sits
+/// outside the private key's directory, which the runner cannot read.
+pub const DEFAULT_AGE_RECIPIENT_FILE: &str = "/etc/sops/age.pub";
+
+/// The first line of `path`, trimmed, when it is an age public key. Anything else, including
+/// a missing or unreadable file, is `None`: the key is optional, and a malformed one is never
+/// sent.
+pub fn read_age_recipient(path: &Path) -> Option<String> {
+    use std::io::Read as _;
+    // A public key is 62 bytes; never read more than a small prefix of whatever is there.
+    let mut buf = Vec::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(4096)
+        .read_to_end(&mut buf)
+        .ok()?;
+    let text = String::from_utf8_lossy(&buf);
+    let line = text.lines().next()?.trim();
+    keel_core::inventory_edit::is_age_recipient(line).then(|| line.to_owned())
+}
+
 /// The network half's state: configuration, trust, and the host key.
 pub struct Runner {
     cfg: RunnerConfig,
@@ -214,6 +235,8 @@ pub struct Runner {
     outside: outside::OutsideLog,
     /// Results Keel has not acknowledged (spec 060 FR-037).
     spool: spool::Spool,
+    /// The host's age public key, reported on `Hello` (spec 066 R7).
+    age_recipient_file: PathBuf,
 }
 
 impl std::fmt::Debug for Runner {
@@ -241,7 +264,19 @@ impl Runner {
             key,
             outside,
             spool,
+            age_recipient_file: PathBuf::from(DEFAULT_AGE_RECIPIENT_FILE),
         })
+    }
+
+    /// Reads the host's age public key from `path` instead of `/etc/sops/age.pub`.
+    pub fn with_age_recipient_file(mut self, path: impl Into<PathBuf>) -> Self {
+        self.age_recipient_file = path.into();
+        self
+    }
+
+    /// The age public key reported on `Hello`, read fresh for each session.
+    pub(crate) fn age_recipient(&self) -> Option<String> {
+        read_age_recipient(&self.age_recipient_file)
     }
 
     /// Drops undelivered results older than `max` unsent instead of after 30 days.
