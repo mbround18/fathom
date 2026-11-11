@@ -138,7 +138,7 @@ export function WorkspaceSwitcher() {
             variant="ghost"
             size="sm"
             data-testid="workspace-switcher"
-            data-workspace={current?.slug ?? ''}
+            data-current-workspace={current?.slug ?? ''}
             aria-label={current ? `Workspace ${current.name}` : 'Workspace'}
             className="min-w-0 max-w-56"
           >
