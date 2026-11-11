@@ -19,15 +19,13 @@ account menu, under **Passkeys**.
 A workspace keeps a set of hosts, bindings, inventories and runs apart from everything else. A
 workspace holds projects, and each binding belongs to a project.
 
-1. Open **Administration → Teams**.
-2. In the **Workspaces** pane, choose **New workspace**.
-3. Enter a **Slug**: lowercase letters, digits and dashes, up to 63 characters. For example, `home`.
-4. Enter a **Name**, for example `Home lab`.
-5. Choose **Preview**, check it, and choose **Confirm**.
-6. On the new workspace's row, choose the folder button, **New project in home**. Enter a
-   **Project slug** and a **Project name**, choose **Preview**, and confirm.
+1. Open the workspace switcher in the top bar and choose **Create workspace…**.
+2. Enter a **Name**, for example `Home lab`. Keel suggests a **Slug**, such as `home-lab`:
+   lowercase letters, digits and dashes, up to 63 characters. Change it if you like.
+3. Check what Keel will do, and choose **Confirm**.
 
-You will bind a repository to this project later.
+The new workspace becomes current, and comes with a project called `default`. Every page now shows
+this workspace; use the switcher to change it. See [Workspaces](workspaces.md).
 
 ## Give people access
 
@@ -64,7 +62,7 @@ A host has to enrol before Keel can run anything on it. You get a one-time token
 your base profile on the host with that token.
 
 1. Open **Infrastructure → Hosts** and choose **Enroll host**.
-2. Pick the **Workspace**.
+2. Check the **Workspace**. It starts on the current one.
 3. Enter the **Inventory name**: the host's name in your Ansible inventory, for example `web-01`.
    It must match exactly, because runs find their hosts by this name.
 4. Under **Profiles**, keep `base` and add any others this host serves. Press Enter or type a comma
@@ -86,7 +84,7 @@ See [Hosts and enrolment](hosts.md#enroll-a-host) for the details.
 A receiver is the webhook address your Git host calls on each push. Creating one needs the
 Workspace admin role.
 
-1. Open **Pipelines → Receivers** and pick the workspace.
+1. Open **Pipelines → Receivers** in the workspace you want; see [Switch workspace](workspaces.md#switch-workspace).
 2. Under **New receiver**, enter a **Name** and choose the **Provider**: GitHub, GitLab,
    Forgejo / Gitea, or Generic (HMAC).
 3. Choose **Preview receiver**, check it, and confirm.
@@ -99,23 +97,23 @@ See [Receivers](receivers.md#add-the-webhook-at-your-git-host) for each Git host
 ## Bind a repository
 
 A binding ties one branch of your Ansible repository to a project. Keel reads the repository's
-`.keel/jobs.yaml` to learn its jobs.
+`.keel/jobs.yaml` to learn its jobs. The workspace's main repository is its *primary* repository:
+the one **Repository** catalogues.
 
-1. Open **Pipelines → Bindings** and pick the workspace.
-2. If the repository is private, add a credential first. Under **Credentials**, fill in **New
-   credential**: a **Name**, the **Kind** (**Git HTTPS token** or **Git SSH key**) and the
-   **Value**. Choose **Preview credential** and confirm.
-3. Choose **New binding**.
-4. Pick the **Project**, then enter the **Repository URL** and the **Branch**. If the workspace
-   has only one project, Keel picks it for you.
-5. Pick the **Transport** and the **Credential**. For SSH, also paste the server's **Known host
-   line**.
-6. Leave **Poll every (seconds)** blank to sync only when a webhook arrives.
-7. Choose **Preview binding**. Keel fetches the branch once and shows what it found. Confirm.
-8. Back on **Receivers**, find your receiver, choose the binding under **Bind to**, and choose
+1. Open **Settings → Workspace**.
+2. Under **Repository**, enter the **Repository URL** and the **Branch**, and pick the
+   **Transport**. For SSH, also paste the server's **Known host line**.
+3. Pick the **Credential**. If the repository is private and you have none yet, choose **New
+   credential…** and enter a **Credential name** and the token or key.
+4. Leave **Poll every (seconds)** blank to sync only when a webhook arrives.
+5. Choose **Preview repository**, check it, and confirm. Keel binds the branch on the `default`
+   project, makes it primary and syncs it.
+6. Back on **Receivers**, find your receiver, choose the binding under **Bind to**, and choose
    **Bind**.
 
-See [Bindings and credentials](bindings.md#bind-a-repository) for the details.
+To let Keel open pull requests on this repository, for example when you add a host, also connect
+the forge. See [Workspaces](workspaces.md#connect-a-forge). Further bindings are made from
+**Pipelines → Bindings**; see [Bindings and credentials](bindings.md#bind-a-repository).
 
 ## Your first run
 

@@ -11,7 +11,7 @@ Keel then fetches the branch itself.
 
 Creating, changing and removing receivers needs the Workspace admin role.
 
-1. Open **Pipelines → Receivers** and pick the workspace.
+1. Open **Pipelines → Receivers** in the workspace you want; see [Switch workspace](workspaces.md#switch-workspace).
 2. Under **New receiver**, enter a **Name**.
 3. Choose the **Provider**: **GitHub**, **GitLab**, **Forgejo / Gitea** or **Generic (HMAC)**.
 4. Choose **Preview receiver**, check it, and confirm. Keel asks for your passkey.

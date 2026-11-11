@@ -38,7 +38,7 @@ Keep the two lists in step: a key only Keel trusts still gets refused by the hos
 
 To add a signer (Workspace admin role):
 
-1. Open **Pipelines → Reviews** and pick the workspace.
+1. Open **Pipelines → Reviews** in the workspace you want; see [Switch workspace](workspaces.md#switch-workspace).
 2. Under **Add a signer**, choose the **Kind**: **SSH** or **OpenPGP**.
 3. Paste the **Public key**. For SSH, that is the public key line; for OpenPGP, the armored key.
 4. Enter a **Label**, such as the person's name.

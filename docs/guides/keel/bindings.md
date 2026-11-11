@@ -24,7 +24,7 @@ value, so you can tell two credentials apart without seeing them.
 
 To add one:
 
-1. Open **Pipelines → Bindings** and pick the workspace.
+1. Open **Pipelines → Bindings** in the workspace you want; see [Switch workspace](workspaces.md#switch-workspace).
 2. Under **Credentials**, in **New credential**, enter a **Name**.
 3. Choose the **Kind** and paste the **Value**.
 4. Choose **Preview credential**. This is the form's submit button, not a separate kind of

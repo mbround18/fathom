@@ -45,7 +45,7 @@ There is no separate import step. Either:
 
 ### Create a managed inventory
 
-1. Open **Infrastructure → Inventory** and pick the workspace.
+1. Open **Infrastructure → Inventory** in the workspace you want; see [Switch workspace](workspaces.md#switch-workspace).
 2. Choose **New inventory**. The **New managed inventory** form opens.
 3. Enter a **Name** and write the inventory in YAML.
 4. Optionally, add a variable schema as JSON. Keel then checks the inventory's variables against

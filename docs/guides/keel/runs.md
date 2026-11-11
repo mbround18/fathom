@@ -58,7 +58,7 @@ Anyone who can see the workspace can see its waiting runs. If you cannot approve
 
 ## Approving a run
 
-1. Open **Pipelines → Runs** and pick the workspace.
+1. Open **Pipelines → Runs** in the workspace you want; see [Switch workspace](workspaces.md#switch-workspace).
 2. Choose **Waiting for approval**. Only waiting runs are listed, oldest first.
 3. Open the run. Above its hosts, the approval panel shows:
    - what the policy needs, such as **Needs 1 approval**, and **four-eyes** when it applies;

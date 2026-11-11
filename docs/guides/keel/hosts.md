@@ -13,7 +13,7 @@ Instance owners and admins decide what the enrolment command looks like: see
 Enrolling a host needs the Operator role or higher in the workspace.
 
 1. Open **Infrastructure → Hosts** and choose **Enroll host**.
-2. Pick the **Workspace**.
+2. Check the **Workspace**. It starts on the current one.
 3. Enter the **Inventory name**: the host's name in the inventory, as Ansible sees it. Use letters,
    digits, dots, underscores and dashes, starting with a letter or digit.
 4. Under **Profiles**, list the profiles the host serves. `base` is there to start with. Press
