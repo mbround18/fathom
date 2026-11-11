@@ -136,7 +136,13 @@ fn optional_fields_may_be_left_out() {
         }
     }))
     .unwrap();
-    assert!(matches!(cmd, Cmd::PreviewHostAdd { inventory: None, .. }));
+    assert!(matches!(
+        cmd,
+        Cmd::PreviewHostAdd {
+            inventory: None,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -311,7 +317,10 @@ fn new_fields_on_existing_types() {
         warnings: vec!["web cannot decrypt secrets/a.sops.yaml".into()],
         ..p
     };
-    assert_eq!(round_trip(&p)["warnings"][0], "web cannot decrypt secrets/a.sops.yaml");
+    assert_eq!(
+        round_trip(&p)["warnings"][0],
+        "web cannot decrypt secrets/a.sops.yaml"
+    );
     assert_eq!(
         serde_json::to_value(CredentialKind::ForgeToken).unwrap(),
         "forge_token"

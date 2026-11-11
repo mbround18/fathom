@@ -581,7 +581,11 @@ async fn a_session_says_hello_and_relays_a_run_unchanged() {
     .await;
     let mut exec = fake_executor(&host.socket).await;
     host.write_cert(&runner_cert(&pki.runner_ca, &key_data, SystemTime::now()));
-    std::fs::write(host.state.join("age.pub"), format!("{AGE_PUB}\n# comment\n")).unwrap();
+    std::fs::write(
+        host.state.join("age.pub"),
+        format!("{AGE_PUB}\n# comment\n"),
+    )
+    .unwrap();
     let runner = host.runner(server.port);
 
     tokio::time::timeout(WAIT, runner.run_once())

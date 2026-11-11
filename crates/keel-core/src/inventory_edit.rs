@@ -978,8 +978,12 @@ all:
 
     #[test]
     fn one_host_into_several_groups_is_one_edit() {
-        let e = add_host_groups(INVENTORY, &["pve_hosts", "keel_servers", "pve_hosts"], "box")
-            .unwrap();
+        let e = add_host_groups(
+            INVENTORY,
+            &["pve_hosts", "keel_servers", "pve_hosts"],
+            "box",
+        )
+        .unwrap();
         let want = INVENTORY
             .replace("        pve:\n", "        box:\n        pve:\n")
             .replace("        keel:\n", "        box:\n        keel:\n");

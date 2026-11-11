@@ -579,6 +579,12 @@ fn hello_age_recipient_is_optional_on_the_wire() {
         "override_quorum": 1, "ledger_head": null, "bases": []
     });
     let frame: Frame = serde_json::from_value(old.clone()).unwrap();
-    assert!(matches!(frame, Frame::Hello { age_recipient: None, .. }));
+    assert!(matches!(
+        frame,
+        Frame::Hello {
+            age_recipient: None,
+            ..
+        }
+    ));
     assert_eq!(serde_json::to_value(&frame).unwrap(), old);
 }
