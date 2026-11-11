@@ -3,12 +3,13 @@
  * `Catalog`, or refuses `no_primary_repository` / `no_catalog`, which the page shows as its empty
  * states; `ListJobs` on the primary binding answers `Jobs`. Both load again when the primary
  * binding syncs, so a push shows up without a reload. Hosts and Add host read the same catalog.
+ * `GetBinding` on the primary gives the page header its URL and branch.
  */
 import { create } from 'zustand'
 
 import { onServerEvent } from '@/app/connection'
 import { loadList, type Refusal } from '@/app/load'
-import type { CatalogView, JobInfo, WorkspaceInfo } from '@/protocol/wire'
+import type { BindingInfo, CatalogView, JobInfo, WorkspaceInfo } from '@/protocol/wire'
 
 export interface CatalogState {
   workspace: string | null
@@ -19,6 +20,8 @@ export interface CatalogState {
   /** `null` while loading, or with no primary binding. */
   jobs: JobInfo[] | null
   jobsFailed: Refusal | null
+  /** The primary binding, for its URL and branch; `null` while loading, or with none. */
+  repo: BindingInfo | null
   load: (workspace: Pick<WorkspaceInfo, 'id' | 'primary_binding'>) => void
 }
 
@@ -29,10 +32,11 @@ export const useCatalog = create<CatalogState>()((set, get) => ({
   failed: null,
   jobs: null,
   jobsFailed: null,
+  repo: null,
 
   load: ({ id, primary_binding }) => {
     if (get().workspace !== id || get().binding !== primary_binding) {
-      set({ workspace: id, binding: primary_binding, catalog: undefined, jobs: null })
+      set({ workspace: id, binding: primary_binding, catalog: undefined, jobs: null, repo: null })
     }
     set({ failed: null, jobsFailed: null })
     const current = () => get().workspace === id
@@ -45,6 +49,13 @@ export const useCatalog = create<CatalogState>()((set, get) => ({
       },
     })
     if (primary_binding === null) return
+    loadList({ type: 'GetBinding', data: { binding: primary_binding } }, (e) => (e.type === 'Binding' ? e.data.binding : undefined), {
+      loaded: (repo) => {
+        if (current()) set({ repo })
+      },
+      // The header just goes without the URL; the catalog says what is wrong.
+      failed: () => undefined,
+    })
     loadList({ type: 'ListJobs', data: { binding: primary_binding } }, (e) => (e.type === 'Jobs' ? e.data.items : undefined), {
       loaded: (jobs) => {
         if (current()) set({ jobs })

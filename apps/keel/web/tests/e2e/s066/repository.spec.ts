@@ -4,7 +4,7 @@
  * with and without a forge connection. Against the fake backend.
  */
 import { expect, test } from '../../support/fake-backend'
-import { confirmChange, setUp } from './repo-setup'
+import { confirmChange, setUp, URL } from './repo-setup'
 
 test('Repository is in the nav and opens on Playbooks with the catalog', async ({ page, backend }) => {
   setUp(backend)
@@ -17,6 +17,13 @@ test('Repository is in the nav and opens on Playbooks with the catalog', async (
   await expect(tab.getByTestId('catalog-item')).toHaveCount(7)
   await expect(tab.locator('[data-testid="catalog-item"][data-item="playbooks/keel-server.yaml"]')).toBeVisible()
   await expect(page.getByText('1 problems')).toBeVisible()
+})
+
+test('the header names the primary repository and its branch', async ({ page, backend }) => {
+  setUp(backend)
+  await page.goto('/repository')
+  await expect(page.locator('[data-repository-url]')).toHaveText(URL)
+  await expect(page.locator('[data-repository-branch]')).toHaveText('main')
 })
 
 test('each tab loads its own items and the tab is in the address', async ({ page, backend }) => {

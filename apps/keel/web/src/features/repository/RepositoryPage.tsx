@@ -17,7 +17,7 @@ import { AddHostDialog } from '@/features/hosts/AddHostDialog'
 import { useAddHost } from '@/features/hosts/add-host-store'
 import { canAdminister, canOperate } from '@/features/hosts/workspaces'
 import { useGovernance } from '@/features/teams/store'
-import type { CatalogView, WorkspaceInfo } from '@/protocol/wire'
+import type { BindingInfo, CatalogView, WorkspaceInfo } from '@/protocol/wire'
 
 import { isTab, repositoryHref, type RepoTab } from './address'
 import { Flag } from './parts'
@@ -86,6 +86,20 @@ function NotSynced() {
   )
 }
 
+/** Which repository and branch the page shows. */
+function RepoLine({ repo }: { repo: BindingInfo }) {
+  return (
+    <p data-repository-source className="flex min-w-0 basis-full flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+      <code data-repository-url className="min-w-0 font-mono break-all text-foreground">
+        {repo.url}
+      </code>
+      <span>
+        on <code data-repository-branch className="font-mono text-foreground">{repo.branch}</code>
+      </span>
+    </p>
+  )
+}
+
 /** The catalog's commit and age, and a warning when its last build failed. */
 function CatalogLine({ catalog }: { catalog: CatalogView }) {
   return (
@@ -115,6 +129,7 @@ export default function RepositoryPage() {
   const me = useSession((s) => s.me)
   const catalog = useCatalog((s) => s.catalog)
   const failed = useCatalog((s) => s.failed)
+  const repo = useCatalog((s) => s.repo)
   const load = useCatalog((s) => s.load)
   const showAddHost = useAddHost((s) => s.show)
   const asked = useSearchParam('tab')
@@ -181,6 +196,7 @@ export default function RepositoryPage() {
           )
         }
       >
+        {repo && workspace && repo.id === workspace.primary_binding && <RepoLine repo={repo} />}
         {catalog && workspace && !failed && <CatalogLine catalog={catalog} />}
       </PageHeader>
       {body}
