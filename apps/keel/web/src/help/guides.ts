@@ -13,9 +13,11 @@ import type { GuideRef as KitGuideRef } from '@companion/ui/kit'
 /** One per `docs/guides/keel/*.md` file except README, which is the `/help` index. */
 export const GUIDE_SLUGS = [
   'getting-started',
+  'workspaces',
   'hosts',
   'receivers',
   'bindings',
+  'repository',
   'runs',
   'reviews',
   'inventory',

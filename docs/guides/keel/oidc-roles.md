@@ -21,7 +21,7 @@ the same moment.
   "identity provider", and ends the sessions they opened under their old role.
 - **Keel always keeps an owner.** If a sign-in would demote the last owner, that person stays owner
   and the sign-in goes ahead. The audit log records that the identity provider names no owner, and
-  System Settings shows a warning until someone your provider names as owner signs in.
+  Settings shows a warning until someone your provider names as owner signs in.
 - **Roles are read-only in Keel.** On the Users page, people whose role comes from the identity
   provider are tagged "Identity provider", and their role can't be changed there. Change their
   groups in your identity provider instead.
@@ -93,7 +93,7 @@ Then set `KEEL_OIDC_ROLE_CLAIM=groups` and list the group names.
 
 ## What owners and admins see
 
-**System Settings** shows the active mapping, read-only:
+**Settings** shows the active mapping, read-only:
 
 - the provider;
 - the claim Keel reads;
@@ -103,7 +103,7 @@ Then set `KEEL_OIDC_ROLE_CLAIM=groups` and list the group names.
 To change the mapping, change Keel's deployment settings and restart. It can't be edited in the
 browser, so nobody can use it to make themselves owner.
 
-If no active person is named as owner by your identity provider, System Settings warns that the
+If no active person is named as owner by your identity provider, Settings warns that the
 identity provider names no owner. Add someone to your owner group and have them sign in.
 
 ## Turning the mapping off

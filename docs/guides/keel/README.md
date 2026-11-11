@@ -10,7 +10,8 @@ New to Keel? Start with [Getting started](getting-started.md).
 |---|---|
 | [Getting started](getting-started.md) | From an empty Keel to the first run: workspace, access, host, receiver, binding |
 | [Workspaces](workspaces.md) | Switching and creating workspaces, the primary repository and the forge connection |
-| [Hosts and enrolment](hosts.md) | Enrolling a host, checking the host CA fingerprint and running the base profile |
+| [The repository catalog](repository.md) | Playbooks, roles, inventory and sops files in the primary repository, and drafting a job |
+| [Hosts and enrolment](hosts.md) | Enrolling or adding a host, age keys, checking the host CA fingerprint and running the base profile |
 | [Receivers](receivers.md) | Creating a receiver, adding its webhook at your Git host, and reading deliveries |
 | [Bindings and credentials](bindings.md) | Repository credentials and binding a branch |
 | [Runs and approval](runs.md) | Run states, approval policies, approving or denying a run, four-eyes and expiry |

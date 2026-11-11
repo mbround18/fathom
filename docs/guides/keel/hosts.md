@@ -47,7 +47,7 @@ the token and records why in the audit log. Common reasons:
 | `profile_not_allowed` | The token asks for a profile outside the host's allowed profiles. |
 | `host_exists` | A host with that inventory name is already enrolled in the workspace. Keel also refuses this when you mint the token. |
 
-To get a fresh token, open **System Settings → Tokens**, find the enrolment and choose **Roll**.
+To get a fresh token, open **Settings → Tokens**, find the enrolment and choose **Roll**.
 Rolling asks for your passkey. **Revoke** cancels a token that hasn't been used yet.
 
 ### Hosts in the list
@@ -63,6 +63,46 @@ Open the host to see those runs under **Runs outside Keel**. They are the host's
 Keel cannot verify. Runs with `--check` don't count. The mark clears when a review baseline for the
 host is approved, or when every job assigned to the host has since run and succeeded. Tick **Only
 hosts changed outside Keel** to list just those hosts.
+
+## Add a host
+
+**Add host** does two things in one step: it adds the host to the primary repository's inventory,
+and it issues the host's enrolment token. Use it for a host the repository doesn't list yet. For a
+host it already lists, use [Enroll host](#enroll-a-host). Adding a host needs the Operator role or
+higher, and a [primary repository](workspaces.md#set-the-primary-repository).
+
+1. Open **Infrastructure → Hosts** and choose **Add host**. Or, from a group on
+   **Repository → Inventory**, choose **Add host here** to start with that group chosen.
+2. Enter the **Inventory name**, as it will appear in the inventory.
+3. Under **Groups**, choose the groups to add it to. With none chosen, it goes under `all`.
+4. Under **Profiles**, list the profiles the host serves.
+5. Choose **Review**. Keel shows what it will change, and any warnings, such as a host that will
+   need an age key before it can decrypt the secrets its jobs read. Choose **Confirm**.
+6. The **Host added** dialog shows the **Enrollment command**. Run it on the host, as for
+   [Enroll a host](#enroll-a-host).
+7. Under **Inventory change**:
+   - with a [forge connection](workspaces.md#connect-a-forge), Keel says **Pull request opened**
+     and links to it. Review and merge it.
+   - without one, Keel shows a **Patch to apply by hand**. Apply it to the inventory and push.
+
+Keel edits only the lines it adds, so the inventory's comments and layout stay as they were. An
+inventory it can't edit safely, such as one written in flow style, always gets a patch.
+
+Until the change is merged and synced, the host shows **Pending inventory** on Hosts: Keel has
+enrolled it, but no run reaches it, because runs reach the hosts their inventory lists. The badge
+goes once the primary repository's inventory lists the host.
+
+## Age keys
+
+Sops-encrypted files can only be read on a host whose age key is one of the file's recipients. When
+a host's runner connects, it reports the host's age public key from `/etc/sops/age.pub`. It never
+reads the private key. The host's details show it under **Age key**.
+
+When no `.sops.yaml` rule names a host's key, a Workspace admin can choose **Propose sops
+recipient**. Keel adds the key to the rule's recipients and opens a pull request, or shows a patch
+to apply by hand. After it is merged, the files the rule covers still need re-encrypting for the
+new key: run `sops updatekeys` for each, from a machine that can already decrypt them. See
+[When a file is out of date](repository.md#when-a-file-is-out-of-date).
 
 ## Check the fingerprint
 

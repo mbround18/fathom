@@ -6,7 +6,7 @@ owner's confirmation.
 
 ## Which build is running
 
-Open **System Settings → System**. The build panel shows:
+Open **Settings → System**. The build panel shows:
 
 - the **version**, such as `0.2.0`;
 - the **revision**: the source commit it was built from;
@@ -73,7 +73,7 @@ newly published image counts as one pull, once.
 ## What the update card says
 
 Owners see the update card on the System tab. When an update is available, a dot also appears on
-**System Settings** in the navigation.
+**Settings** in the navigation.
 
 | The card says | Meaning |
 |---|---|

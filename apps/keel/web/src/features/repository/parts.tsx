@@ -98,7 +98,7 @@ export function Lines({ label, items, none = 'None', render }: { label: string; 
 
 /** A tab whose list is empty: the repository has nothing of that kind (spec 063 pattern). */
 export function NothingFound({ what, reason }: { what: string; reason: string }) {
-  return <EmptyState page={`repository-${what}`} title={`No ${what} found`} reason={reason} guide={{ guide: 'bindings', anchor: 'the-manifest' }} />
+  return <EmptyState page={`repository-${what}`} title={`No ${what} found`} reason={reason} guide={{ guide: 'repository' }} />
 }
 
 const TONE = {

@@ -11,7 +11,7 @@ It is off until the owner sets it up.
 
 | Role | What they see |
 |---|---|
-| Owner | The **System** tab in System Settings, the System workspace, its hosts, runs and audit entries |
+| Owner | The **System** tab in Settings, the System workspace, its hosts, runs and audit entries |
 | Admin | Nothing. The workspace and its rows do not appear in any list, and opening it directly is refused |
 | User | Nothing |
 
@@ -21,7 +21,7 @@ role, not to a team.
 
 ## Setting it up
 
-1. Open **System Settings → System** and choose **Set up**.
+1. Open **Settings → System** and choose **Set up**.
 2. Pick the **allowed profiles**: the Ansible profiles the Keel host may be enrolled with (1 to 16).
    An enrolment that asks for any other profile is refused with `profile_not_allowed`.
 3. Confirm. You'll be asked to re-authenticate. Keel creates the workspace `keel-system` and

@@ -75,7 +75,7 @@ your base profile on the host with that token.
 8. Choose **Done**.
 
 When the host connects, it appears in the Hosts table as **online**. If the token expired before
-you used it, get a new one from **System Settings → Tokens** with **Roll**.
+you used it, get a new one from **Settings → Tokens** with **Roll**.
 
 See [Hosts and enrolment](hosts.md#enroll-a-host) for the details.
 

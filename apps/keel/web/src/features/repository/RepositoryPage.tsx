@@ -70,7 +70,7 @@ function NoRepository({ workspace, admin }: { workspace: WorkspaceInfo; admin: b
       }
       whoCan="A workspace admin"
       verb="set up the repository"
-      guide={{ guide: 'bindings', anchor: 'bind-a-repository' }}
+      guide={{ guide: 'workspaces', anchor: 'set-the-primary-repository' }}
     />
   )
 }
@@ -81,7 +81,7 @@ function NotSynced() {
       page="repository-not-synced"
       title="Not synced yet"
       reason="Keel builds the catalog when the primary repository first syncs. This page updates when it does."
-      guide={{ guide: 'bindings', anchor: 'bind-a-repository' }}
+      guide={{ guide: 'workspaces', anchor: 'set-the-primary-repository' }}
     />
   )
 }
@@ -164,7 +164,7 @@ export default function RepositoryPage() {
         id="repository-title"
         title="Repository"
         description="The playbooks, roles, inventory and secrets in this workspace's primary repository."
-        guide={{ guide: 'bindings', anchor: 'the-manifest' }}
+        guide={{ guide: 'repository' }}
         actions={
           operator &&
           catalog !== undefined && (

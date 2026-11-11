@@ -136,9 +136,9 @@ description: "Task list for spec 066, Keel workspaces, repository catalog and ho
 
 ## Phase 4: Docs and gate
 
-- [ ] T060 Write the guides `workspaces.md` and `repository.md`. Update `getting-started.md`,
+- [X] T060 Write the guides `workspaces.md` and `repository.md`. Update `getting-started.md`,
   `hosts.md`, `bindings.md` and the glossary, and add the CHANGELOG entry.
-- [ ] T061 In the ansible repo, `roles/sops` writes `/etc/sops/age.pub` (0644). Pin it
+- [X] T061 In the ansible repo, `roles/sops` writes `/etc/sops/age.pub` (0644). Pin it
   with molecule or ansible-lint, per that repo's CONTRIBUTING.
 - [ ] T062 The main session runs `scripts/ci.sh` once on the combined branch, then
   `scripts/hygiene.sh`.

@@ -51,6 +51,16 @@ The feature list below is the high-level shape; `docs/MVP.md` tracks each area.
   replace and delete.
 - Teams and organisations: shared non-secret connection profiles and org-level settings sync.
 - Observability settings persisted under `~/.fathom/`, secrets in the OS keyring.
+- Keel workspaces and the repository catalog (`066-keel-workspace-repo`): a workspace switcher in
+  the top bar, with create, that every page follows and links carry as `?ws=`. Settings → Workspace
+  sets each workspace's primary Ansible repository and a Forgejo, Gitea or GitHub connection.
+  Repository lists the primary repository's playbooks, roles, inventories, sops files and jobs,
+  built on every sync without running anything; Draft job derives a `.keel/jobs.yaml` entry. Sops
+  metadata only: values are dropped as files are read, runners report their age public key, and
+  each file shows which hosts can decrypt it and when it needs `sops updatekeys`. Add host enrols a
+  host and adds it to the inventory, keeping comments, through a pull request or a patch, and can
+  propose a host's age key as a sops recipient. Forge writes can be turned off with
+  `KEEL_FORGE_WRITES=false`.
 
 ### Changed
 

@@ -4,7 +4,7 @@ When someone enrols a host, Keel shows the one-time token once, together with a 
 command: the enrolment snippet. Instance owners and admins decide what that command looks like, and
 can add instructions that appear under it.
 
-Both live in **System Settings → Enrollment**. Saving asks you to confirm with your passkey, and the
+Both live in **Settings → Enrollment**. Saving asks you to confirm with your passkey, and the
 change is recorded in the audit log with the text before and after.
 
 ## Placeholders
@@ -81,5 +81,5 @@ the dialog says the instructions are unavailable. The token itself is still issu
 ## Tokens after the fact
 
 Keel stores only a hash of each enrolment token, so a token is shown once and never again. To give
-someone a fresh one, open **System Settings → Tokens**, find the enrolment, and choose **Roll**. Keel
+someone a fresh one, open **Settings → Tokens**, find the enrolment, and choose **Roll**. Keel
 revokes the old token if it is still pending and shows the new one, with the snippet, once.
