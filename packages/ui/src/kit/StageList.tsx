@@ -65,7 +65,7 @@ export function StageList({ label, stages }: { label: string; stages: readonly S
         return (
           <li key={s.key} data-stage={s.key} data-state={s.state} aria-current={s.state === 'current' ? 'step' : undefined}>
             {s.onOpen ? (
-              <button type="button" className={cn(box, 'hover:border-foreground/40 focus-visible:ring-1 focus-visible:ring-accent-neon focus-visible:outline-none')} onClick={s.onOpen}>
+              <button type="button" className={cn(box, 'hover:border-foreground/50 focus-visible:ring-1 focus-visible:ring-accent-neon focus-visible:outline-none')} onClick={s.onOpen}>
                 {body}
               </button>
             ) : (
