@@ -142,7 +142,7 @@ with the declared jobs' `paths`.
 - `keel-exec` `Frame::Hello` gains `age_recipient: Option<String>`, with `#[serde(default,
   skip_serializing_if = "Option::is_none")]`.
 - The runner reads it from the file set by `keel-runner`'s config `age_recipient_file` (default
-  `/etc/sops/age/recipient.txt`). It takes the first line, trimmed, and must match
+  `/etc/sops/age.pub`, outside the key directory, which is `0700` on boxes without the keel-exec grant). It takes the first line, trimmed, and must match
   `^age1[02-9ac-hj-np-z]{58}$`. Otherwise it sends `None`.
 - The server stores it in `hosts.age_recipient`.
 - In the operator's Ansible repository, `roles/sops` writes that file, mode `0644`, from

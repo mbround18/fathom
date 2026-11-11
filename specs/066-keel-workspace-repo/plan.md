@@ -91,7 +91,7 @@ apps/keel/web/src/features/repository/                                       (ne
 apps/keel/web/src/features/settings/WorkspaceTab.tsx                         (new)
 apps/keel/web/src/features/hosts/AddHostDialog.tsx                           (new)
 docs/guides/keel/{workspaces,repository}.md                                  (new) + edits
-ansible: roles/sops writes /etc/sops/age/recipient.txt                       (sibling repo)
+ansible: roles/sops writes /etc/sops/age.pub                                  (sibling repo)
 ```
 
 ## Phases and parallelism
