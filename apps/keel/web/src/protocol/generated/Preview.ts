@@ -24,4 +24,9 @@ step_up: boolean,
 /**
  * RFC 3339 UTC.
  */
-expires_at: string, };
+expires_at: string, 
+/**
+ * Things the confirmer should know first, such as hosts that cannot decrypt a secret the
+ * job reads (spec 066 FR-018).
+ */
+warnings?: Array<string>, };

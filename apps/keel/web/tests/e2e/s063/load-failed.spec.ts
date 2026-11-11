@@ -18,7 +18,7 @@ function admin(backend: FakeBackend): void {
     verification: fixtures.verification({ verified: true }),
   })
   governance(backend, (g) => {
-    g.workspaces.push({ id: WORKSPACE, slug: 'ops', name: 'Ops', created: '2026-10-27T12:00:00Z', archived: false, projects: [], system: false })
+    g.workspaces.push({ id: WORKSPACE, slug: 'ops', name: 'Ops', created: '2026-10-27T12:00:00Z', archived: false, projects: [], system: false, primary_binding: null })
   })
   new FakeRuns(backend)
   new FakeReviews(backend).reviews = []

@@ -1021,3 +1021,36 @@ async fn an_owner_token_is_narrowed_to_its_workspace() {
     }
     h.db.drop().await;
 }
+
+/// Spec 066 R2: a new workspace comes with a `default` project, inserted in the same
+/// transaction and named in the same audit row.
+#[tokio::test]
+async fn creating_a_workspace_adds_its_default_project() {
+    let Some(h) = Harness::new("gov_default_project").await else {
+        return;
+    };
+    let alice = h.sign_in("1", "alice").await;
+    h.verified(&alice).await;
+    let ws = h.workspace(&alice, "homelab").await;
+
+    let events = h.cmd(&alice, Cmd::ListWorkspaces).await;
+    let [Event::Workspaces { items }] = events.as_slice() else {
+        panic!("{events:?}");
+    };
+    let info = items.iter().find(|w| w.id == ws).expect("listed");
+    assert_eq!(
+        info.projects
+            .iter()
+            .map(|p| (p.slug.as_str(), p.name.as_str()))
+            .collect::<Vec<_>>(),
+        [("default", "Default")]
+    );
+    assert_eq!(info.primary_binding, None);
+
+    let rows = h.audited("workspace_create").await;
+    let row = rows.last().expect("audited");
+    assert_eq!(row["target"]["slug"], "homelab");
+    assert_eq!(row["target"]["default_project"], json!(info.projects[0].id));
+
+    h.db.drop().await;
+}

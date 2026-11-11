@@ -423,14 +423,14 @@ async fn read<T>(
 
 // ---- workspaces and projects ----------------------------------------------------------------
 
-type WorkspaceRow = (Uuid, String, String, OffsetDateTime, bool, bool);
+type WorkspaceRow = (Uuid, String, String, OffsetDateTime, bool, bool, Option<Uuid>);
 
 /// `Workspaces`: instance admins see every workspace, a token its own, others their grants'.
 pub async fn list_workspaces(app: &AppState, caller: &Caller) -> Vec<Event> {
     let result: Result<Vec<WorkspaceInfo>, sqlx::Error> = async {
         let rows: Vec<WorkspaceRow> = sqlx::query_as(
-            "select id, slug, name, created_at, archived_at is not null, system from workspaces \
-             order by slug",
+            "select id, slug, name, created_at, archived_at is not null, system, primary_binding \
+             from workspaces order by slug",
         )
         .fetch_all(&app.db)
         .await?;
@@ -448,13 +448,14 @@ pub async fn list_workspaces(app: &AppState, caller: &Caller) -> Vec<Event> {
             // The System workspace exists only for instance owners (spec 060 FR-039).
             .filter(|r| visible(r.0, r.4) && (!r.5 || (caller.token.is_none() && is_owner(caller))))
             .map(
-                |(id, slug, name, created, archived, system)| WorkspaceInfo {
+                |(id, slug, name, created, archived, system, primary_binding)| WorkspaceInfo {
                     id,
                     slug,
                     name,
                     created: ts(created),
                     archived,
                     system,
+                    primary_binding,
                     projects: projects
                         .iter()
                         .filter(|p| p.1 == id)
@@ -509,7 +510,7 @@ async fn workspace_create(
         Ok(true) => return vec![slug_taken()],
         Ok(false) => {}
     }
-    let summary = format!("Create the workspace \"{name}\" ({slug}).");
+    let summary = format!("Create the workspace \"{name}\" ({slug}), with a default project.");
     let op = pending(move |app, caller| async move {
         let step: Step = async {
             if let Err(code) = check_admin(&caller) {
@@ -530,7 +531,18 @@ async fn workspace_create(
                 }
                 other => other?,
             };
-            let target = json!({ "slug": slug, "name": name });
+            // Every workspace has a `default` project, so its first binding needs no detour
+            // through Teams (spec 066 R2).
+            let project = Uuid::now_v7();
+            sqlx::query(
+                "insert into projects (id, workspace_id, slug, name) \
+                 values ($1, $2, 'default', 'Default')",
+            )
+            .bind(project)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+            let target = json!({ "slug": slug, "name": name, "default_project": project });
             record(&mut tx, &caller, ACTION, Some(id), target, &o.context).await?;
             tx.commit().await?;
             Ok(Ok(vec![]))

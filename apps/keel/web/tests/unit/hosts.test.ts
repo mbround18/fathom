@@ -29,6 +29,8 @@ const host = (over: Partial<HostInfo> = {}): HostInfo => ({
   last_seen_at: null,
   revoked_at: null,
   changed_outside: false,
+  age_recipient: null,
+  inventory_status: 'unknown',
   ...over,
 })
 

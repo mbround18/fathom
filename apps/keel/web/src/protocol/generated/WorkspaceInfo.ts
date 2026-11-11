@@ -12,4 +12,8 @@ created: string, archived: boolean, projects: Array<ProjectInfo>,
 /**
  * The owner-only System workspace (spec 060).
  */
-system: boolean, };
+system: boolean, 
+/**
+ * The binding whose repository is the workspace's catalog (spec 066).
+ */
+primary_binding: string | null, };

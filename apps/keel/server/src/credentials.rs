@@ -1,6 +1,7 @@
 //! Credentials (spec 055 T047, data-model `credentials`, research R12).
 //!
-//! - Kinds: `vault_password`, `env`, `secret_vars`, `git_https_token`, `git_ssh_key`.
+//! - Kinds: `vault_password`, `env`, `secret_vars`, `git_https_token`, `git_ssh_key`,
+//!   `forge_token` (spec 066).
 //! - Values are sealed at rest under the master key (AAD `credential:<id>`) and never returned:
 //!   lists show the name, kind and a fingerprint (SHA-256 of the plaintext, truncated).
 //! - Create, rotate and grant need step-up. Without a master key they fail closed.
@@ -103,6 +104,11 @@ fn check_value(kind: CredentialKind, value: &str) -> Result<(), Vec<Event>> {
         CredentialKind::GitHttpsToken => {
             if value.trim().is_empty() || value.trim().contains(char::is_whitespace) {
                 return bad("A git_https_token is one token, or username:token.");
+            }
+        }
+        CredentialKind::ForgeToken => {
+            if value.trim().is_empty() || value.trim().contains(char::is_whitespace) {
+                return bad("A forge_token is one API token.");
             }
         }
         CredentialKind::Env => {

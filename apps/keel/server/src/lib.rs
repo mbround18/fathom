@@ -48,3 +48,6 @@ pub mod system;
 // The running build and the update notice (spec 061)
 pub mod build_info;
 pub mod updates;
+
+// Workspaces, the repository catalog and hosts (spec 066)
+pub mod repository;

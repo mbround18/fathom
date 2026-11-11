@@ -32,6 +32,8 @@ use crate::run::{
 };
 // Build identity and the update notice (spec 061)
 use crate::update::{KeelBuild, UpdateStatus, UpdateStatusLine};
+// Workspaces, the repository catalog and hosts (spec 066)
+use crate::repository::{CatalogView, ChangeOutcome, EnrollmentIssued, ForgeConnectionInfo};
 
 /// Every frame the server sends, and each element of `POST /api/v1/cmd`'s reply array.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -330,6 +332,27 @@ pub enum Event {
     UpdateStatus(UpdateStatus),
     /// Reply to `GetUpdateStatus` for admins who aren't owners, and pushed to them.
     UpdateStatusLine(UpdateStatusLine),
+
+    // Repository catalog and hosts (spec 066)
+    /// Reply to `GetCatalog`.
+    Catalog(CatalogView),
+    /// Reply to `DraftJob`: one `jobs:` entry, with comments where Keel guessed.
+    JobDraft { yaml: String, notes: Vec<String> },
+    /// Reply to `GetForgeConnection` and a confirmed set or remove. `None`: not configured.
+    ForgeConnection(Option<ForgeConnectionInfo>),
+    /// Reply to `ProbeForge`.
+    ForgeProbe {
+        ok: bool,
+        can_push: bool,
+        message: Option<String>,
+    },
+    /// Reply to a confirmed `PreviewHostAdd`.
+    HostAdded {
+        enrollment: EnrollmentIssued,
+        change: ChangeOutcome,
+    },
+    /// Reply to a confirmed `PreviewSopsRecipient` or `PreviewJobPropose`.
+    ChangeProposed(ChangeOutcome),
 }
 
 impl EventEnvelope {

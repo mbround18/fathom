@@ -175,6 +175,7 @@ impl<T> Previews<T> {
             affected: draft.affected,
             step_up: draft.step_up,
             expires_at: (now + TTL).format(&Rfc3339).unwrap_or_default(),
+            warnings: Vec::new(),
         }
     }
 

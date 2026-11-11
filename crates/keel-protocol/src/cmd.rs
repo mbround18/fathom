@@ -24,6 +24,8 @@ use crate::run::{ApprovalReason, Pattern, PolicySpec, RunPhase};
 // Hosts and the SSH CAs (US7)
 use crate::governance::ProfileName;
 use crate::host::{EnrollmentState, HostName, HostProfiles, SshCaKind};
+// Workspaces, the repository catalog and hosts (spec 066)
+use crate::repository::{ApiBase, ForgeProvider, HostGroups, RepositorySpec};
 // Signed mode: review and signers (US8)
 use crate::governance::Label as SignerLabel;
 use crate::review::{
@@ -323,6 +325,50 @@ pub enum Cmd {
         workspace: Uuid,
         slug: Slug,
         name: Label,
+    },
+    /// `Preview` (workspace admin) of setting or clearing the primary binding. `Confirm` replies
+    /// `Workspaces` (spec 066).
+    PreviewWorkspacePrimary {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        #[serde(default)]
+        #[ts(type = "string | null")]
+        binding: Option<Uuid>,
+    },
+    /// `Preview` (workspace admin): create a binding on the `default` project and make it
+    /// primary. `Confirm` replies `Binding`, then syncs. Validated as `PreviewBindingCreate`.
+    PreviewWorkspaceRepository {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        spec: RepositorySpec,
+    },
+    /// `ForgeConnection`. View.
+    GetForgeConnection {
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// `Preview` (workspace admin) of setting or replacing the forge connection. `Confirm`
+    /// replies `ForgeConnection`.
+    PreviewForgeConnection {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        provider: ForgeProvider,
+        /// Defaults from the primary binding's URL and the provider.
+        #[serde(default)]
+        api_base: Option<ApiBase>,
+        /// A `forge_token` credential in the same workspace.
+        #[ts(type = "string")]
+        credential: Uuid,
+    },
+    /// `Preview` (workspace admin) of removing the forge connection.
+    PreviewForgeRemove {
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// `ForgeProbe`. Reads only.
+    ProbeForge {
+        #[ts(type = "string")]
+        workspace: Uuid,
     },
     /// `Teams`: every team for instance admins, otherwise the caller's own teams and those
     /// granted on workspaces the caller administers.
@@ -656,6 +702,44 @@ pub enum Cmd {
     /// `Preview` (step-up); `Confirm` replies `Run`, for the new update run or the one already in
     /// progress. Every refusal is audited as `keel_update_refused`. Instance owners.
     PreviewKeelUpdate { digest: String },
+
+    // Repository catalog and hosts (spec 066)
+    /// `Catalog` for the workspace's primary binding, with per-host decrypt state. View.
+    GetCatalog {
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// `JobDraft`. View. Pure: stores nothing.
+    DraftJob {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        playbook: RepoPath,
+    },
+    /// `Preview` (Operate) of adding a host: enrolment plus an inventory change. `Confirm` replies
+    /// `HostAdded`.
+    PreviewHostAdd {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        inventory_name: HostName,
+        groups: HostGroups,
+        profiles: HostProfiles,
+        /// The inventory file to edit; defaults to the manifest's.
+        #[serde(default)]
+        inventory: Option<RepoPath>,
+    },
+    /// `Preview` (workspace admin) of proposing a host's age key as a sops recipient. `Confirm`
+    /// replies `ChangeProposed`.
+    PreviewSopsRecipient {
+        #[ts(type = "string")]
+        host: Uuid,
+    },
+    /// `Preview` (workspace admin) of proposing a job draft. `Confirm` replies `ChangeProposed`.
+    PreviewJobPropose {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        playbook: RepoPath,
+        name: ObjectName,
+    },
 }
 
 /// The commands an API token may be scoped to, by [`Cmd::name`]: reads only, for now. Anything
@@ -693,6 +777,9 @@ pub const TOKEN_ACTIONS: &[&str] = &[
     "get_review",
     "get_review_diff",
     "list_signers",
+    // Repository catalog (spec 066): reads that store nothing.
+    "get_catalog",
+    "draft_job",
 ];
 
 impl Cmd {
@@ -747,6 +834,12 @@ impl Cmd {
             Cmd::PreviewWorkspaceCreate { .. } => "preview_workspace_create",
             Cmd::PreviewWorkspaceUpdate { .. } => "preview_workspace_update",
             Cmd::PreviewWorkspaceArchive { .. } => "preview_workspace_archive",
+            Cmd::PreviewWorkspacePrimary { .. } => "preview_workspace_primary",
+            Cmd::PreviewWorkspaceRepository { .. } => "preview_workspace_repository",
+            Cmd::GetForgeConnection { .. } => "get_forge_connection",
+            Cmd::PreviewForgeConnection { .. } => "preview_forge_connection",
+            Cmd::PreviewForgeRemove { .. } => "preview_forge_remove",
+            Cmd::ProbeForge { .. } => "probe_forge",
             Cmd::PreviewProjectCreate { .. } => "preview_project_create",
             Cmd::ListTeams => "list_teams",
             Cmd::PreviewTeamCreate { .. } => "preview_team_create",
@@ -808,6 +901,12 @@ impl Cmd {
             Cmd::CheckForUpdates => "check_for_updates",
             Cmd::DismissUpdateDot { .. } => "dismiss_update_dot",
             Cmd::PreviewKeelUpdate { .. } => "preview_keel_update",
+            // Repository catalog and hosts (spec 066)
+            Cmd::GetCatalog { .. } => "get_catalog",
+            Cmd::DraftJob { .. } => "draft_job",
+            Cmd::PreviewHostAdd { .. } => "preview_host_add",
+            Cmd::PreviewSopsRecipient { .. } => "preview_sops_recipient",
+            Cmd::PreviewJobPropose { .. } => "preview_job_propose",
         }
     }
 
@@ -863,6 +962,12 @@ impl Cmd {
             | Cmd::PreviewWorkspaceCreate { .. }
             | Cmd::PreviewWorkspaceUpdate { .. }
             | Cmd::PreviewWorkspaceArchive { .. }
+            | Cmd::PreviewWorkspacePrimary { .. }
+            | Cmd::PreviewWorkspaceRepository { .. }
+            | Cmd::GetForgeConnection { .. }
+            | Cmd::PreviewForgeConnection { .. }
+            | Cmd::PreviewForgeRemove { .. }
+            | Cmd::ProbeForge { .. }
             | Cmd::PreviewProjectCreate { .. }
             | Cmd::ListTeams
             | Cmd::PreviewTeamCreate { .. }
@@ -923,6 +1028,12 @@ impl Cmd {
             | Cmd::CheckForUpdates
             | Cmd::DismissUpdateDot { .. }
             | Cmd::PreviewKeelUpdate { .. } => false,
+            // Repository catalog and hosts (spec 066)
+            Cmd::GetCatalog { .. }
+            | Cmd::DraftJob { .. }
+            | Cmd::PreviewHostAdd { .. }
+            | Cmd::PreviewSopsRecipient { .. }
+            | Cmd::PreviewJobPropose { .. } => false,
         }
     }
 }

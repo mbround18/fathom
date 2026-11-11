@@ -27,6 +27,7 @@ function admin(backend: FakeBackend): void {
         { id: '01J00000000000000000000PR2', slug: 'apps', name: 'Apps' },
       ],
       system: false,
+      primary_binding: null,
     })
   })
 }

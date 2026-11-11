@@ -194,6 +194,7 @@ fn preview() {
         affected: vec!["workspace infra".into()],
         step_up: true,
         expires_at: "2026-10-27T12:05:00Z".into(),
+        warnings: vec![],
     });
     let v = round_trip(&p);
     assert_eq!(v["type"], "Preview");
@@ -618,6 +619,7 @@ fn governance_events_round_trip() {
             name: "Edge".into(),
         }],
         system: false,
+        primary_binding: None,
     };
     let v = round_trip(&Event::Workspaces { items: vec![ws] });
     assert_eq!(
@@ -625,7 +627,7 @@ fn governance_events_round_trip() {
         json!({"type": "Workspaces", "data": {"items": [{
             "id": id(2), "slug": "infra", "name": "Infra", "created": "2026-10-27T12:00:00Z",
             "archived": false, "projects": [{"id": id(6), "slug": "edge", "name": "Edge"}],
-            "system": false
+            "system": false, "primary_binding": null
         }]}})
     );
 

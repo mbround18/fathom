@@ -189,6 +189,19 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::ListSigners { .. }
         | Cmd::PreviewSignerAdd { .. }
         | Cmd::PreviewSignerRemove { .. } => Ok(()),
+        // Workspaces, the repository catalog and hosts (spec 066): each handler checks the
+        // workspace capability.
+        Cmd::PreviewWorkspacePrimary { .. }
+        | Cmd::PreviewWorkspaceRepository { .. }
+        | Cmd::GetForgeConnection { .. }
+        | Cmd::PreviewForgeConnection { .. }
+        | Cmd::PreviewForgeRemove { .. }
+        | Cmd::ProbeForge { .. }
+        | Cmd::GetCatalog { .. }
+        | Cmd::DraftJob { .. }
+        | Cmd::PreviewHostAdd { .. }
+        | Cmd::PreviewSopsRecipient { .. }
+        | Cmd::PreviewJobPropose { .. } => Ok(()),
         // Settings, enrolments, admin tokens and the System workspace (spec 060): sessions
         // only; the handlers check instance admin or owner.
         Cmd::GetSettings
@@ -486,6 +499,18 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         | Cmd::CheckForUpdates
         | Cmd::DismissUpdateDot { .. }
         | Cmd::PreviewKeelUpdate { .. }) => crate::updates::commands::handle(app, req, other).await,
+        // Workspaces, the repository catalog and hosts (spec 066).
+        other @ (Cmd::PreviewWorkspacePrimary { .. }
+        | Cmd::PreviewWorkspaceRepository { .. }
+        | Cmd::GetForgeConnection { .. }
+        | Cmd::PreviewForgeConnection { .. }
+        | Cmd::PreviewForgeRemove { .. }
+        | Cmd::ProbeForge { .. }
+        | Cmd::GetCatalog { .. }
+        | Cmd::DraftJob { .. }
+        | Cmd::PreviewHostAdd { .. }
+        | Cmd::PreviewSopsRecipient { .. }
+        | Cmd::PreviewJobPropose { .. }) => crate::repository::handle(app, req, other).await,
     };
     events
         .into_iter()

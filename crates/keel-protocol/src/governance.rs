@@ -164,6 +164,9 @@ pub struct WorkspaceInfo {
     pub projects: Vec<ProjectInfo>,
     /// The owner-only System workspace (spec 060).
     pub system: bool,
+    /// The binding whose repository is the workspace's catalog (spec 066).
+    #[ts(type = "string | null")]
+    pub primary_binding: Option<Uuid>,
 }
 
 /// A team member.

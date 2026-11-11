@@ -33,7 +33,7 @@ function seed(backend: FakeBackend, instance_role: 'owner' | 'admin' = 'owner'):
   })
 
   governance(backend, (g) => {
-    g.workspaces.push({ id: WORKSPACE, slug: 'ops', name: 'Operations', created: NOW, archived: false, projects: [], system: false })
+    g.workspaces.push({ id: WORKSPACE, slug: 'ops', name: 'Operations', created: NOW, archived: false, projects: [], system: false, primary_binding: null })
     g.team('platform-operations', [people.ada(), people.grace()], [{ workspace: WORKSPACE, workspace_slug: 'ops', role: 'operator', profiles: ['base'] }])
   })
 
@@ -299,7 +299,7 @@ function seedEmpty(backend: FakeBackend): FakeHosts {
     verification: fixtures.verification({ verified: true }),
   })
   governance(backend, (g) => {
-    g.workspaces.push({ id: WORKSPACE, slug: 'ops', name: 'Operations', created: NOW, archived: false, projects: [], system: false })
+    g.workspaces.push({ id: WORKSPACE, slug: 'ops', name: 'Operations', created: NOW, archived: false, projects: [], system: false, primary_binding: null })
   })
   new FakeRuns(backend)
   new FakeReviews(backend).reviews = []

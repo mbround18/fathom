@@ -77,3 +77,13 @@ pub use update::{
     AvailableImage, KeelBuild, LastUpdateRun, UpdateCheckState, UpdateError, UpdateOutcome,
     UpdatePath, UpdateStatus, UpdateStatusLine,
 };
+
+// Workspaces, the repository catalog and hosts (spec 066)
+pub mod repository;
+pub use repository::{
+    ApiBase, CatalogGroup, CatalogInventory, CatalogInventoryKind, CatalogPlay, CatalogPlaybook,
+    CatalogProblem, CatalogRole, CatalogSecrets, CatalogSkipped, CatalogView, ChangeOutcome,
+    EnrollmentIssued, ForgeConnectionInfo, ForgeProvider, GroupName, HostDecrypt, HostGroups,
+    HostInventoryStatus, MAX_API_BASE_BYTES, MAX_HOST_GROUPS, RepositorySpec, SopsDrift, SopsFile,
+    SopsRule,
+};

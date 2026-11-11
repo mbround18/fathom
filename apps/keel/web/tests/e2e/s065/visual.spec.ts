@@ -25,7 +25,7 @@ function seed(backend: FakeBackend, runs: 'rows' | 'empty' = 'rows'): void {
     verification: fixtures.verification({ verified: true, enrolled: true, at: '2026-10-27T11:59:00Z' }),
   })
   governance(backend, (g) => {
-    g.workspaces.push({ id: WORKSPACE, slug: 'ops', name: 'Operations', created: NOW, archived: false, projects: [], system: false })
+    g.workspaces.push({ id: WORKSPACE, slug: 'ops', name: 'Operations', created: NOW, archived: false, projects: [], system: false, primary_binding: null })
     g.team('platform-operations', [people.ada(), people.grace()], [{ workspace: WORKSPACE, workspace_slug: 'ops', role: 'operator', profiles: ['base'] }])
   })
   const hosts = new FakeHosts(backend)

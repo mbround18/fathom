@@ -199,4 +199,8 @@ pub struct Preview {
     pub step_up: bool,
     /// RFC 3339 UTC.
     pub expires_at: String,
+    /// Things the confirmer should know first, such as hosts that cannot decrypt a secret the
+    /// job reads (spec 066 FR-018).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }

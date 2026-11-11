@@ -16,7 +16,7 @@ function admin(backend: FakeBackend, projects: { id: string; slug: string; name:
     verification: fixtures.verification({ verified: true }),
   })
   return governance(backend, (g) => {
-    g.workspaces.push({ id: WORKSPACE, slug: 'ops', name: 'Ops', created: NOW, archived: false, projects, system: false })
+    g.workspaces.push({ id: WORKSPACE, slug: 'ops', name: 'Ops', created: NOW, archived: false, projects, system: false, primary_binding: null })
   })
 }
 

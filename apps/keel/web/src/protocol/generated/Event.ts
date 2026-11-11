@@ -2,12 +2,16 @@
 import type { AdminApiTokenInfo } from "./AdminApiTokenInfo";
 import type { ApiTokenInfo } from "./ApiTokenInfo";
 import type { BindingInfo } from "./BindingInfo";
+import type { CatalogView } from "./CatalogView";
+import type { ChangeOutcome } from "./ChangeOutcome";
 import type { CredentialInfo } from "./CredentialInfo";
 import type { DeliveryInfo } from "./DeliveryInfo";
 import type { DiffFile } from "./DiffFile";
 import type { DiffPage } from "./DiffPage";
 import type { EnrollToken } from "./EnrollToken";
 import type { EnrollmentInfo } from "./EnrollmentInfo";
+import type { EnrollmentIssued } from "./EnrollmentIssued";
+import type { ForgeConnectionInfo } from "./ForgeConnectionInfo";
 import type { HostDetail } from "./HostDetail";
 import type { HostInfo } from "./HostInfo";
 import type { HostStatus } from "./HostStatus";
@@ -106,4 +110,4 @@ configured: boolean, workspace: string | null, allowed_profiles: Array<string>,
 /**
  * 0 while not configured.
  */
-version: number, bindings: Array<string>, hosts: Array<string>, } } | { "type": "KeelBuild", "data": KeelBuild } | { "type": "UpdateStatus", "data": UpdateStatus } | { "type": "UpdateStatusLine", "data": UpdateStatusLine };
+version: number, bindings: Array<string>, hosts: Array<string>, } } | { "type": "KeelBuild", "data": KeelBuild } | { "type": "UpdateStatus", "data": UpdateStatus } | { "type": "UpdateStatusLine", "data": UpdateStatusLine } | { "type": "Catalog", "data": CatalogView } | { "type": "JobDraft", "data": { yaml: string, notes: Array<string>, } } | { "type": "ForgeConnection", "data": ForgeConnectionInfo | null } | { "type": "ForgeProbe", "data": { ok: boolean, can_push: boolean, message: string | null, } } | { "type": "HostAdded", "data": { enrollment: EnrollmentIssued, change: ChangeOutcome, } } | { "type": "ChangeProposed", "data": ChangeOutcome };

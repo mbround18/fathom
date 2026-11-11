@@ -142,6 +142,10 @@ pub struct HostInfo {
     /// The host reported an `ansible-playbook` run outside Keel (not `--check`) that no baseline
     /// approval or later run of its jobs has covered yet (spec 058 amendment A2).
     pub changed_outside: bool,
+    /// The age public key its runner last reported (spec 066).
+    pub age_recipient: Option<String>,
+    /// Whether the primary repository's inventory lists it yet (spec 066).
+    pub inventory_status: crate::repository::HostInventoryStatus,
 }
 
 /// One run outside Keel, as the host reported it: the host's claim, not something Keel checked

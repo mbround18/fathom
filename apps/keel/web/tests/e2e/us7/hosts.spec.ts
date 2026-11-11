@@ -18,7 +18,7 @@ function admin(backend: FakeBackend): FakeHosts {
       type: 'Workspaces',
       data: {
         items: [
-          { id: WORKSPACE, slug: 'ops', name: 'Ops', created: '2026-10-27T12:00:00Z', archived: false, projects: [], system: false },
+          { id: WORKSPACE, slug: 'ops', name: 'Ops', created: '2026-10-27T12:00:00Z', archived: false, projects: [], system: false, primary_binding: null },
         ],
       },
     },

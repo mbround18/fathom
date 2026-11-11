@@ -116,7 +116,7 @@ export class FakeGovernance {
 
   /** Adds a workspace; returns it. */
   workspace(slug: string, name = slug): WorkspaceInfo {
-    const ws: WorkspaceInfo = { id: this.id('ws'), slug, name, created: NOW, archived: false, projects: [], system: false }
+    const ws: WorkspaceInfo = { id: this.id('ws'), slug, name, created: NOW, archived: false, projects: [], system: false, primary_binding: null }
     this.workspaces.push(ws)
     return ws
   }

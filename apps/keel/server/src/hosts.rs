@@ -29,8 +29,8 @@ use keel_exec::ca::{self, CaKind, RunnerCertRequest, RunnerCertVerifier, SshCa, 
 use keel_exec::frames::Frame;
 use keel_exec::krl::Krl;
 use keel_protocol::{
-    Cmd, EnrollToken, Event, HostCertInfo, HostDetail, HostInfo, HostStatus, SshCaInfo, SshCaKind,
-    SshCaState,
+    Cmd, EnrollToken, Event, HostCertInfo, HostDetail, HostInfo, HostInventoryStatus, HostStatus,
+    SshCaInfo, SshCaKind, SshCaState,
 };
 use rand::TryRng;
 use rand::rngs::SysRng;
@@ -589,7 +589,7 @@ const HOST_COLUMNS: &str = "h.id, h.workspace_id, h.inventory_name, h.state, h.a
      h.require_signed, h.runner_version, h.ansible_version, h.enrolled_at, h.last_seen_at, \
      h.revoked_at, array(select p.name from host_profiles hp join profiles p \
        on p.id = hp.profile_id where hp.host_id = h.id order by p.name) as profiles, \
-     h.python_version, h.override_quorum, h.ledger_head, h.changed_outside";
+     h.python_version, h.override_quorum, h.ledger_head, h.changed_outside, h.age_recipient";
 
 #[derive(sqlx::FromRow)]
 struct HostRow {
@@ -609,6 +609,7 @@ struct HostRow {
     override_quorum: Option<i32>,
     ledger_head: Option<String>,
     changed_outside: bool,
+    age_recipient: Option<String>,
 }
 
 impl HostRow {
@@ -628,6 +629,9 @@ impl HostRow {
             last_seen_at: self.last_seen_at.map(ts),
             revoked_at: self.revoked_at.map(ts),
             changed_outside: self.changed_outside,
+            age_recipient: self.age_recipient.clone(),
+            // Derived from the primary catalog in spec 066 T045.
+            inventory_status: HostInventoryStatus::Unknown,
         }
     }
 }

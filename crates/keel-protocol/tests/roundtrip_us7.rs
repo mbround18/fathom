@@ -42,6 +42,8 @@ fn host_info() -> HostInfo {
         last_seen_at: Some("2026-10-27T10:05:00Z".into()),
         revoked_at: None,
         changed_outside: false,
+        age_recipient: None,
+        inventory_status: HostInventoryStatus::Unknown,
     }
 }
 

@@ -176,6 +176,8 @@ pub enum CredentialKind {
     SecretVars,
     GitHttpsToken,
     GitSshKey,
+    /// A forge API token, used only to open pull requests on a new branch (spec 066).
+    ForgeToken,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]

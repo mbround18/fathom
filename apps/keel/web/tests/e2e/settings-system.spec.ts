@@ -61,6 +61,7 @@ test('an owner sets up the System workspace, binds it, enrolls into it and remov
     archived: false,
     projects: [{ id: PROJECT, slug: 'keel', name: 'Keel' }],
     system: true,
+    primary_binding: null,
   })
   const bindings = configured.getByRole('region', { name: 'System bindings' })
   await expect(bindings).toContainText('No repository is bound yet.')

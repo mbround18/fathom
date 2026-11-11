@@ -35,6 +35,8 @@ fn host_info() -> HostInfo {
         last_seen_at: None,
         revoked_at: None,
         changed_outside: true,
+        age_recipient: None,
+        inventory_status: HostInventoryStatus::Unknown,
     }
 }
 
