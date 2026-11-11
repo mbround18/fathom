@@ -5,6 +5,7 @@
  */
 import {
   ArrowsLeftRightIcon,
+  BookOpenIcon,
   ClipboardTextIcon,
   GearSixIcon,
   HardDrivesIcon,
@@ -46,6 +47,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { path: '/runs', label: 'Runs', icon: PlayIcon, badge: 'approvals' },
       { path: '/reviews', label: 'Reviews', icon: SealCheckIcon },
       { path: '/bindings', label: 'Bindings', icon: TreeStructureIcon },
+      { path: '/repository', label: 'Repository', icon: BookOpenIcon },
       { path: '/receivers', label: 'Receivers', icon: WebhooksLogoIcon },
     ],
   },

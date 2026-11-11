@@ -10,7 +10,7 @@ import { expect, fixtures, test, type FakeBackend } from '../../support/fake-bac
 import type { Me } from '../../../src/protocol/wire'
 
 const GROUPS = [
-  { id: 'pipelines', name: 'Pipelines', links: ['Runs', 'Reviews', 'Bindings', 'Receivers'] },
+  { id: 'pipelines', name: 'Pipelines', links: ['Runs', 'Reviews', 'Bindings', 'Repository', 'Receivers'] },
   { id: 'infrastructure', name: 'Infrastructure', links: ['Inventory', 'Hosts'] },
   { id: 'administration', name: 'Administration', links: ['Teams', 'Users', 'Audit', 'Migration'] },
 ] as const

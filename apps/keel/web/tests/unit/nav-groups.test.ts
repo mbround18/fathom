@@ -10,7 +10,7 @@ const labels = (g: NavGroup) => g.sections.map((s) => s.label)
 describe('nav groups', () => {
   it('has three groups in order, each with its sections in order', () => {
     expect(NAV_GROUPS.map((g) => [g.id, g.label, labels(g)])).toEqual([
-      ['pipelines', 'Pipelines', ['Runs', 'Reviews', 'Bindings', 'Receivers']],
+      ['pipelines', 'Pipelines', ['Runs', 'Reviews', 'Bindings', 'Repository', 'Receivers']],
       ['infrastructure', 'Infrastructure', ['Inventory', 'Hosts']],
       ['administration', 'Administration', ['Teams', 'Users', 'Audit', 'Migration']],
     ])
@@ -22,6 +22,7 @@ describe('nav groups', () => {
       '/runs',
       '/reviews',
       '/bindings',
+      '/repository',
       '/receivers',
       '/inventory',
       '/hosts',
@@ -51,7 +52,7 @@ describe('nav groups', () => {
     it('drops a hidden section and a group left empty', () => {
       const seen = visibleGroups({ ...ME, instance_role: 'user' }, groups)
       expect(seen.map((g) => g.id)).toEqual(['pipelines', 'administration'])
-      expect(seen[0]?.sections.map((s) => s.label)).toEqual(['Runs', 'Bindings', 'Receivers'])
+      expect(seen[0]?.sections.map((s) => s.label)).toEqual(['Runs', 'Bindings', 'Repository', 'Receivers'])
     })
 
     it('keeps them when visible says yes', () => {

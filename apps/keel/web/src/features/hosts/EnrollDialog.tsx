@@ -37,7 +37,7 @@ function Countdown({ expiresAt }: { expiresAt: string }) {
 }
 
 /** Profile chips: Enter or comma adds what is typed; each chip removes itself. */
-function ProfileChips({
+export function ProfileChips({
   id,
   value,
   onChange,

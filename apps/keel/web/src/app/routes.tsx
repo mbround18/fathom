@@ -18,6 +18,7 @@ const ROUTES: readonly Route[] = [
   { pattern: '/runs/:id', page: lazy(() => import('@/features/runs/RunPage')) },
   { pattern: '/reviews', page: lazy(() => import('@/features/reviews/ReviewsPage')) },
   { pattern: '/bindings', page: lazy(() => import('@/features/bindings/BindingsPage')) },
+  { pattern: '/repository', page: lazy(() => import('@/features/repository/RepositoryPage')) },
   { pattern: '/receivers', page: lazy(() => import('@/features/receivers/ReceiversPage')) },
   { pattern: '/inventory', page: lazy(() => import('@/features/inventory/InventoryPage')) },
   { pattern: '/hosts', page: lazy(() => import('@/features/hosts/HostsPage')) },
