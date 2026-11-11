@@ -32,7 +32,7 @@ import {
 import { useId, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
-import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
+import { CurrentWorkspace } from '@/app/WorkspacePicker'
 import { canAdminister } from '@/features/hosts/workspaces'
 import type { ReviewState, ReviewInfo, SignatureStatus, SignerInfo, SignerKind } from '@/protocol/wire'
 
@@ -71,9 +71,8 @@ function ErrorLine() {
 
 /** Picks one of the signed-in user's workspaces and lists its reviews. */
 function WorkspacePicker() {
-  const workspace = useReviews((s) => s.workspace)
   const load = useReviews((s) => s.load)
-  return <GrantWorkspacePicker workspace={workspace} load={load} />
+  return <CurrentWorkspace load={load} />
 }
 
 function FilterPicker() {

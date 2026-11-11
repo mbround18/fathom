@@ -29,7 +29,7 @@ import {
 import { useEffect, useId, useMemo } from 'react'
 
 import { useSession } from '@/app/session-store'
-import { WorkspaceSelect } from '@/app/WorkspacePicker'
+import { CurrentWorkspace } from '@/app/WorkspacePicker'
 import type { HostInfo, HostStatus } from '@/protocol/wire'
 
 import { EnrollDialog } from './EnrollDialog'
@@ -151,30 +151,14 @@ function ErrorLine() {
 }
 
 /**
- * Picks one of the workspaces the caller can see (`ListWorkspaces`) and lists its hosts. The System
- * workspace is listed only once it exists, since the server sends it only then.
+ * Lists the current workspace's hosts (spec 066: the shell's switcher picks it, from every workspace
+ * the caller can see, so an owner with no grants still has one).
  */
 function WorkspacePicker() {
-  const { all, refusal, retry } = useWorkspaces()
-  const workspace = useHosts((s) => s.workspace)
+  const { refusal, retry } = useWorkspaces()
   const load = useHosts((s) => s.load)
-  const first = all?.[0]?.id ?? null
-  const known = workspace !== null && all?.some((w) => w.id === workspace) === true
-
-  useEffect(() => {
-    const current = known ? workspace : first
-    if (current) load(current)
-  }, [known, workspace, first, load])
-
   if (refusal) return <LoadFailed what="workspaces" refusal={refusal} onRetry={retry} />
-  if (all === null) return null
-  return (
-    <WorkspaceSelect
-      options={all.map((w) => ({ id: w.id, label: w.system ? `${w.slug} (System)` : w.slug }))}
-      value={known ? workspace : (first ?? '')}
-      onChange={load}
-    />
-  )
+  return <CurrentWorkspace load={load} />
 }
 
 /**

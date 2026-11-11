@@ -32,7 +32,7 @@ import {
 import { lazy, Suspense, useId, useState, type ReactNode, type SyntheticEvent } from 'react'
 
 import { useSession } from '@/app/session-store'
-import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
+import { CurrentWorkspace } from '@/app/WorkspacePicker'
 import { canAdminister } from '@/features/hosts/workspaces'
 import type { InventoryProblem } from '@/protocol/wire'
 
@@ -62,9 +62,8 @@ function Field({ label, children, id }: { label: string; children: ReactNode; id
 }
 
 function WorkspacePicker() {
-  const workspace = useInventory((s) => s.workspace)
   const load = useInventory((s) => s.load)
-  return <GrantWorkspacePicker workspace={workspace} load={load} />
+  return <CurrentWorkspace load={load} />
 }
 
 function ErrorLine() {

@@ -1,11 +1,11 @@
 /**
- * Pieces the bindings and receivers pages share (spec 055 T052): the workspace picker, the
+ * Pieces the bindings and receivers pages share (spec 055 T052): the current workspace's loader, the
  * confirm dialog for a `Preview`, and the error line, on the app's shared primitives.
  */
 import type { ReactNode } from 'react'
 import { ConfirmDialog, ErrorLine as Alert, Field as FormField } from '@companion/ui/kit'
 
-import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
+import { CurrentWorkspace } from '@/app/WorkspacePicker'
 
 import { useRepos } from './store'
 
@@ -18,11 +18,10 @@ export function Field({ label, children, id }: { label: string; children: ReactN
   )
 }
 
-/** Picks one of the signed-in user's workspaces and loads its lists. */
+/** Loads the current workspace's lists (spec 066: the shell's switcher picks it). */
 export function WorkspacePicker() {
-  const workspace = useRepos((s) => s.workspace)
   const load = useRepos((s) => s.load)
-  return <GrantWorkspacePicker workspace={workspace} load={load} />
+  return <CurrentWorkspace load={load} />
 }
 
 export function ErrorLine() {

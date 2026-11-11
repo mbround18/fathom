@@ -21,7 +21,7 @@ import {
 import { useCallback, useMemo } from 'react'
 
 import { useSession } from '@/app/session-store'
-import { GrantWorkspacePicker } from '@/app/WorkspacePicker'
+import { CurrentWorkspace } from '@/app/WorkspacePicker'
 import { canOperate } from '@/features/hosts/workspaces'
 import type { RunInfo } from '@/protocol/wire'
 
@@ -97,7 +97,7 @@ export default function RunsPage() {
   const me = useSession((s) => s.me)
   const filter: Filter = useSearchParam('state') === 'pending_approval' ? 'pending_approval' : 'all'
   const held = filter === 'pending_approval'
-  // The picker reloads whenever `load` changes, so a new filter lists again.
+  // The page reloads whenever `load` changes, so a new filter lists again.
   const load = useCallback((ws: string) => loadRuns(ws, held ? 'pending_approval' : null), [loadRuns, held])
   // A run approved while the filter is on stays in the store until the next list: hide it here.
   const shown = useMemo(() => (held ? oldestFirst(runs) : runs), [held, runs])
@@ -114,7 +114,7 @@ export default function RunsPage() {
             : 'Every job run in the workspace, newest first, with its live output.'
         }
       >
-        <GrantWorkspacePicker workspace={workspace} load={load} />
+        <CurrentWorkspace load={load} />
       </PageHeader>
       <RunsFilter value={filter} />
       <ErrorLine />
