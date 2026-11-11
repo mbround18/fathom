@@ -139,3 +139,71 @@ mod tests {
         assert!(Standalone.local_edits_allowed());
     }
 }
+
+/// A boxed future, so [`Forge`] stays object-safe without an async-trait dependency.
+pub type ForgeFuture<'a, T> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, ForgeError>> + Send + 'a>>;
+
+/// One file a [`ChangeRequest`] writes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileEdit {
+    /// Repository-relative path.
+    pub path: String,
+    /// The blob the edit was computed against; `None` creates the file. The forge refuses the
+    /// write when the file has changed since, so Keel never overwrites what it has not seen.
+    pub expected_blob_sha: Option<String>,
+    pub new_content: Vec<u8>,
+}
+
+/// A change proposed as a pull request on a new branch (spec 066 R8). Never a push to an existing
+/// branch.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChangeRequest {
+    pub base_branch: String,
+    pub new_branch: String,
+    pub title: String,
+    pub body: String,
+    pub files: Vec<FileEdit>,
+}
+
+/// The pull request a [`Forge`] opened.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenedChange {
+    /// The pull request's web URL.
+    pub url: String,
+    pub branch: String,
+}
+
+/// What a [`Forge::probe`] found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ForgeAccess {
+    /// The token may write to the repository (`permissions.push`).
+    pub can_push: bool,
+}
+
+/// Errors a [`Forge`] reports. Never carries the token.
+#[derive(Debug, thiserror::Error)]
+pub enum ForgeError {
+    #[error("forge rejected the token")]
+    Unauthorized,
+    #[error("repository not found on the forge")]
+    NotFound,
+    /// A file changed since the edit was computed (the `sha` precondition failed), or the branch
+    /// already exists.
+    #[error("conflict: {0}")]
+    Conflict(String),
+    /// Any other refusal, as `forge_refused`.
+    #[error("forge refused ({status}): {message}")]
+    Refused { status: u16, message: String },
+    #[error("forge unavailable: {0}")]
+    Unavailable(String),
+}
+
+/// A code forge's API: Forgejo/Gitea or GitHub (adapters in `keel-forge`).
+pub trait Forge: Send + Sync {
+    /// Reads the repository and the token's permissions on it.
+    fn probe(&self) -> ForgeFuture<'_, ForgeAccess>;
+    /// Creates `new_branch` from `base_branch`, writes the files with their `sha` preconditions,
+    /// and opens a pull request.
+    fn open_change<'a>(&'a self, change: &'a ChangeRequest) -> ForgeFuture<'a, OpenedChange>;
+}
