@@ -125,13 +125,13 @@ description: "Task list for spec 066, Keel workspaces, repository catalog and ho
 
 ## Phase 3E: Web integration
 
-- [ ] T050 Add `fake-catalog.ts` and `fake-forge.ts` to the fake backend.
-- [ ] T051 Add `features/repository/`, the page with five lazily loaded tabs and detail panes, and
+- [X] T050 Add `fake-catalog.ts` and `fake-forge.ts` to the fake backend.
+- [X] T051 Add `features/repository/`, the page with five lazily loaded tabs and detail panes, and
   a nav entry.
-- [ ] T052 Add the Draft job dialog, with Copy and Propose as pull request.
-- [ ] T053 Add `AddHostDialog.tsx`, the host inventory status badge, the age key on the host
+- [X] T052 Add the Draft job dialog, with Copy and Propose as pull request.
+- [X] T053 Add `AddHostDialog.tsx`, the host inventory status badge, the age key on the host
   detail, and Propose sops recipient.
-- [ ] T054 Playwright `s066/repository.spec.ts`, `s066/secrets.spec.ts` and
+- [X] T054 Playwright `s066/repository.spec.ts`, `s066/secrets.spec.ts` and
   `s066/add-host.spec.ts`. Add the polish screens.
 
 ## Phase 4: Docs and gate
