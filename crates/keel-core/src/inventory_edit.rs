@@ -374,6 +374,90 @@ fn valid_host(host: &str) -> bool {
 /// `host` is not a valid name or is already in the inventory, `group` is not in it, the text
 /// does not parse, or the group is written in flow style.
 pub fn add_host(text: &str, group: &str, host: &str) -> Result<Edit, EditError> {
+    place_host(text, group, host, false)
+}
+
+/// Adds a new `host` to every group in `groups` (in order, duplicates ignored), as one edit whose
+/// diff covers all the insertions.
+///
+/// # Errors
+///
+/// As [`add_host`]; `groups` empty is [`EditError::InvalidName`].
+pub fn add_host_groups(text: &str, groups: &[&str], host: &str) -> Result<Edit, EditError> {
+    let mut seen: Vec<&str> = Vec::new();
+    for g in groups {
+        if !seen.contains(g) {
+            seen.push(g);
+        }
+    }
+    let Some((first, rest)) = seen.split_first() else {
+        return Err(EditError::InvalidName(String::new()));
+    };
+    let mut edit = place_host(text, first, host, false)?;
+    for g in rest {
+        edit = place_host(&edit.new_text, g, host, true)?;
+    }
+    if rest.is_empty() {
+        return Ok(edit);
+    }
+    let diff = insertion_diff(&Doc::new(text).raw, &Doc::new(&edit.new_text).raw);
+    Ok(Edit {
+        new_text: edit.new_text,
+        diff,
+    })
+}
+
+/// Hunks for `new`, which is `old` with lines inserted (`old` is a subsequence of `new`).
+fn insertion_diff(old: &[String], new: &[String]) -> String {
+    // inserted[k]: the new lines that go before old line k (k == old.len(): at the end).
+    let mut inserted: Vec<Vec<&String>> = vec![Vec::new(); old.len() + 1];
+    let mut i = 0;
+    for l in new {
+        if i < old.len() && *l == old[i] {
+            i += 1;
+        } else {
+            inserted[i].push(l);
+        }
+    }
+    let points: Vec<usize> = (0..=old.len())
+        .filter(|&k| !inserted[k].is_empty())
+        .collect();
+    let mut s = String::new();
+    let mut added_before = 0;
+    let mut p = 0;
+    while p < points.len() {
+        // Merge insertion points whose context would overlap into one hunk.
+        let mut q = p;
+        while q + 1 < points.len() && points[q + 1] - points[q] <= 2 * CONTEXT {
+            q += 1;
+        }
+        let start = points[p].saturating_sub(CONTEXT);
+        let end = (points[q] + CONTEXT).min(old.len());
+        let adds: usize = points[p..=q].iter().map(|&k| inserted[k].len()).sum();
+        let old_len = end - start;
+        let old_pos = if old_len == 0 { start } else { start + 1 };
+        let new_pos = start + added_before + 1;
+        let _ = writeln!(
+            s,
+            "@@ -{old_pos},{old_len} +{new_pos},{} @@",
+            old_len + adds
+        );
+        for (k, before) in inserted.iter().enumerate().take(end + 1).skip(start) {
+            for l in before {
+                let _ = writeln!(s, "+{l}");
+            }
+            if k < end {
+                let _ = writeln!(s, " {}", old[k]);
+            }
+        }
+        added_before += adds;
+        p = q + 1;
+    }
+    s
+}
+
+/// [`add_host`], or (`existing`) adding a host already in the inventory to one more group.
+fn place_host(text: &str, group: &str, host: &str, existing: bool) -> Result<Edit, EditError> {
     if !valid_host(host) {
         return Err(EditError::InvalidName(host.to_owned()));
     }
@@ -386,7 +470,11 @@ pub fn add_host(text: &str, group: &str, host: &str) -> Result<Edit, EditError> 
                 .map_or_else(String::new, |e| e.message.clone()),
         ));
     }
-    if let Some(hg) = before.hosts.iter().find(|h| h.host == host) {
+    if let Some(hg) = before
+        .hosts
+        .iter()
+        .find(|h| h.host == host && (!existing || h.groups.iter().any(|g| g == group)))
+    {
         return Err(EditError::HostExists {
             host: host.to_owned(),
             groups: hg.groups.clone(),
@@ -502,7 +590,8 @@ fn verify_host(
     let after = check_text(new_text, Format::Yaml, None);
     let (added, rest): (Vec<&HostGroups>, Vec<&HostGroups>) =
         after.hosts.iter().partition(|h| h.host == host);
-    let same = rest.len() == before.len() && rest.iter().zip(before).all(|(a, b)| *a == b);
+    let before: Vec<&HostGroups> = before.iter().filter(|h| h.host != host).collect();
+    let same = rest.len() == before.len() && rest.iter().zip(&before).all(|(a, b)| a == b);
     match added.as_slice() {
         [h] if same && h.groups.iter().any(|g| g == group) => Ok(()),
         _ => Err(EditError::Unverified(format!(
@@ -883,6 +972,29 @@ all:
         );
         assert!(matches!(
             add_host(INVENTORY, "pve_hosts", "bad name"),
+            Err(EditError::InvalidName(_))
+        ));
+    }
+
+    #[test]
+    fn one_host_into_several_groups_is_one_edit() {
+        let e = add_host_groups(INVENTORY, &["pve_hosts", "keel_servers", "pve_hosts"], "box")
+            .unwrap();
+        let want = INVENTORY
+            .replace("        pve:\n", "        box:\n        pve:\n")
+            .replace("        keel:\n", "        box:\n        keel:\n");
+        assert_eq!(e.new_text, want);
+        assert_eq!(added(&e), ["+        box:", "+        box:"]);
+        assert_eq!(removed(&e), 0);
+        // Two hunks; the second's new start counts the first insertion.
+        assert!(e.diff.starts_with("@@ -17,6 +17,7 @@\n"), "{}", e.diff);
+        assert!(e.diff.contains("@@ -26,4 +27,5 @@\n"), "{}", e.diff);
+        assert!(matches!(
+            add_host_groups(INVENTORY, &["pve_hosts", "compose_hosts"], "steam"),
+            Err(EditError::HostExists { .. })
+        ));
+        assert!(matches!(
+            add_host_groups(INVENTORY, &[], "x"),
             Err(EditError::InvalidName(_))
         ));
     }
