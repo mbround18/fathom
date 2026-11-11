@@ -27,9 +27,11 @@ import { usePasskeys } from '@/features/passkeys/store'
 import { useApprovals } from '@/features/runs/approvals-store'
 import { canSeeSettings } from '@/features/settings/tabs'
 import { showDot, useUpdates } from '@/features/settings/updates'
+import { ChangeDialog } from '@/features/teams/ChangeDialog'
 
 import { ACCOUNT_PASSKEYS, HELP, HOME, SETTINGS, visibleGroups, type Section } from './nav'
 import { useSession } from './session-store'
+import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
 const PasskeyDialogs = lazy(() => import('@/features/passkeys/PasskeyDialogs'))
 
@@ -170,16 +172,21 @@ export function Shell({ children }: { children: ReactNode }) {
               {CONNECTION_LABEL[connection]}…
             </span>
           )}
+          <WorkspaceSwitcher />
           <AccountMenu />
         </>
       }
       banner={<EnrolBanner />}
       overlay={
-        dialog && (
-          <Suspense fallback={null}>
-            <PasskeyDialogs />
-          </Suspense>
-        )
+        <>
+          {/* The one governance confirm dialog: the switcher's create, Teams, Users and Settings share it. */}
+          <ChangeDialog />
+          {dialog && (
+            <Suspense fallback={null}>
+              <PasskeyDialogs />
+            </Suspense>
+          )}
+        </>
       }
     >
       {children}

@@ -13,7 +13,7 @@
  * choice in line with what was resolved. It replaces the history entry and never pushes one, so
  * Back leaves the page rather than stepping through workspaces. Pages read `useCurrentWorkspace`.
  */
-import { navigate, useSearchParam } from '@companion/ui/kit'
+import { navigate, slug as slugOf, useSearchParam } from '@companion/ui/kit'
 import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
 
@@ -22,6 +22,14 @@ import type { WorkspaceInfo } from '@/protocol/wire'
 
 export const STORAGE_KEY = 'keel.workspace'
 export const WS_PARAM = 'ws'
+
+/** A workspace slug, as the server checks it. */
+export const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/
+
+/** A slug from a name: lower case, hyphenated, at most 63 characters. */
+export function slugFromName(name: string): string {
+  return slugOf(name).slice(0, 63).replace(/-+$/, '')
+}
 
 /** Storage can be missing or refuse (a private window, blocked site data): the choice then lasts the tab. */
 function readStored(): string | null {
@@ -82,16 +90,27 @@ function syncAddress(slug: string | null): void {
 interface WorkspaceStore {
   /** The stored choice, by slug. */
   stored: string | null
+  /**
+   * A workspace just created, made current as soon as the list holds it. Choosing it before then
+   * would resolve to the fallback, and the sync would write the fallback back over it.
+   */
+  pending: string | null
   /** Makes `slug` current: remembered, and written to the address. */
   choose: (slug: string) => void
+  /** Makes `slug` current once `ListWorkspaces` returns it. */
+  chooseWhenListed: (slug: string) => void
 }
 
 export const useWorkspaceStore = create<WorkspaceStore>()((set) => ({
   stored: readStored(),
+  pending: null,
   choose: (slug) => {
     writeStored(slug)
-    set({ stored: slug })
+    set({ stored: slug, pending: null })
     syncAddress(slug)
+  },
+  chooseWhenListed: (slug) => {
+    set({ pending: slug })
   },
 }))
 
@@ -109,7 +128,9 @@ export function useCurrentWorkspace(): WorkspaceInfo | null {
  */
 export function useWorkspaceSync(): void {
   const load = useGovernance((s) => s.load)
-  const loaded = useGovernance((s) => s.workspaces !== null)
+  const items = useGovernance((s) => s.workspaces)
+  const loaded = items !== null
+  const pending = useWorkspaceStore((s) => s.pending)
   const asked = useSearchParam(WS_PARAM)
   const current = useCurrentWorkspace()
   const slug = current?.slug ?? null
@@ -119,11 +140,17 @@ export function useWorkspaceSync(): void {
   }, [load])
 
   useEffect(() => {
-    if (!loaded) return
+    if (pending !== null && items && visibleWorkspaces(items).some((w) => w.slug === pending)) {
+      useWorkspaceStore.getState().choose(pending)
+    }
+  }, [pending, items])
+
+  useEffect(() => {
+    if (!loaded || pending !== null) return
     if (slug !== null && useWorkspaceStore.getState().stored !== slug) {
       writeStored(slug)
       useWorkspaceStore.setState({ stored: slug })
     }
     if (asked !== slug) syncAddress(slug)
-  }, [loaded, asked, slug])
+  }, [loaded, pending, asked, slug])
 }

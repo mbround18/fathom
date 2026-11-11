@@ -15,7 +15,6 @@ import { useEffect, useId, useState } from 'react'
 import { useSession } from '@/app/session-store'
 import { useSettings } from '@/features/settings/store'
 import { canSeeSettings } from '@/features/settings/tabs'
-import { ChangeDialog } from '@/features/teams/ChangeDialog'
 import { INSTANCE_ROLE_LABEL, INSTANCE_ROLES } from '@/features/teams/labels'
 import { InlineField, InlineForm, ListState, NativeSelect, Pane } from '@/features/teams/parts'
 import { useGovernance } from '@/features/teams/store'
@@ -286,7 +285,6 @@ export default function UsersPage() {
       <PageHeader id="users-title" title="Users" description="Who can sign in, their role, and your API tokens." />
       <Users />
       <Tokens />
-      <ChangeDialog />
     </Page>
   )
 }

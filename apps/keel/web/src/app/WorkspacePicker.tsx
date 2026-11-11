@@ -17,7 +17,7 @@ export interface WorkspaceOption {
 }
 
 /** No workspace yet: the guided first step for an owner or admin, who grants them for anyone else. */
-function NoWorkspace() {
+export function NoWorkspace() {
   const role = useSession((s) => s.me?.instance_role)
   const owner = canSeeSettings(role)
   return (

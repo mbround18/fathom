@@ -15,7 +15,6 @@ import { useSession } from '@/app/session-store'
 import { canSeeSettings } from '@/features/settings/tabs'
 import type { GrantInfo, TeamInfo, WorkspaceInfo } from '@/protocol/wire'
 
-import { ChangeDialog } from './ChangeDialog'
 import { GrantEditor } from './GrantEditor'
 import { ROLE_LABEL } from './labels'
 
@@ -427,7 +426,6 @@ export default function TeamsPage() {
       />
       <Workspaces />
       <Teams />
-      <ChangeDialog />
     </Page>
   )
 }

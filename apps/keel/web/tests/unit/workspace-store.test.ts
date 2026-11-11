@@ -8,6 +8,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   resolveWorkspace,
+  SLUG_PATTERN,
+  slugFromName,
   STORAGE_KEY,
   useCurrentWorkspace,
   useWorkspaceStore,
@@ -90,7 +92,7 @@ describe('the store and the address', () => {
   beforeEach(() => {
     localStorage.clear()
     history.replaceState(null, '', '/runs')
-    useWorkspaceStore.setState({ stored: null })
+    useWorkspaceStore.setState({ stored: null, pending: null })
     useGovernance.setState({ workspaces: null, refused: {} })
     // The sync asks for the list; the test supplies it.
     vi.spyOn(useGovernance.getState(), 'load').mockImplementation(() => undefined)
@@ -172,11 +174,41 @@ describe('the store and the address', () => {
     expect(localStorage.getItem(STORAGE_KEY)).toBe('payments')
   })
 
+  it('a new workspace becomes current once the list holds it, not before', () => {
+    useGovernance.setState({ workspaces: [OPS] })
+    const view = mount()
+    act(() => {
+      useWorkspaceStore.getState().chooseWhenListed('payments')
+    })
+    expect(view.result.current?.slug).toBe('ops')
+    expect(location.search).toBe('?ws=ops')
+    act(() => {
+      useGovernance.setState({ workspaces: [OPS, PAYMENTS] })
+    })
+    expect(view.result.current?.slug).toBe('payments')
+    expect(location.search).toBe('?ws=payments')
+    expect(localStorage.getItem(STORAGE_KEY)).toBe('payments')
+    expect(useWorkspaceStore.getState().pending).toBeNull()
+  })
+
   it('clears ws when there is no workspace at all', () => {
     history.replaceState(null, '', '/runs?ws=gone')
     useGovernance.setState({ workspaces: [] })
     const view = mount()
     expect(view.result.current).toBeNull()
     expect(location.search).toBe('')
+  })
+})
+
+describe('slugFromName', () => {
+  it('derives a valid slug from a name', () => {
+    expect(slugFromName('Payments Prod')).toBe('payments-prod')
+    expect(SLUG_PATTERN.test(slugFromName('Payments Prod'))).toBe(true)
+    expect(slugFromName('x'.repeat(80))).toHaveLength(63)
+  })
+
+  it('the pattern refuses upper case and a leading dash', () => {
+    expect(SLUG_PATTERN.test('Ops')).toBe(false)
+    expect(SLUG_PATTERN.test('-ops')).toBe(false)
   })
 })

@@ -12,7 +12,6 @@ import { EmptyState, navigate, Page, PageHeader, Tabs, type Params } from '@comp
 
 import { useSession } from '@/app/session-store'
 import { EnrollDialog } from '@/features/hosts/EnrollDialog'
-import { ChangeDialog } from '@/features/teams/ChangeDialog'
 
 import { EnrollmentTab } from './EnrollmentTab'
 import { IdentityTab } from './IdentityTab'
@@ -74,7 +73,6 @@ export default function SettingsPage({ params }: { params: Params }) {
           <Panel tab={tab} />
         </Tabs>
       )}
-      <ChangeDialog />
       <EnrollDialog />
     </Page>
   )
