@@ -7,6 +7,7 @@ pub mod authz;
 pub mod domain;
 pub mod enroll_template;
 pub mod inventory;
+pub mod inventory_edit;
 pub mod manifest;
 pub mod migration;
 pub mod policy;
