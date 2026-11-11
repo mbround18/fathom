@@ -10,8 +10,8 @@ The page needs a primary repository. See
 
 ## Read the page
 
-The line under the title gives the commit the catalog was built from and when it was built. It can
-also show:
+Under the title, the header names the repository's URL and branch. The line below gives the commit
+the catalog was built from and when it was built. It can also show:
 
 - **stale**: the last build failed. Keel shows the last catalog that built, and says why the new one
   failed.
