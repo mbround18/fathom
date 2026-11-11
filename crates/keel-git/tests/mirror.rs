@@ -150,6 +150,45 @@ fn reads_symlinks_without_following_them() {
 }
 
 #[test]
+fn lists_entries_with_kinds_and_reports_blob_ids() {
+    let src = Source::new();
+    std::fs::create_dir_all(src.work.join("roles/web")).unwrap();
+    std::os::unix::fs::symlink("../site.yml", src.work.join("roles/link.yml")).unwrap();
+    src.commit("roles/web/main.yml", "x\n", "role");
+    let head = src.commit("site.yml", "- hosts: all\n", "site");
+    src.push();
+    let data = tempfile::tempdir().unwrap();
+    let mirror = Mirror::open(data.path(), Uuid::from_u128(3)).unwrap();
+    let url = src.url();
+    mirror.fetch(&request(&url, data.path())).unwrap();
+    assert_eq!(
+        mirror.list_entries(&head, "").unwrap(),
+        Some(vec![
+            ("roles".into(), EntryKind::Dir),
+            ("site.yml".into(), EntryKind::File),
+        ])
+    );
+    assert_eq!(
+        mirror.list_entries(&head, "roles/").unwrap(),
+        Some(vec![
+            ("link.yml".into(), EntryKind::Symlink("../site.yml".into())),
+            ("web".into(), EntryKind::Dir),
+        ])
+    );
+    assert_eq!(mirror.list_entries(&head, "site.yml").unwrap(), None);
+    assert_eq!(mirror.list_entries(&head, "nope").unwrap(), None);
+    // The id git itself gives the blob, which is what a forge's `sha` precondition names.
+    let want = git(&src.work, &["rev-parse", "HEAD:site.yml"]);
+    assert_eq!(
+        mirror.blob_id(&head, "site.yml").unwrap().as_deref(),
+        Some(want.as_str())
+    );
+    assert_eq!(mirror.blob_id(&head, "roles").unwrap(), None);
+    assert_eq!(mirror.blob_id(&head, "roles/link.yml").unwrap(), None);
+    assert_eq!(mirror.blob_id(&head, "absent").unwrap(), None);
+}
+
+#[test]
 fn manifest_validates_against_the_fetched_tree() {
     use keel_core::manifest::{Context, validate};
     let src = Source::new();

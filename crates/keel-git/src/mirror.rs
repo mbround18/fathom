@@ -383,6 +383,81 @@ impl Mirror {
         Ok(Some(names))
     }
 
+    /// The entries directly inside directory `path` at `commit`, sorted by name, with their
+    /// kinds (a symbolic link's target as stored, never followed). `None` when `path` is absent
+    /// or not a directory.
+    ///
+    /// # Errors
+    ///
+    /// The commit is not in the mirror.
+    pub fn list_entries(
+        &self,
+        commit: &CommitId,
+        path: &str,
+    ) -> Result<Option<Vec<(String, EntryKind)>>, MirrorError> {
+        let repo = self.repo(&[])?;
+        let root = commit_tree(&repo, commit)?;
+        let path = path.trim_end_matches('/');
+        let tree = if path.is_empty() {
+            root
+        } else {
+            let Some(entry) = root
+                .lookup_entry_by_path(path)
+                .map_err(|e| MirrorError::Repo(e.to_string()))?
+            else {
+                return Ok(None);
+            };
+            if !entry.mode().is_tree() {
+                return Ok(None);
+            }
+            entry
+                .object()
+                .map_err(|e| MirrorError::Repo(e.to_string()))?
+                .into_tree()
+        };
+        let mut out = Vec::new();
+        for e in tree.iter() {
+            let e = e.map_err(|e| MirrorError::Repo(e.to_string()))?;
+            let mode = e.mode();
+            let kind = if mode.is_tree() {
+                EntryKind::Dir
+            } else if mode.is_link() {
+                let blob = repo
+                    .find_object(e.oid())
+                    .map_err(|e| MirrorError::Repo(e.to_string()))?;
+                EntryKind::Symlink(String::from_utf8_lossy(&blob.data).into_owned())
+            } else if mode.is_commit() {
+                EntryKind::Submodule
+            } else {
+                EntryKind::File
+            };
+            out.push((e.filename().to_str_lossy().into_owned(), kind));
+        }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(Some(out))
+    }
+
+    /// The git blob id of the regular file at `path` at `commit`, as a forge's `sha`
+    /// precondition names it. `None` when it is absent or not a regular file.
+    ///
+    /// # Errors
+    ///
+    /// The commit is not in the mirror.
+    pub fn blob_id(&self, commit: &CommitId, path: &str) -> Result<Option<String>, MirrorError> {
+        let repo = self.repo(&[])?;
+        let tree = commit_tree(&repo, commit)?;
+        let Some(entry) = tree
+            .lookup_entry_by_path(path)
+            .map_err(|e| MirrorError::Repo(e.to_string()))?
+        else {
+            return Ok(None);
+        };
+        Ok(entry
+            .mode()
+            .is_blob()
+            .then(|| entry.object_id().to_string()))
+    }
+
     /// The most recent `limit` commits reachable from `head`, newest first.
     ///
     /// # Errors
