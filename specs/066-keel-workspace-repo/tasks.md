@@ -73,7 +73,7 @@ description: "Task list for spec 066, Keel workspaces, repository catalog and ho
 
 ## Phase 2B: Edits and forge
 
-- [ ] T020 Write tests first for `inventory_edit::add_host`, using the operator's real
+- [X] T020 Write tests first for `inventory_edit::add_host`, using the operator's real
   `inventory/hosts.yml` shape. Cover:
   - the existing group;
   - a child group;
@@ -83,8 +83,8 @@ description: "Task list for spec 066, Keel workspaces, repository catalog and ho
   - `host_exists`;
   - flow style refused;
   - the re-parse check.
-- [ ] T021 Implement `add_host`, `add_sops_recipient` and `add_job`, each with tests.
-- [ ] T022 Implement `forge/` with the Forgejo/Gitea and GitHub adapters (R8). Test them against
+- [X] T021 Implement `add_host`, `add_sops_recipient` and `add_job`, each with tests.
+- [X] T022 Implement `forge/` with the Forgejo/Gitea and GitHub adapters (R8). Test them against
   an axum fake that records requests. Cover:
   - the `sha` precondition;
   - a refusal mapping to `forge_refused`;
