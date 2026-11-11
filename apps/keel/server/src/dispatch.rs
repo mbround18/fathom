@@ -499,18 +499,25 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         | Cmd::CheckForUpdates
         | Cmd::DismissUpdateDot { .. }
         | Cmd::PreviewKeelUpdate { .. }) => crate::updates::commands::handle(app, req, other).await,
-        // Workspaces, the repository catalog and hosts (spec 066).
+        // The primary repository's catalog (spec 066).
+        Cmd::GetCatalog { workspace } => {
+            crate::repo_catalog::get_catalog(app, req, workspace).await
+        }
+        Cmd::DraftJob {
+            workspace,
+            playbook,
+        } => crate::repo_catalog::draft_job(app, req, workspace, playbook.as_str()).await,
+        // Workspaces, the forge connection and change proposals (spec 066).
         other @ (Cmd::PreviewWorkspacePrimary { .. }
         | Cmd::PreviewWorkspaceRepository { .. }
         | Cmd::GetForgeConnection { .. }
         | Cmd::PreviewForgeConnection { .. }
         | Cmd::PreviewForgeRemove { .. }
-        | Cmd::ProbeForge { .. }
-        | Cmd::GetCatalog { .. }
-        | Cmd::DraftJob { .. }
-        | Cmd::PreviewHostAdd { .. }
+        | Cmd::ProbeForge { .. }) => crate::repository::handle(app, req, other).await,
+        // Changes proposed to the primary repository (spec 066).
+        other @ (Cmd::PreviewHostAdd { .. }
         | Cmd::PreviewSopsRecipient { .. }
-        | Cmd::PreviewJobPropose { .. }) => crate::repository::handle(app, req, other).await,
+        | Cmd::PreviewJobPropose { .. }) => crate::proposals::handle(app, req, other).await,
     };
     events
         .into_iter()

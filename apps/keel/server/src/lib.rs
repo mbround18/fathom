@@ -50,4 +50,6 @@ pub mod build_info;
 pub mod updates;
 
 // Workspaces, the repository catalog and hosts (spec 066)
+pub mod proposals;
+pub mod repo_catalog;
 pub mod repository;

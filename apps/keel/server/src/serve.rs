@@ -147,6 +147,8 @@ pub struct AppState {
     pub system_workspace: Arc<RwLock<Option<Uuid>>>,
     /// The update notice (spec 061): the running build and the in-memory update status.
     pub updates: Arc<crate::updates::Updates>,
+    /// How proposals reach forges (spec 066): without a connector, every change is manual.
+    pub forges: crate::proposals::Forges,
 }
 
 impl FromRef<AppState> for AuthState {
@@ -198,6 +200,7 @@ impl AppState {
             reviews: Arc::new(crate::review::Overrides::default()),
             system_workspace: Arc::new(RwLock::new(None)),
             updates,
+            forges: crate::proposals::Forges::default(),
         }
     }
 
@@ -256,6 +259,13 @@ impl AppState {
     #[must_use]
     pub fn with_master_key(mut self, key: crate::seal::MasterKey) -> Self {
         self.repos.master_key = Some(Arc::new(key));
+        self
+    }
+
+    /// Reaches forges through `forges` (spec 066).
+    #[must_use]
+    pub fn with_forges(mut self, forges: crate::proposals::Forges) -> Self {
+        self.forges = forges;
         self
     }
 
