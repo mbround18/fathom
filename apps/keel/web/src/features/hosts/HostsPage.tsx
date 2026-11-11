@@ -2,8 +2,12 @@
  * Hosts (spec 055 US7, T088; spec 060 US1): the workspace's enrolled hosts with their state,
  * revoking one, and the SSH CA line runners pin as `keel_runner_host_ca`. Enrolling a host opens the
  * Enroll dialog from the header, offered when the caller can operate on some workspace.
+ *
+ * Spec 066 T053: Add host (into the repository inventory, then enroll), each host's inventory
+ * status, its age key, and Propose sops recipient for a workspace admin when no `.sops.yaml` rule
+ * names that key yet.
  */
-import { PlusIcon, XIcon } from '@phosphor-icons/react'
+import { KeyIcon, PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Checkbox } from '@companion/ui'
 import {
   ConfirmDialog as Confirm,
@@ -12,6 +16,7 @@ import {
   EmptyState,
   emptyVariant,
   ErrorLine as Alert,
+  Fingerprint,
   H2,
   LABEL,
   LINK,
@@ -26,12 +31,19 @@ import {
   useReveal,
   type Column,
 } from '@companion/ui/kit'
-import { useEffect, useId, useMemo } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { CurrentWorkspace } from '@/app/WorkspacePicker'
-import type { HostInfo, HostStatus } from '@/protocol/wire'
+import { useCurrentWorkspace } from '@/app/workspace-store'
+import { keyInRules } from '@/features/repository/catalog'
+import { ChangeOutcomeView } from '@/features/repository/ChangeOutcomeView'
+import { useCatalog } from '@/features/repository/store'
+import { useGovernance } from '@/features/teams/store'
+import type { ChangeOutcome, HostInfo, HostStatus } from '@/protocol/wire'
 
+import { AddHostDialog } from './AddHostDialog'
+import { useAddHost } from './add-host-store'
 import { EnrollDialog } from './EnrollDialog'
 import { useEnroll } from './enroll-store'
 import { useHosts } from './store'
@@ -62,6 +74,63 @@ function ChangedBadge() {
     >
       Changed outside Keel
     </span>
+  )
+}
+
+/** The primary repository's inventory does not list the host yet (spec 066). */
+function PendingInventoryBadge() {
+  return (
+    <span
+      data-pending-inventory
+      title="The primary repository's inventory does not list this host yet."
+      className="border border-status-warn/50 px-1.5 text-xs font-medium whitespace-nowrap text-status-warn"
+    >
+      Pending inventory
+    </span>
+  )
+}
+
+/**
+ * The host's age key, and Propose sops recipient (spec 066 FR-017) for a workspace admin when no
+ * `.sops.yaml` rule names it yet. The outcome stays until another host is opened.
+ */
+function AgeKey({ host }: { host: HostInfo }) {
+  const me = useSession((s) => s.me)
+  const catalog = useCatalog((s) => s.catalog)
+  const propose = useGovernance((s) => s.propose)
+  const [outcome, setOutcome] = useState<{ host: string; change: ChangeOutcome } | null>(null)
+  const key = host.age_recipient
+  const shown = outcome?.host === host.id ? outcome.change : null
+  const canPropose = key !== null && canAdminister(me, host.workspace) && catalog !== undefined && !keyInRules(catalog, key)
+  return (
+    <div data-age-key={key === null ? 'none' : 'reported'} className="flex min-w-0 flex-col gap-1">
+      <h3 className={LABEL}>Age key</h3>
+      {key === null ? (
+        <p className="text-muted-foreground">Not reported yet. The runner reports it when it next checks in.</p>
+      ) : (
+        <Fingerprint value={key} label="age key" />
+      )}
+      {key !== null && catalog !== undefined && keyInRules(catalog, key) && <p className="text-muted-foreground">A .sops.yaml rule already names this key.</p>}
+      {canPropose && !shown && (
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            data-propose-recipient
+            onClick={() => {
+              propose(`Add ${host.inventory_name} as a sops recipient`, { type: 'PreviewSopsRecipient', data: { host: host.id } }, (event) => {
+                if (event.type === 'ChangeProposed') setOutcome({ host: host.id, change: event.data })
+              })
+            }}
+          >
+            <KeyIcon aria-hidden />
+            Propose sops recipient
+          </Button>
+          <span className="text-muted-foreground">No .sops.yaml rule names this key, so the host cannot decrypt the workspace&apos;s secrets.</span>
+        </div>
+      )}
+      {shown && <ChangeOutcomeView outcome={shown} />}
+    </div>
   )
 }
 
@@ -98,6 +167,7 @@ function HostDetailPanel() {
         <h2 className="min-w-0 font-mono text-sm break-all">{name}</h2>
         {detail && <StateBadge state={detail.host.state} />}
         {detail?.host.changed_outside && <ChangedBadge />}
+        {detail?.host.inventory_status === 'pending_inventory' && <PendingInventoryBadge />}
         <Button
           variant="ghost"
           size="xs"
@@ -112,6 +182,7 @@ function HostDetailPanel() {
       </div>
       {detail && (
         <div className="flex min-w-0 flex-col gap-2 p-3">
+          <AgeKey host={detail.host} />
           <h3 className={LABEL}>Runs outside Keel</h3>
           <SectionIntro guide={{ guide: 'hosts', anchor: 'hosts-in-the-list' }}>
             These are the host&apos;s claims, which Keel cannot verify.
@@ -182,6 +253,27 @@ function EnrollButton({ quiet }: { quiet: boolean }) {
     >
       <PlusIcon aria-hidden />
       Enroll host
+    </Button>
+  )
+}
+
+/** Add host (spec 066 T053): into the primary repository's inventory, then enroll. Needs Operate. */
+function AddHostButton() {
+  const workspace = useHosts((s) => s.workspace)
+  const me = useSession((s) => s.me)
+  const show = useAddHost((s) => s.show)
+  if (workspace === null || !canOperate(me, workspace)) return null
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      data-testid="add-host"
+      onClick={() => {
+        show()
+      }}
+    >
+      <PlusIcon aria-hidden />
+      Add host
     </Button>
   )
 }
@@ -275,6 +367,14 @@ export default function HostsPage() {
   const load = useHosts((s) => s.load)
   const me = useSession((s) => s.me)
   const mintedCount = useEnroll((s) => s.mintedCount)
+  const current = useCurrentWorkspace()
+  const loadCatalog = useCatalog((s) => s.load)
+  const catalogId = current?.id ?? null
+  const primary = current?.primary_binding ?? null
+  // The catalog gives Add host its groups and tells whether a host's age key is in a sops rule.
+  useEffect(() => {
+    if (catalogId !== null && primary !== null) loadCatalog({ id: catalogId, primary_binding: primary })
+  }, [catalogId, primary, loadCatalog])
   // Profiles already in use here, offered as chips in the Enroll dialog.
   const suggestions = useMemo(
     () => [...new Set(['base', ...hosts.flatMap((h) => h.profiles)])].sort(),
@@ -300,6 +400,7 @@ export default function HostsPage() {
               {h.inventory_name}
             </button>
             {h.changed_outside && <ChangedBadge />}
+            {h.inventory_status === 'pending_inventory' && <PendingInventoryBadge />}
           </span>
         ),
       },
@@ -330,7 +431,12 @@ export default function HostsPage() {
         title="Hosts"
         description="Machines enrolled in this workspace, and what ran on them."
         guide={{ guide: 'hosts' }}
-        actions={<EnrollButton quiet={guided} />}
+        actions={
+          <>
+            <AddHostButton />
+            <EnrollButton quiet={guided} />
+          </>
+        }
       >
         <WorkspacePicker />
       </PageHeader>
@@ -354,7 +460,11 @@ export default function HostsPage() {
             rows={hosts}
             rowKey={(h) => h.id}
             selected={(h) => h.id === opened}
-            rowData={(h) => ({ 'data-host-state': h.state, 'data-host-changed-outside': String(h.changed_outside) })}
+            rowData={(h) => ({
+              'data-host-state': h.state,
+              'data-host-changed-outside': String(h.changed_outside),
+              'data-inventory-status': h.inventory_status,
+            })}
             actions={(h) =>
               canRevoke &&
               h.state !== 'revoked' && (
@@ -390,6 +500,7 @@ export default function HostsPage() {
       {workspace && <SshCaLine />}
       <ConfirmDialog />
       <EnrollDialog suggestions={suggestions} />
+      <AddHostDialog />
     </Page>
   )
 }
