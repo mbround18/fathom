@@ -19,6 +19,8 @@ export interface Preview {
   summary: string
   affected: readonly string[]
   step_up: boolean
+  /** Things worth knowing before confirming that don't stop the change. */
+  warnings?: readonly string[]
 }
 
 /** What else a change affects, and whether it needs a passkey. */
@@ -45,6 +47,15 @@ export function PreviewDetails({
             ))}
           </ul>
         </div>
+      )}
+      {preview.warnings && preview.warnings.length > 0 && (
+        <ul aria-label="Warnings" data-preview-warnings className="flex min-w-0 flex-col gap-1 text-xs text-status-warn">
+          {preview.warnings.map((w, i) => (
+            <li key={i} className="break-words">
+              {w}
+            </li>
+          ))}
+        </ul>
       )}
       {preview.step_up && (
         <p data-step-up className="flex items-center gap-1.5 text-xs text-status-warn">

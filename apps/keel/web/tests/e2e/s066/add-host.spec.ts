@@ -39,6 +39,8 @@ test('Add host from Hosts adds it to the inventory and hands over the enrolment 
     inventory: null,
   })
   await expect(page.getByRole('dialog', { name: 'Add host delta' })).toContainText('add it to compose_hosts in inventory/hosts.yml')
+  // The server's warnings show before confirming (FR-018).
+  await expect(page.getByRole('list', { name: 'Warnings' })).toContainText('delta has no age key yet')
   await confirmChange(page, 'Add host delta')
 
   const result = page.getByRole('dialog', { name: 'Host added' })
