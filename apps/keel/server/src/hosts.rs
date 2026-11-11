@@ -29,8 +29,8 @@ use keel_exec::ca::{self, CaKind, RunnerCertRequest, RunnerCertVerifier, SshCa, 
 use keel_exec::frames::Frame;
 use keel_exec::krl::Krl;
 use keel_protocol::{
-    Cmd, EnrollToken, Event, HostCertInfo, HostDetail, HostInfo, HostInventoryStatus, HostStatus,
-    SshCaInfo, SshCaKind, SshCaState,
+    Cmd, EnrollToken, Event, HostCertInfo, HostDetail, HostInfo, HostStatus, SshCaInfo, SshCaKind,
+    SshCaState,
 };
 use rand::TryRng;
 use rand::rngs::SysRng;
@@ -613,7 +613,7 @@ struct HostRow {
 }
 
 impl HostRow {
-    fn info(&self) -> HostInfo {
+    fn info(&self, listing: &crate::repo_catalog::Listing) -> HostInfo {
         HostInfo {
             id: self.id,
             workspace: self.workspace_id,
@@ -630,8 +630,8 @@ impl HostRow {
             revoked_at: self.revoked_at.map(ts),
             changed_outside: self.changed_outside,
             age_recipient: self.age_recipient.clone(),
-            // Derived from the primary catalog in spec 066 T045.
-            inventory_status: HostInventoryStatus::Unknown,
+            // Spec 066 FR-023: from the workspace's primary catalog.
+            inventory_status: listing.status(&self.inventory_name),
         }
     }
 }
@@ -655,7 +655,8 @@ async fn list(
     .bind(changed_outside)
     .fetch_all(&app.db)
     .await?;
-    Ok(rows.iter().map(HostRow::info).collect())
+    let listing = crate::repo_catalog::listing(&app.db, workspace).await?;
+    Ok(rows.iter().map(|r| r.info(&listing)).collect())
 }
 
 async fn detail(app: &AppState, host: Uuid) -> Result<Option<HostDetail>, sqlx::Error> {
@@ -682,9 +683,10 @@ async fn detail(app: &AppState, host: Uuid) -> Result<Option<HostDetail>, sqlx::
     .fetch_all(&app.db)
     .await?;
     let outside_runs = crate::outside::newest(&app.db, host).await?;
+    let listing = crate::repo_catalog::listing(&app.db, row.workspace_id).await?;
     Ok(Some(HostDetail {
         outside_runs,
-        host: row.info(),
+        host: row.info(&listing),
         python_version: row.python_version.clone(),
         override_quorum: row.override_quorum.and_then(|q| u32::try_from(q).ok()),
         ledger_head: row.ledger_head.clone(),

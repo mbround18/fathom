@@ -536,6 +536,17 @@ pub async fn sync_binding(
     )
     .await
     .map_err(|e| db_error(&e))?;
+    // Spec 066: the primary binding's catalog follows its head. Never fails the sync.
+    if apply {
+        crate::repo_catalog::refresh(
+            app,
+            binding,
+            row.workspace,
+            &commit,
+            fetched.manifest.as_ref().ok().cloned(),
+        )
+        .await;
+    }
     if moved {
         app.repos.push(
             row.workspace,

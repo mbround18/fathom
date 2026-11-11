@@ -954,6 +954,12 @@ async fn preview_run_start(
             ""
         },
     );
+    // Spec 066 FR-018: hosts that cannot decrypt the sops files the job reads. Warns only.
+    let warnings =
+        match crate::repo_catalog::run_warnings(&app.db, ws, binding, &name, &affected).await {
+            Ok(w) => w,
+            Err(e) => return db_failed(&e),
+        };
     let op = pending(move |app, caller| async move {
         if let Err(d) = recheck(&caller, ACTION, Capability::Operate, ws) {
             return d;
@@ -986,7 +992,7 @@ async fn preview_run_start(
             Err(e) => db_failed(&e),
         }
     });
-    preview(
+    let mut events = preview(
         app,
         req,
         Draft {
@@ -996,7 +1002,13 @@ async fn preview_run_start(
             step_up: false,
         },
         op,
-    )
+    );
+    for e in &mut events {
+        if let Event::Preview(p) = e {
+            p.warnings.extend(warnings.iter().cloned());
+        }
+    }
+    events
 }
 
 async fn preview_cancel(app: &AppState, req: &Request<'_>, run: Uuid) -> Vec<Event> {
