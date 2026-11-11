@@ -1,0 +1,4 @@
+---
+- name: docker
+  ansible.builtin.debug:
+    msg: docker

@@ -1,0 +1,9 @@
+# Who can decrypt secrets/*.sops.yaml. Public keys only.
+creation_rules:
+  - path_regex: ^secrets/keel_servers\.sops\.ya?ml$
+    key_groups:
+      - age:
+          - age1psaqfhh8a5h5ekl9ulhkkrwa4430q7mupsaqfhh8a5h5ekl9ulhkkrwa44
+          - age1ke8u5lr77phxcacrqnh0c8s9du5f68vuke8u5lr77phxcacrqnh0c8s9du
+  - path_regex: ^secrets/.*\.sops\.ya?ml$
+    age: age1psaqfhh8a5h5ekl9ulhkkrwa4430q7mupsaqfhh8a5h5ekl9ulhkkrwa44,age18p77qrqh4rs2aumf3t3mc8lck3j7p9098p77qrqh4rs2aumf3t3mc8lck3

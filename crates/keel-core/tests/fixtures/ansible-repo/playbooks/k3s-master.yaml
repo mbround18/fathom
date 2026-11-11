@@ -1,0 +1,11 @@
+---
+- name: k3s server
+  hosts: k3s_servers
+  become: true
+  pre_tasks:
+    - name: Load the cluster secrets
+      community.sops.load_vars:
+        file: "{{ playbook_dir }}/../secrets/k3s_servers.sops.yaml"
+  roles:
+    - sops
+    - k3s_node

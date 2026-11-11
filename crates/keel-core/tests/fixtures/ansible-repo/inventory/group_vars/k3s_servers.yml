@@ -1,0 +1,4 @@
+---
+keel_runner_allowed_profiles: [k3s-master]
+# Decrypted on the box by community.sops.load_vars in playbooks/k3s-master.yaml:
+# secrets/k3s_servers.sops.yaml

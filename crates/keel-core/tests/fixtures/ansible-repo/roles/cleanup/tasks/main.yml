@@ -1,0 +1,4 @@
+---
+- name: cleanup
+  ansible.builtin.debug:
+    msg: cleanup

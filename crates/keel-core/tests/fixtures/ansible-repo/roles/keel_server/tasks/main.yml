@@ -1,0 +1,4 @@
+---
+- name: keel_server
+  ansible.builtin.debug:
+    msg: keel_server

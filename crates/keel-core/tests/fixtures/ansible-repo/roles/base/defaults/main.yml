@@ -1,0 +1,4 @@
+---
+base_user: operator
+base_packages: [acl, curl]
+base_secret_like: hunter2-not-a-secret-but-a-default-value

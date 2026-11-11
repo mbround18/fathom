@@ -1,0 +1,13 @@
+---
+- name: Clean up
+  hosts: all
+  become: true
+  roles:
+    - cleanup
+  tasks:
+    - name: Whatever the box says
+      ansible.builtin.include_role:
+        name: "{{ cleanup_extra_role }}"
+    - name: From a collection
+      ansible.builtin.import_role:
+        name: community.general.nothing

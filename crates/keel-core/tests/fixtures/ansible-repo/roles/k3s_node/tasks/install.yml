@@ -1,0 +1,9 @@
+---
+- name: The baseline first
+  ansible.builtin.import_role:
+    name: base
+- name: Nested
+  block:
+    - name: Install k3s
+      ansible.builtin.debug:
+        msg: k3s

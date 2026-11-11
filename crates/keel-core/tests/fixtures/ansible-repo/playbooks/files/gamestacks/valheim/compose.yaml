@@ -1,0 +1,4 @@
+services:
+  valheim:
+    image: example/valheim:1
+    restart: ${RESTART_POLICY:-no}

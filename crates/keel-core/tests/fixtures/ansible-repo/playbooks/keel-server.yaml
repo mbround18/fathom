@@ -1,0 +1,10 @@
+---
+- name: Keel's own server
+  hosts: keel_servers
+  become: true
+  vars_files:
+    - ../secrets/keel_servers.sops.yaml
+  roles:
+    - base
+    - sops
+    - keel_server

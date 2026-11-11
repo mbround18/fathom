@@ -1,0 +1,8 @@
+---
+- name: Upgrade packages
+  hosts: all
+  become: true
+  tasks:
+    - name: Upgrade
+      ansible.builtin.apt:
+        upgrade: dist

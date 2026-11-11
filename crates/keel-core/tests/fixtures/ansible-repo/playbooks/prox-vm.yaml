@@ -1,0 +1,11 @@
+---
+- name: Proxmox VM running a compose stack
+  hosts: compose_hosts
+  become: true
+  roles:
+    - base
+    - role: docker
+  tasks:
+    - name: Join the tailnet
+      ansible.builtin.include_role:
+        name: tailscale

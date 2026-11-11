@@ -1,0 +1,4 @@
+---
+- name: sops
+  ansible.builtin.debug:
+    msg: sops

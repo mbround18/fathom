@@ -1,0 +1,13 @@
+---
+- name: Everything a compose host gets
+  ansible.builtin.import_playbook: prox-vm.yaml
+
+- name: Game server extras
+  hosts: gameservers
+  become: true
+  tasks:
+    - name: Starter stacks
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/files/gamestacks/"
+        dest: /home/operator/
+        mode: "0644"

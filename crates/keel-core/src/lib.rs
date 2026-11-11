@@ -4,6 +4,7 @@
 
 pub mod approval;
 pub mod authz;
+pub mod catalog;
 pub mod domain;
 pub mod enroll_template;
 pub mod inventory;

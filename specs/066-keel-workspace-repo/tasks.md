@@ -35,9 +35,8 @@ description: "Task list for spec 066, Keel workspaces, repository catalog and ho
   - `Preview.warnings: []`.
 
   Route the new commands to handlers that refuse with `not_implemented`.
-- [ ] T004 Create the empty `core/catalog/` modules, `core/inventory_edit.rs`, the `Forge` port in
+- [X] T004 Create the empty `core/catalog/` modules, `core/inventory_edit.rs`, the `Forge` port in
   `core/ports.rs`, and the `crates/keel-forge` skeleton. They should compile, with no logic yet.
-  The `Forge` port is in; `catalog/`, `inventory_edit.rs` and `keel-forge` come with T010–T022.
 - [X] T005 Add Playwright project `s066` and create `web/tests/e2e/s066/`. Add
   `server/tests/workspace_repo.rs` as an empty harness on `tests/common`.
 - [X] T006 `PreviewWorkspaceCreate` also inserts the `default` project, in the same transaction
@@ -45,7 +44,7 @@ description: "Task list for spec 066, Keel workspaces, repository catalog and ho
 
 ## Phase 2A: Catalog and sops (keel-core)
 
-- [ ] T010 Build fixture `crates/keel-core/tests/fixtures/ansible-repo/`, modelled on the
+- [X] T010 Build fixture `crates/keel-core/tests/fixtures/ansible-repo/`, modelled on the
   operator's layout. It should include:
   - playbooks with imports;
   - roles with meta dependencies and `include_role`;
@@ -53,22 +52,22 @@ description: "Task list for spec 066, Keel workspaces, repository catalog and ho
   - `.sops.yaml` with two rules;
   - two sops files with synthetic age keys and ciphertext;
   - a `.keel/jobs.yaml`.
-- [ ] T011 Write tests first for playbook detection, role reach (literal, templated, collection,
+- [X] T011 Write tests first for playbook detection, role reach (literal, templated, collection,
   depth limit) and imports (R4).
-- [ ] T012 Implement `catalog/playbook.rs` and `catalog/role.rs`.
-- [ ] T013 Write tests first, then implement `catalog/inventory.rs`. It covers YAML (reusing
+- [X] T012 Implement `catalog/playbook.rs` and `catalog/role.rs`.
+- [X] T013 Write tests first, then implement `catalog/inventory.rs`. It covers YAML (reusing
   `inventory.rs`), INI, dir and dynamic.
-- [ ] T014 Write tests first, then implement `catalog/sops.rs`:
+- [X] T014 Write tests first, then implement `catalog/sops.rs`:
   - rules;
   - metadata;
   - drift;
   - values dropped. The test asserts that the serialised catalog contains no fixture ciphertext.
-- [ ] T015 Write tests first, then implement `catalog/mod.rs` `build`:
+- [X] T015 Write tests first, then implement `catalog/mod.rs` `build`:
   - limits and skipped counts;
   - problems;
   - jobs linkage;
   - `read_by` attribution (R5).
-- [ ] T016 Write tests first, then implement `catalog/draft.rs` (R6). Include a test that the
+- [X] T016 Write tests first, then implement `catalog/draft.rs` (R6). Include a test that the
   drafts for the fixture's declared playbooks equal their declared `paths`.
 
 ## Phase 2B: Edits and forge

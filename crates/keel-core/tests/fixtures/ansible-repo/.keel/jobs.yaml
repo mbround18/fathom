@@ -1,0 +1,97 @@
+---
+# What Keel may run from this (synthetic) repo. Paths are derived the way the
+# operator documents it; keel-core's draft must reproduce them exactly.
+version: 1
+profiles:
+  debian: {description: "Baseline only"}
+  prox-vm: {description: "VM running a compose stack"}
+  gameserver: {description: "prox-vm plus game stacks"}
+  k3s-master: {description: "k3s server"}
+  keel-server: {description: "Keel's own server"}
+inventories:
+  fleet:
+    path: inventory/hosts.yml
+jobs:
+  debian:
+    playbook: playbooks/debian.yaml
+    profiles: [debian]
+    inventory: fleet
+    paths:
+      - ansible.cfg
+      - inventory/group_vars/all.yml
+      - playbooks/debian.yaml
+      - requirements.yml
+      - roles/base/**
+    timeout: 30m
+
+  prox-vm:
+    playbook: playbooks/prox-vm.yaml
+    profiles: [prox-vm]
+    inventory: fleet
+    paths:
+      - ansible.cfg
+      - inventory/group_vars/all.yml
+      - inventory/group_vars/compose_hosts.yml
+      - playbooks/prox-vm.yaml
+      - requirements.yml
+      - roles/base/**
+      - roles/docker/**
+      - roles/tailscale/**
+    timeout: 30m
+
+  gameserver:
+    playbook: playbooks/gameserver.yaml
+    profiles: [gameserver]
+    inventory: fleet
+    paths:
+      - ansible.cfg
+      - inventory/group_vars/all.yml
+      - inventory/group_vars/compose_hosts.yml
+      - inventory/group_vars/gameservers.yml
+      - playbooks/files/gamestacks/**
+      - playbooks/gameserver.yaml
+      - playbooks/prox-vm.yaml
+      - requirements.yml
+      - roles/base/**
+      - roles/docker/**
+      - roles/tailscale/**
+    timeout: 30m
+
+  k3s-master:
+    playbook: playbooks/k3s-master.yaml
+    profiles: [k3s-master]
+    inventory: fleet
+    paths:
+      - ansible.cfg
+      - inventory/group_vars/all.yml
+      - inventory/group_vars/k3s_servers.yml
+      - playbooks/k3s-master.yaml
+      - requirements.yml
+      - roles/base/**
+      - roles/k3s_node/**
+      - roles/sops/**
+      - secrets/k3s_servers.sops.yaml
+    timeout: 30m
+
+  keel-server:
+    playbook: playbooks/keel-server.yaml
+    profiles: [keel-server]
+    inventory: fleet
+    paths:
+      - ansible.cfg
+      - inventory/group_vars/all.yml
+      - inventory/group_vars/keel_servers.yml
+      - playbooks/keel-server.yaml
+      - requirements.yml
+      - roles/base/**
+      - roles/docker/**
+      - roles/keel_server/**
+      - roles/sops/**
+      - secrets/keel_servers.sops.yaml
+    timeout: 30m
+
+  upgrade:
+    playbook: playbooks/upgrade.yaml
+    profiles: [debian]
+    inventory: fleet
+    timeout: 1h

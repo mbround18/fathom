@@ -1,0 +1,5 @@
+---
+galaxy_info:
+  description: Docker engine and compose
+dependencies:
+  - role: base
