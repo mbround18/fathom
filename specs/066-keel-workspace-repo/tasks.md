@@ -108,19 +108,19 @@ description: "Task list for spec 066, Keel workspaces, repository catalog and ho
 
 ## Phase 3D: Server integration (Story 3, Story 4, Story 5)
 
-- [ ] T040 The sync hook: after a successful sync of a primary binding, build the catalog on the
+- [X] T040 The sync hook: after a successful sync of a primary binding, build the catalog on the
   blocking pool through a `RepoFiles` impl over `Mirror`, and upsert `binding_catalogs`. On
   failure, mark it stale and keep the old document.
-- [ ] T041 `GetCatalog`, with per-host decrypt state, and `DraftJob`.
-- [ ] T042 `PreviewRunStart` warnings (FR-018).
-- [ ] T043 The runner reports `age_recipient` (frames, runner config `age_recipient_file`). The
+- [X] T041 `GetCatalog`, with per-host decrypt state, and `DraftJob`.
+- [X] T042 `PreviewRunStart` warnings (FR-018).
+- [X] T043 The runner reports `age_recipient` (frames, runner config `age_recipient_file`). The
   server stores it in the `runner_listener` hello handler.
-- [ ] T044 `PreviewHostAdd`. Its confirm issues the enrolment token through the existing path, and
+- [X] T044 `PreviewHostAdd`. Its confirm issues the enrolment token through the existing path, and
   computes the edit against the inventory file at the head. Then it calls the forge, or returns
   `Manual` or `Failed`. Also add `PreviewSopsRecipient` and `PreviewJobPropose`. All three are
   audited.
-- [ ] T045 Derive `HostInfo.inventory_status` from the primary catalog.
-- [ ] T046 Add the SC-004 test, which greps every response, the catalog row and the audit rows for
+- [X] T045 Derive `HostInfo.inventory_status` from the primary catalog.
+- [X] T046 Add the SC-004 test, which greps every response, the catalog row and the audit rows for
   fixture ciphertext.
 
 ## Phase 3E: Web integration

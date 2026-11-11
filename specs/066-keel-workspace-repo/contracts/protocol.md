@@ -78,9 +78,15 @@ The mutating ones join `Cmd::is_mutating`.
 - `recipient_exists`: the sops rule already lists the host's age key.
 - `unparseable`: the file at the head does not parse, so no edit is computed.
 - `invalid` (existing): a name, recipient or job body the edit rejects.
+- `inventory_not_found`: the named inventory path is not in the catalog.
+- `mirror_unavailable`: the binding's mirror cannot be read at the catalogued commit.
+- `ssh_ca_unavailable`: `PreviewHostAdd` cannot mint an enrolment token without the SSH CA.
 
 A rule without an `age` list (PGP only, or `key_groups` without `age`) refuses with
 `unsupported_layout`.
+
+`forge_not_configured` and `forge_writes_disabled` are not refusals in the host, sops and job
+previews: there the confirm still succeeds and reports `ChangeOutcome::Manual` with the diff.
 
 ## Events (`event.rs`)
 
