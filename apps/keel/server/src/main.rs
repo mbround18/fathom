@@ -248,8 +248,12 @@ async fn serve(cfg: Config, tls: Option<tokio_rustls::TlsAcceptor>, exporting: b
         sources = ?cfg.sources,
         "keel serving"
     );
+    let forges = keel_server::proposals::Forges::default()
+        .with_connector(keel_server::repository::connector())
+        .with_writes(cfg.forge_writes);
     let app = serve::AppState::new(Arc::new(cfg), providers, pool, Arc::new(SystemClock))
-        .with_master_key(master_key);
+        .with_master_key(master_key)
+        .with_forges(forges);
     // Both SSH CAs exist and are loaded before a runner can connect.
     if let Err(e) = hosts::bootstrap(&app).await {
         return refuse(&format!("SSH CAs: {e}"));

@@ -535,3 +535,31 @@ async fn probe(app: &AppState, req: &Request<'_>, ws: Uuid) -> Vec<Event> {
         }],
     }
 }
+
+/// The production [`crate::proposals::Connector`]: builds a keel-forge client for a workspace's
+/// forge connection, so host add and the proposals open real pull requests.
+#[must_use]
+pub fn connector() -> crate::proposals::Connector {
+    std::sync::Arc::new(|t: crate::proposals::ForgeTarget| {
+        let provider = match t.provider.as_str() {
+            "forgejo" => Provider::Forgejo,
+            "gitea" => Provider::Gitea,
+            "github" => Provider::Github,
+            other => {
+                return Err(keel_core::ports::ForgeError::Response(format!(
+                    "unknown forge provider {other:?}"
+                )));
+            }
+        };
+        let token = String::from_utf8(t.token.expose_secret().to_vec()).map_err(|_| {
+            keel_core::ports::ForgeError::Response("the forge token is not UTF-8".to_owned())
+        })?;
+        let client = ForgeClient::new(ForgeConfig {
+            provider,
+            repo_url: t.repo_url,
+            api_base: Some(t.api_base),
+            token: SecretString::from(token),
+        })?;
+        Ok(std::sync::Arc::new(client) as std::sync::Arc<dyn keel_core::ports::Forge>)
+    })
+}
