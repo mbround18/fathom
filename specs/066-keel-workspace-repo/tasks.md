@@ -91,20 +91,20 @@ description: "Task list for spec 066, Keel workspaces, repository catalog and ho
 
 ## Phase 2C: Workspace UX (Story 1, Story 2)
 
-- [ ] T030 Write tests first, then implement `web/src/app/workspace-store.ts`:
+- [X] T030 Write tests first, then implement `web/src/app/workspace-store.ts`:
   - resolution order (R1);
   - the address kept in sync;
   - the archived or vanished fallback.
-- [ ] T031 Add `WorkspaceSwitcher.tsx` to the shell's top bar, with the create dialog going
+- [X] T031 Add `WorkspaceSwitcher.tsx` to the shell's top bar, with the create dialog going
   through `ChangeDialog`.
-- [ ] T032 Move Runs, Reviews, Bindings, Receivers, Inventory and Hosts to `useCurrentWorkspace()`.
+- [X] T032 Move Runs, Reviews, Bindings, Receivers, Inventory and Hosts to `useCurrentWorkspace()`.
   Delete `GrantWorkspacePicker`.
-- [ ] T033 Server: add `PreviewWorkspacePrimary`, `PreviewWorkspaceRepository` (create the binding
+- [X] T033 Server: add `PreviewWorkspacePrimary`, `PreviewWorkspaceRepository` (create the binding
   on `default`, set primary, then trigger a sync) and the forge connection commands, with
   `ProbeForge` through keel-forge. Add tests in `tests/workspace_repo.rs`.
-- [ ] T034 Add the Settings Workspace tab and update `tabs.ts` `visibleTabs` (R10). Make the nav's
+- [X] T034 Add the Settings Workspace tab and update `tabs.ts` `visibleTabs` (R10). Make the nav's
   Settings entry visible to workspace admins.
-- [ ] T035 Playwright `s066/workspace-switcher.spec.ts` and `s066/settings-workspace.spec.ts`.
+- [X] T035 Playwright `s066/workspace-switcher.spec.ts` and `s066/settings-workspace.spec.ts`.
 
 ## Phase 3D: Server integration (Story 3, Story 4, Story 5)
 
