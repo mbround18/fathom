@@ -1,0 +1,20 @@
+[package]
+name = "keel-forge"
+version = "0.1.0"
+description = "Keel's Forge adapters: open a pull request on Forgejo, Gitea or GitHub without a git push"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+base64 = "0.23"
+# As web-auth and oci-registry: in reqwest 0.13 `default-tls` is rustls.
+reqwest = { version = "0.13.5", features = ["json", "default-tls"] }
+secrecy = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+[dev-dependencies]
+axum = "0.8"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "net", "sync"] }

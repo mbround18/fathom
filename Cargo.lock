@@ -5731,6 +5731,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "keel-forge"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.23.1",
+ "reqwest 0.13.5",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "keel-git"
 version = "0.1.0"
 dependencies = [
