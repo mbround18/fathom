@@ -17,7 +17,10 @@ function owner(backend: FakeBackend): FakeSettings {
 test('the template is checked inline, previewed live and saved with step-up', async ({ page, backend }) => {
   const settings = owner(backend)
   await page.goto('/settings')
-  await expect(page).toHaveURL(/\/settings\/enrollment$/)
+  // Workspace is the first tab since spec 066 (R10).
+  await expect(page).toHaveURL(/\/settings\/workspace(\?ws=[^#]*)?$/)
+  await page.getByRole('tab', { name: 'Enrollment' }).click()
+  await expect(page).toHaveURL(/\/settings\/enrollment(\?ws=[^#]*)?$/)
 
   const form = page.getByRole('form', { name: 'Enrollment settings' })
   const template = form.getByRole('textbox', { name: 'Snippet template' })

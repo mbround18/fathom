@@ -118,7 +118,7 @@ const SCENES: readonly Scene[] = [
     name: 'settings-tabs',
     path: '/settings/system',
     ready: async (page) => {
-      await h1(page, 'System Settings')
+      await h1(page, 'Settings')
       await expect(page.locator('[data-build-panel]')).toBeVisible()
     },
   },

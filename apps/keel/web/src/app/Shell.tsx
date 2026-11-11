@@ -25,12 +25,13 @@ import { BRAND_GLYPH, BRAND_NAME } from '@/brand'
 import { approvesSomewhere } from '@/features/hosts/workspaces'
 import { usePasskeys } from '@/features/passkeys/store'
 import { useApprovals } from '@/features/runs/approvals-store'
-import { canSeeSettings } from '@/features/settings/tabs'
+import { showsSettings } from '@/features/settings/tabs'
 import { showDot, useUpdates } from '@/features/settings/updates'
 import { ChangeDialog } from '@/features/teams/ChangeDialog'
 
 import { ACCOUNT_PASSKEYS, HELP, HOME, SETTINGS, visibleGroups, type Section } from './nav'
 import { useSession } from './session-store'
+import { useCurrentWorkspace } from './workspace-store'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 
 const PasskeyDialogs = lazy(() => import('@/features/passkeys/PasskeyDialogs'))
@@ -59,6 +60,7 @@ function navItem({ path, label, icon, badge }: Section, waiting: number): NavIte
 function useNav(): { groups: NavGroup[]; pinned: NavItem | undefined } {
   const me = useSession((s) => s.me)
   const role = useSession((s) => s.me?.instance_role)
+  const workspace = useCurrentWorkspace()?.id ?? null
   const waiting = useApprovals((s) => (approvesSomewhere(me) ? s.total : 0))
   const dot = useUpdates((s) => showDot(me, s.status))
   const groups = visibleGroups(me).map((g) => ({
@@ -67,7 +69,7 @@ function useNav(): { groups: NavGroup[]; pinned: NavItem | undefined } {
     items: g.sections.map((s) => navItem(s, waiting)),
   }))
   const settings = navItem(SETTINGS, waiting)
-  const pinned = canSeeSettings(role) ? (dot ? { ...settings, dot: { label: 'update available' } } : settings) : undefined
+  const pinned = showsSettings(role, me, workspace) ? (dot ? { ...settings, dot: { label: 'update available' } } : settings) : undefined
   return { groups, pinned }
 }
 

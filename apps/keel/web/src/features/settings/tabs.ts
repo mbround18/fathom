@@ -1,38 +1,54 @@
 /**
- * System Settings' tabs and who sees them (spec 060, contracts/web-ui.md "Navigation"): owners and
- * admins see Enrollment, Tokens, Identity and System. The System tab is owner and admin since spec
- * 061 (FR-024), with sections shaped by role: admins see the build panel and the read-only update
- * line, owners also see the update card and spec 060's System workspace. An unknown or forbidden
- * tab goes to Enrollment. The server decides again on every command; this only decides what to draw.
+ * Settings' tabs and who sees them (spec 060, contracts/web-ui.md "Navigation"; spec 066 R10).
+ * Owners and admins see Workspace, Enrollment, Tokens, Identity and System. A `ws_admin` of the
+ * current workspace sees Workspace alone, and the nav entry with it. The System tab is owner and
+ * admin since spec 061 (FR-024), with sections shaped by role. An unknown or forbidden tab goes to
+ * Workspace. The server decides again on every command; this only decides what to draw.
  */
-import type { InstanceRole } from '@/protocol/wire'
+import { canAdminister } from '@/features/hosts/workspaces'
+import type { InstanceRole, Me } from '@/protocol/wire'
 
-export type SettingsTab = 'enrollment' | 'tokens' | 'identity' | 'system'
+export type SettingsTab = 'workspace' | 'enrollment' | 'tokens' | 'identity' | 'system'
 
-export const DEFAULT_TAB: SettingsTab = 'enrollment'
+export const DEFAULT_TAB: SettingsTab = 'workspace'
 
 export const TAB_LABEL: Record<SettingsTab, string> = {
+  workspace: 'Workspace',
   enrollment: 'Enrollment',
   tokens: 'Tokens',
   identity: 'Identity',
   system: 'System',
 }
 
-/** Whether `role` sees System Settings at all (the nav entry and the page). */
+/** Whether `role` sees the instance-wide settings (and may create a workspace). */
 export function canSeeSettings(role: InstanceRole | null | undefined): boolean {
   return role === 'owner' || role === 'admin'
 }
 
-/** The tabs `role` sees, in order. */
-export function visibleTabs(role: InstanceRole | null | undefined): SettingsTab[] {
-  if (!canSeeSettings(role)) return []
-  return ['enrollment', 'tokens', 'identity', 'system']
+/** The tabs this person sees, in order, with `workspace` the current workspace's id. */
+export function visibleTabs(
+  role: InstanceRole | null | undefined,
+  me: Me | null = null,
+  workspace: string | null = null,
+): SettingsTab[] {
+  if (canSeeSettings(role)) return ['workspace', 'enrollment', 'tokens', 'identity', 'system']
+  if (workspace !== null && canAdminister(me, workspace)) return ['workspace']
+  return []
 }
 
-/** `tab` when `role` may see it, else the default tab. */
-export function resolveTab(tab: string | null | undefined, role: InstanceRole | null | undefined): SettingsTab {
-  const visible = visibleTabs(role)
-  return visible.find((t) => t === tab) ?? DEFAULT_TAB
+/** Whether the nav shows Settings: whenever any tab is visible. */
+export function showsSettings(role: InstanceRole | null | undefined, me: Me | null, workspace: string | null): boolean {
+  return visibleTabs(role, me, workspace).length > 0
+}
+
+/** `tab` when it is visible, else the default tab. */
+export function resolveTab(
+  tab: string | null | undefined,
+  role: InstanceRole | null | undefined,
+  me: Me | null = null,
+  workspace: string | null = null,
+): SettingsTab {
+  return visibleTabs(role, me, workspace).find((t) => t === tab) ?? DEFAULT_TAB
 }
 
 export function settingsPath(tab: SettingsTab): string {

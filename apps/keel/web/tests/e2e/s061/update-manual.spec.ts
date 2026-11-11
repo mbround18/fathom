@@ -38,7 +38,7 @@ test('the steps copy, and the setup link goes to the System workspace on this ta
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(`mbround18/keel@${AVAILABLE_DIGEST}`)
 
   await manual.getByRole('link', { name: 'Set up the System workspace so Keel can update itself' }).click()
-  await expect(page).toHaveURL(/\/settings\/system#system-workspace$/)
+  await expect(page).toHaveURL(/\/settings\/system(\?ws=[^#]*)?#system-workspace$/)
   await expect(page.locator('#system-workspace')).toBeInViewport()
   expect(backend.received.some((c) => c.type === 'PreviewKeelUpdate')).toBe(false)
 })

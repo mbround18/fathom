@@ -220,10 +220,10 @@ const SCREENS: Screen[] = [
   { name: 'audit', path: '/audit', ready: h1('Audit') },
   { name: 'migration', path: '/migration', ready: h1('Migration') },
   { name: 'passkeys', path: '/account/passkeys', ready: h1('Passkeys') },
-  { name: 'settings-enrollment', path: '/settings/enrollment', ready: h1('System Settings') },
-  { name: 'settings-tokens', path: '/settings/tokens', ready: h1('System Settings') },
-  { name: 'settings-identity', path: '/settings/identity', ready: h1('System Settings') },
-  { name: 'settings-system', path: '/settings/system', ready: h1('System Settings') },
+  { name: 'settings-enrollment', path: '/settings/enrollment', ready: h1('Settings') },
+  { name: 'settings-tokens', path: '/settings/tokens', ready: h1('Settings') },
+  { name: 'settings-identity', path: '/settings/identity', ready: h1('Settings') },
+  { name: 'settings-system', path: '/settings/system', ready: h1('Settings') },
 ]
 
 /** A watched image with a long, realistic reference, so the card's status line has to wrap. */

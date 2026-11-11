@@ -84,12 +84,12 @@ export function visibleGroups(me: Me | null, groups: readonly NavGroup[] = NAV_G
 }
 
 /**
- * System Settings: pinned to the bottom of the nav, for owners and admins only
- * (`canSeeSettings`). `/settings` opens its first tab. For owners it carries a dot while a newer
+ * Settings: pinned to the bottom of the nav, for owners, admins and a `ws_admin` of the current
+ * workspace (`showsSettings`, spec 066 R10). `/settings` opens its first tab, Workspace. For owners it carries a dot while a newer
  * Keel is available and they haven't hidden it for that digest (spec 061 FR-012, FR-014; the rule
  * is `showDot` in features/settings/updates.ts, hidden from the update card).
  */
-export const SETTINGS: Section = { path: '/settings', label: 'System Settings', icon: GearSixIcon }
+export const SETTINGS: Section = { path: '/settings', label: 'Settings', icon: GearSixIcon }
 
 /** Account → Passkeys: the person's own passkeys. Reached from the account menu, not the sections. */
 export const ACCOUNT_PASSKEYS = '/account/passkeys'

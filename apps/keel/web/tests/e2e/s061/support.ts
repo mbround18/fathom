@@ -32,13 +32,13 @@ export function signIn(
 
 export async function openSystem(page: Page): Promise<void> {
   await page.goto('/settings/system')
-  await expect(page).toHaveURL(/\/settings\/system$/)
+  await expect(page).toHaveURL(/\/settings\/system(\?ws=[^#]*)?$/)
   await expect(page.locator('[data-build-panel]')).toBeVisible()
 }
 
 /** The System Settings entry in the navigation. */
 export function settingsLink(page: Page) {
-  return page.getByRole('navigation').getByRole('link', { name: /System Settings/ })
+  return page.getByRole('navigation').getByRole('link', { name: /^Settings/ })
 }
 
 /** The account menu's About line. */

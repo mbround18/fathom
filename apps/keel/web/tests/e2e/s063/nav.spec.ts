@@ -35,7 +35,7 @@ const style = (l: Locator, prop: 'color' | 'borderLeftWidth' | 'marginTop') =>
 test.describe('at 1280 px', () => {
   test('the headings come in order, each before its links, with Settings last for an owner', async ({ page, backend }) => {
     await open(page, backend, 'owner', 1280)
-    await expect(entries(page)).toHaveText([...GROUPS.flatMap((g) => [g.name, ...g.links]), 'System Settings'])
+    await expect(entries(page)).toHaveText([...GROUPS.flatMap((g) => [g.name, ...g.links]), 'Settings'])
     for (const { id } of GROUPS) {
       const heading = await page.locator(`[data-nav-group="${id}"] > span`).boundingBox()
       expect(heading?.width ?? 0).toBeGreaterThan(1)
@@ -83,7 +83,7 @@ test('at 360 px no heading shows, a rule comes before groups 2 and 3, and the pa
     }
   }
   // Settings stays last in the strip.
-  await expect(entries(page).last()).toHaveText('System Settings')
+  await expect(entries(page).last()).toHaveText('Settings')
   const width = await page.evaluate(() => document.documentElement.scrollWidth)
   expect(width).toBeLessThanOrEqual(360)
 })

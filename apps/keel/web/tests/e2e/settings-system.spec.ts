@@ -24,10 +24,10 @@ function signIn(backend: FakeBackend, instance_role: 'owner' | 'admin'): { g: Fa
 test('an owner sets up the System workspace, binds it, enrolls into it and removes it', async ({ page, backend }) => {
   const { g, settings } = signIn(backend, 'owner')
   await page.goto('/hosts')
-  await page.getByRole('navigation').getByRole('link', { name: 'System Settings' }).click()
-  await expect(page).toHaveURL(/\/settings\/enrollment$/)
+  await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click()
+  await expect(page).toHaveURL(/\/settings\/workspace(\?ws=[^#]*)?$/)
   await page.getByRole('tab', { name: 'System' }).click()
-  await expect(page).toHaveURL(/\/settings\/system$/)
+  await expect(page).toHaveURL(/\/settings\/system(\?ws=[^#]*)?$/)
 
   // Not configured yet: Set up creates it allowing `base`, through the confirm dialog.
   await expect(page.getByText('No System workspace')).toBeVisible()
@@ -120,7 +120,7 @@ test('an admin sees the System tab without the System workspace', async ({ page,
   signIn(backend, 'admin')
   await page.goto('/settings/system')
   // Spec 061 FR-024: the tab opens to admins, with the running build and nothing of spec 060's.
-  await expect(page).toHaveURL(/\/settings\/system$/)
+  await expect(page).toHaveURL(/\/settings\/system(\?ws=[^#]*)?$/)
   const tabs = page.getByRole('tablist', { name: 'Settings' }).getByRole('tab')
   await expect(tabs).toHaveText(['Enrollment', 'Tokens', 'Identity', 'System'])
   await expect(page.locator('[data-build-panel]')).toBeVisible()
