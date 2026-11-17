@@ -106,6 +106,13 @@ pub struct Flags {
     /// [env: KEEL_FORGE_WRITES] [default: true]
     #[arg(long, global = true)]
     pub forge_writes: Option<String>,
+    /// Dial the configured relays (spec 067) [env: KEEL_RELAYS] [default: true]
+    #[arg(long, global = true)]
+    pub relays: Option<String>,
+    /// How often each relay link is pinged, and the cap on its redial backoff (spec 067)
+    /// [env: KEEL_RELAY_HEALTH_INTERVAL] [default: 30s]
+    #[arg(long, global = true)]
+    pub relay_health_interval: Option<String>,
     /// External origin, like https://keel.example.com (required) [env: KEEL_PUBLIC_URL]
     #[arg(long, global = true)]
     pub public_url: Option<String>,
@@ -399,6 +406,10 @@ pub struct Config {
     pub signed_mode_default: bool,
     /// Whether Keel may open pull requests on a forge. Off: proposals return the diff only.
     pub forge_writes: bool,
+    /// Whether Keel dials relays at all (spec 067). Off: relays are configured but never dialled.
+    pub relays: bool,
+    /// Relay link ping period and redial backoff cap.
+    pub relay_health_interval: Duration,
     /// An origin only (no path).
     pub public_url: Url,
     /// May carry a password: never logged.
@@ -744,6 +755,18 @@ impl Config {
         )?;
         let writes = r.pick("forge_writes", flags.forge_writes, "KEEL_FORGE_WRITES");
         let forge_writes = parse_bool("KEEL_FORGE_WRITES", writes.as_deref().unwrap_or("true"))?;
+        let relays = r.pick("relays", flags.relays, "KEEL_RELAYS");
+        let relays = parse_bool("KEEL_RELAYS", relays.as_deref().unwrap_or("true"))?;
+        let relay_health_interval = dur(
+            &mut r,
+            "relay_health_interval",
+            flags.relay_health_interval,
+            "KEEL_RELAY_HEALTH_INTERVAL",
+            "30s",
+        )?;
+        if relay_health_interval < Duration::from_secs(1) {
+            return refuse("KEEL_RELAY_HEALTH_INTERVAL: must be at least 1s");
+        }
 
         let cap = r.pick("run_log_cap", flags.run_log_cap, "KEEL_RUN_LOG_CAP");
         let run_log_cap = parse_bytes("KEEL_RUN_LOG_CAP", cap.as_deref().unwrap_or("64MiB"))?;
@@ -897,6 +920,8 @@ impl Config {
             runner_host_names,
             signed_mode_default,
             forge_writes,
+            relays,
+            relay_health_interval,
             public_url,
             database_url,
             master_key_file,
@@ -1132,6 +1157,8 @@ mod tests {
         assert_eq!(c.runner_max_offline, Duration::from_secs(30 * 86_400));
         assert!(!c.signed_mode_default);
         assert!(c.forge_writes);
+        assert!(c.relays);
+        assert_eq!(c.relay_health_interval, Duration::from_secs(30));
         assert_eq!(c.data_dir, PathBuf::from("/var/lib/keel"));
         assert_eq!(c.static_dir, PathBuf::from("/usr/share/keel/web"));
         assert_eq!(c.step_up_window, Duration::from_secs(300));
@@ -1357,6 +1384,37 @@ mod tests {
                 .0
                 .contains("KEEL_MASTER_KEY_FILE")
         );
+    }
+
+    /// Spec 067 T012: relays on by default, the health interval from env or flag, at least 1s.
+    #[test]
+    fn relay_settings() {
+        let mut env = BASE.to_vec();
+        env.extend([
+            ("KEEL_RELAYS", "false"),
+            ("KEEL_RELAY_HEALTH_INTERVAL", "10s"),
+        ]);
+        let c = resolve(&env).unwrap();
+        assert!(!c.relays);
+        assert_eq!(c.relay_health_interval, Duration::from_secs(10));
+        let flags = Flags {
+            relays: Some("true".into()),
+            relay_health_interval: Some("2m".into()),
+            ..Flags::default()
+        };
+        let c = Config::resolve(flags, &env_of(&env)).unwrap();
+        assert!(c.relays);
+        assert_eq!(c.relay_health_interval, Duration::from_secs(120));
+        for (key, bad) in [
+            ("KEEL_RELAY_HEALTH_INTERVAL", "0s"),
+            ("KEEL_RELAY_HEALTH_INTERVAL", "soon"),
+            ("KEEL_RELAYS", "maybe"),
+        ] {
+            let mut env = BASE.to_vec();
+            env.push((key, bad));
+            let err = resolve(&env).unwrap_err();
+            assert!(err.0.contains(key), "{key}={bad}: {err}");
+        }
     }
 
     #[test]
