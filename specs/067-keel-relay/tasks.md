@@ -113,7 +113,7 @@ Migration numbers are fixed so that parallel branches don't collide: `0015_join.
 - [ ] T012 Add server config `--relay-health-interval` / `KEEL_RELAY_HEALTH_INTERVAL` (default
   30 s) and runtime flag `KEEL_RELAYS` (default on) in `server/src/config.rs`, with tests next
   to the existing `runner_listen` config tests.
-- [ ] T013 [P] Implement `relay/src/config.rs`: `relay.toml` with `deny_unknown_fields` and the
+- [X] T013 [P] Implement `relay/src/config.rs`: `relay.toml` with `deny_unknown_fields` and the
   keys `link_listen` (default `0.0.0.0:7832`), `runner_listen` (default `0.0.0.0:7831`),
   `hub_keys` (path), `http_listen` (optional) and `max_streams` (default 256). Implement
   `relay/src/key.rs`: generate `/var/lib/keel-relay/host_ed25519` with mode `0600` when missing,
