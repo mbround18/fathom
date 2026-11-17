@@ -85,12 +85,12 @@ Migration numbers are fixed so that parallel branches don't collide: `0015_join.
   - `relay_server_config(host_key)`, a russh server `Config` built from `server_preferred()`
     with no certificate;
   - `link_client_config()` from `client_preferred()`, with a 15 s keepalive.
-- [ ] T007 [P] Test first, `exec/relay.rs` policy tests over an in-process russh pair.
+- [X] T007 [P] Test first, `exec/relay.rs` policy tests over an in-process russh pair.
   `RelayServerPolicy` accepts only user `keel` with a key in `hub_keys`, and only one `session`
   channel with subsystem `keel-relay-v1`. It refuses `direct-tcpip`, `x11`, agent forwarding,
   `tcpip-forward`, `exec`, `shell`, `pty`, `env` and a second session. `LinkClientPolicy`
   accepts only `forwarded-tcpip` to `keel-runner:0` and only the pinned relay host key.
-- [ ] T008 Implement `RelayServerPolicy` and `LinkClientPolicy` (russh `server::Handler` and
+- [X] T008 Implement `RelayServerPolicy` and `LinkClientPolicy` (russh `server::Handler` and
   `client::Handler`) in `exec/relay.rs`. Each refusal is reported through a callback, so the
   server can audit it.
 - [X] T009 [P] Add `Hello.capabilities: Vec<String>` to `exec/frames.rs`
