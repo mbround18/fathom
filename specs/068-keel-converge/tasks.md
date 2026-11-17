@@ -44,7 +44,7 @@ Nothing in `../ansible` is edited from this repo.
 - [ ] T001 [server] Create `server/migrations/0018_converge.sql` with a header comment only, and
   a test in `server/tests/migrate.rs` that migration versions are unique and contiguous except
   the documented 0015/0017 reservations.
-- [ ] T002 [P] [web] Add Playwright project `s068` (`testDir: './tests/e2e/s068'`) to
+- [X] T002 [P] [web] Add Playwright project `s068` (`testDir: './tests/e2e/s068'`) to
   `web/playwright.config.ts`, update its header list, create `web/tests/e2e/s068/` and an empty
   `web/tests/support/fake-converge.ts`.
 - [ ] T003 [P] [server] Runtime flag `KEEL_CONVERGE` (default off) in `server/src/config.rs`,
@@ -130,15 +130,15 @@ that host's rest; retry resumes.
   every profile of every host; `feature_disabled` when the flag is off.
 - [ ] T025 [P] [runner] Test in `runner/tests/`: a recipe manifest parses; a step whose job's
   profiles are outside the ceiling is refused as today (FR-017, no code change expected).
-- [ ] T026 [P] [web] `web/src/features/converge/` store and `ConvergePreview` dialog (matrix,
+- [X] T026 [P] [web] `web/src/features/converge/` store and `ConvergePreview` dialog (matrix,
   `via`, params, credential names, combined policy, signed review list, refusals, replaces).
-- [ ] T027 [web] `ConvergePage` (live matrix, cell → child-run log, Cancel, Retry failed), routed
+- [X] T027 [web] `ConvergePage` (live matrix, cell → child-run log, Cancel, Retry failed), routed
   from `/runs/:id` for kind `converge`; runs list hides child runs by default.
-- [ ] T028 [web] Hosts: converge column, bulk "Converge…"; host page Converge button and last
+- [X] T028 [web] Hosts: converge column, bulk "Converge…"; host page Converge button and last
   converge summary.
-- [ ] T029 [P] [web] `fake-converge.ts` and `s068/converge-preview.spec.ts`,
+- [X] T029 [P] [web] `fake-converge.ts` and `s068/converge-preview.spec.ts`,
   `s068/converge-page.spec.ts` (360 px and 1280 px, keyboard confirm).
-- [ ] T030 [web] Vitest for the matrix/state derivations in `features/converge/`.
+- [X] T030 [web] Vitest for the matrix/state derivations in `features/converge/`.
 - [ ] T031 [web] Impeccable pass over the preview, converge page and Hosts column, and the
   screens around them; fix what it finds.
 
