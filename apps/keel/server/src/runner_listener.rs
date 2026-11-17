@@ -100,6 +100,14 @@ impl RunnerAuthority for Authority {
             .await;
         match r {
             Ok(None) => BareKey::Unknown,
+            // Accepted from a join request and not yet certified: back to the join subsystem
+            // for its first certificate (contracts/join.md).
+            Ok(Some((id, state, None))) if state != "revoked" => {
+                match crate::join::awaiting_cert(&self.app.db, id).await {
+                    Ok(true) => BareKey::Unknown,
+                    _ => BareKey::Refused,
+                }
+            }
             Ok(Some((id, state, Some(until)))) if state != "revoked" => {
                 let now = OffsetDateTime::from(now);
                 if now <= until + self.app.cfg.runner_max_offline {
@@ -205,8 +213,7 @@ impl SubsystemService for Service {
     ) {
         match access {
             Access::EnrollOnly => enroll(&self.app, &key, stream).await,
-            // Served once the join subsystem lands (055 T145); until then the stream closes.
-            Access::JoinOnly => {}
+            Access::JoinOnly => crate::join::serve(&self.app, &key, &self.path, stream).await,
             Access::RenewOnly { host_id } => {
                 if let Ok(host) = Uuid::parse_str(&host_id) {
                     renew_only(&self.app, host, stream).await;

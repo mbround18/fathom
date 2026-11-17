@@ -113,6 +113,14 @@ pub struct Flags {
     /// [env: KEEL_RELAY_HEALTH_INTERVAL] [default: 30s]
     #[arg(long, global = true)]
     pub relay_health_interval: Option<String>,
+    /// The most pending join requests per workspace; more are answered `queue_full`
+    /// [env: KEEL_JOIN_PENDING_MAX] [default: 50]
+    #[arg(long, global = true)]
+    pub join_pending_max: Option<String>,
+    /// Join attempts per source per minute; more are closed before any database write
+    /// [env: KEEL_JOIN_RATE] [default: 10]
+    #[arg(long, global = true)]
+    pub join_rate: Option<String>,
     /// External origin, like https://keel.example.com (required) [env: KEEL_PUBLIC_URL]
     #[arg(long, global = true)]
     pub public_url: Option<String>,
@@ -410,6 +418,10 @@ pub struct Config {
     pub relays: bool,
     /// Relay link ping period and redial backoff cap.
     pub relay_health_interval: Duration,
+    /// The most pending join requests per workspace (contracts/join.md).
+    pub join_pending_max: u32,
+    /// Join attempts per source per minute.
+    pub join_rate: u32,
     /// An origin only (no path).
     pub public_url: Url,
     /// May carry a password: never logged.
@@ -767,6 +779,28 @@ impl Config {
         if relay_health_interval < Duration::from_secs(1) {
             return refuse("KEEL_RELAY_HEALTH_INTERVAL: must be at least 1s");
         }
+        let count = |r: &mut Resolver<'_>,
+                     setting,
+                     flag,
+                     env: &str,
+                     default: u32|
+         -> Result<u32, ConfigError> {
+            match r.pick(setting, flag, env) {
+                None => Ok(default),
+                Some(v) => match v.trim().parse::<u32>() {
+                    Ok(n) if n >= 1 => Ok(n),
+                    _ => refuse(format!("{env}: `{v}` is not a whole number of at least 1")),
+                },
+            }
+        };
+        let join_pending_max = count(
+            &mut r,
+            "join_pending_max",
+            flags.join_pending_max,
+            "KEEL_JOIN_PENDING_MAX",
+            50,
+        )?;
+        let join_rate = count(&mut r, "join_rate", flags.join_rate, "KEEL_JOIN_RATE", 10)?;
 
         let cap = r.pick("run_log_cap", flags.run_log_cap, "KEEL_RUN_LOG_CAP");
         let run_log_cap = parse_bytes("KEEL_RUN_LOG_CAP", cap.as_deref().unwrap_or("64MiB"))?;
@@ -922,6 +956,8 @@ impl Config {
             forge_writes,
             relays,
             relay_health_interval,
+            join_pending_max,
+            join_rate,
             public_url,
             database_url,
             master_key_file,
@@ -1159,6 +1195,8 @@ mod tests {
         assert!(c.forge_writes);
         assert!(c.relays);
         assert_eq!(c.relay_health_interval, Duration::from_secs(30));
+        assert_eq!(c.join_pending_max, 50);
+        assert_eq!(c.join_rate, 10);
         assert_eq!(c.data_dir, PathBuf::from("/var/lib/keel"));
         assert_eq!(c.static_dir, PathBuf::from("/usr/share/keel/web"));
         assert_eq!(c.step_up_window, Duration::from_secs(300));
@@ -1355,6 +1393,8 @@ mod tests {
             ("KEEL_STEP_UP_WINDOW", "0m"),
             ("KEEL_RUN_LOG_CAP", "lots"),
             ("KEEL_SIGNED_MODE_DEFAULT", "maybe"),
+            ("KEEL_JOIN_RATE", "0"),
+            ("KEEL_JOIN_PENDING_MAX", "lots"),
         ] {
             let mut pairs = BASE.to_vec();
             pairs.push((k, v));

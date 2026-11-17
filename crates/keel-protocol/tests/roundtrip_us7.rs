@@ -238,3 +238,142 @@ fn the_enrollment_token_never_shows_in_debug_output() {
     };
     assert!(!format!("{e:?}").contains("topsecret"));
 }
+
+fn join_request() -> JoinRequestInfo {
+    JoinRequestInfo {
+        id: id(7),
+        workspace: id(2),
+        fingerprint: "SHA256:abc".into(),
+        inventory_name: "web-9".into(),
+        allowed_profiles: vec!["base".into(), "web".into()],
+        suggested_profiles: vec!["web".into()],
+        require_signed: false,
+        hostname: "web-9".into(),
+        os: "Debian GNU/Linux 13".into(),
+        arch: "x86_64".into(),
+        runner_version: "0.1.0".into(),
+        source: "203.0.113.9".into(),
+        state: JoinRequestState::Pending,
+        reason: None,
+        comment: None,
+        jti: "0".repeat(32),
+        first_seen_at: "2026-11-17T10:00:00Z".into(),
+        last_seen_at: "2026-11-17T10:01:00Z".into(),
+        decided_by: None,
+        decided_at: None,
+        host: None,
+    }
+}
+
+fn join_token_info() -> JoinTokenInfo {
+    JoinTokenInfo {
+        workspace: id(2),
+        active: true,
+        jti: Some("0".repeat(32)),
+        expires_at: Some("2026-12-17T10:00:00Z".into()),
+        created_at: Some("2026-11-17T10:00:00Z".into()),
+        created_by: Some("Ada".into()),
+        inventory_name: None,
+        profiles: vec!["web".into()],
+    }
+}
+
+#[test]
+fn join_commands() {
+    let all = vec![
+        Cmd::ListJoinRequests {
+            workspace: id(2),
+            state: Some(JoinRequestState::Pending),
+        },
+        Cmd::PreviewJoinAccept {
+            request: id(7),
+            inventory_name: HostName::new("web-9").unwrap(),
+            profiles: profiles(&["web"]),
+        },
+        Cmd::PreviewJoinReject {
+            request: id(7),
+            comment: Some(JoinComment::new("not ours").unwrap()),
+        },
+        Cmd::GetJoinToken { workspace: id(2) },
+        Cmd::PreviewJoinTokenIssue {
+            workspace: id(2),
+            expires_in_days: DEFAULT_JOIN_TOKEN_DAYS,
+            inventory_name: None,
+            profiles: Some(profiles(&["web"])),
+        },
+        Cmd::PreviewJoinTokenRotate {
+            workspace: id(2),
+            expires_in_days: 7,
+        },
+        Cmd::PreviewJoinTokenDisable { workspace: id(2) },
+        Cmd::PreviewJoinSigningKeyRotate,
+    ];
+    for c in &all {
+        round_trip(c);
+        assert!(!c.is_streaming());
+    }
+    let v = round_trip(&all[0]);
+    assert_eq!(v["data"]["state"], "pending");
+    // Optional fields may be left out.
+    let c: Cmd =
+        serde_json::from_value(json!({"type": "PreviewJoinReject", "data": {"request": id(7)}}))
+            .unwrap();
+    assert_eq!(c.name(), "preview_join_reject");
+    assert!(TOKEN_ACTIONS.contains(&"list_join_requests"));
+    assert!(!TOKEN_ACTIONS.contains(&"get_join_token"));
+}
+
+#[test]
+fn join_comment_is_bounded() {
+    assert!(JoinComment::new("a\nb").is_ok());
+    assert!(JoinComment::new("x".repeat(500)).is_ok());
+    assert!(JoinComment::new("x".repeat(501)).is_err());
+    assert!(JoinComment::new("a\u{7}b").is_err());
+    let bad = json!({"type": "PreviewJoinReject", "data": {"request": id(7), "comment": "x".repeat(501)}});
+    assert!(serde_json::from_value::<Cmd>(bad).is_err());
+}
+
+#[test]
+fn join_events() {
+    let events = vec![
+        Event::JoinRequests {
+            items: vec![join_request()],
+        },
+        Event::JoinRequested {
+            request: join_request(),
+        },
+        Event::JoinRequestDecided {
+            request: JoinRequestInfo {
+                state: JoinRequestState::Accepted,
+                host: Some(id(1)),
+                decided_by: Some("Ada".into()),
+                decided_at: Some("2026-11-17T10:02:00Z".into()),
+                ..join_request()
+            },
+        },
+        Event::JoinToken(join_token_info()),
+        Event::JoinTokenSecret {
+            info: join_token_info(),
+            token: JoinTokenSecret("h.c.s".into()),
+            rejected: 2,
+        },
+        Event::JoinSigningKey {
+            kid: "0".repeat(32),
+            created_at: "2026-11-17T10:00:00Z".into(),
+            retired_tokens: 3,
+        },
+    ];
+    for e in &events {
+        round_trip(e);
+    }
+}
+
+#[test]
+fn the_join_token_never_shows_in_debug_output() {
+    let e = Event::JoinTokenSecret {
+        info: join_token_info(),
+        token: JoinTokenSecret("eyJhbGc.topsecret.sig".into()),
+        rejected: 0,
+    };
+    assert!(!format!("{e:?}").contains("topsecret"));
+}

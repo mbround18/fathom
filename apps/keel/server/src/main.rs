@@ -260,6 +260,10 @@ async fn serve(cfg: Config, tls: Option<tokio_rustls::TlsAcceptor>, exporting: b
     if let Err(e) = hosts::bootstrap(&app).await {
         return refuse(&format!("SSH CAs: {e}"));
     }
+    // The join signing key (spec 055 contracts/join.md), made at first start.
+    if let Err(e) = keel_server::join::bootstrap(&app).await {
+        return refuse(&format!("join signing key: {e}"));
+    }
     // Keel's relay-link key (spec 067), only when relays are dialled at all.
     if app.cfg.relays
         && let Err(e) = keel_server::relays::bootstrap(&app).await

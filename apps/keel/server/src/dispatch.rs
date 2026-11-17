@@ -179,6 +179,16 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::PreviewHostRevoke { .. }
         | Cmd::GetSshCa
         | Cmd::PreviewSshCaRotate { .. } => Ok(()),
+        // Join tokens and join requests: each handler checks the workspace capability (or, for
+        // the signing key, instance admin).
+        Cmd::ListJoinRequests { .. }
+        | Cmd::PreviewJoinAccept { .. }
+        | Cmd::PreviewJoinReject { .. }
+        | Cmd::GetJoinToken { .. }
+        | Cmd::PreviewJoinTokenIssue { .. }
+        | Cmd::PreviewJoinTokenRotate { .. }
+        | Cmd::PreviewJoinTokenDisable { .. }
+        | Cmd::PreviewJoinSigningKeyRotate => Ok(()),
         // Signed mode (US8): each handler checks the workspace capability.
         Cmd::ListReviews { .. }
         | Cmd::GetReview { .. }
@@ -460,6 +470,14 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         | Cmd::PreviewHostRevoke { .. }
         | Cmd::GetSshCa
         | Cmd::PreviewSshCaRotate { .. }) => crate::hosts::handle(app, req, other).await,
+        other @ (Cmd::ListJoinRequests { .. }
+        | Cmd::PreviewJoinAccept { .. }
+        | Cmd::PreviewJoinReject { .. }
+        | Cmd::GetJoinToken { .. }
+        | Cmd::PreviewJoinTokenIssue { .. }
+        | Cmd::PreviewJoinTokenRotate { .. }
+        | Cmd::PreviewJoinTokenDisable { .. }
+        | Cmd::PreviewJoinSigningKeyRotate) => crate::join::handle(app, req, other).await,
         other @ (Cmd::ListReviews { .. }
         | Cmd::GetReview { .. }
         | Cmd::GetReviewDiff { .. }

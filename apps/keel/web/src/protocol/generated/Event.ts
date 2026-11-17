@@ -23,6 +23,9 @@ import type { InventoryRevisionInfo } from "./InventoryRevisionInfo";
 import type { InventoryRevisionSummary } from "./InventoryRevisionSummary";
 import type { JobInfo } from "./JobInfo";
 import type { JobSummary } from "./JobSummary";
+import type { JoinRequestInfo } from "./JoinRequestInfo";
+import type { JoinTokenInfo } from "./JoinTokenInfo";
+import type { JoinTokenSecret } from "./JoinTokenSecret";
 import type { KeelBuild } from "./KeelBuild";
 import type { LogStream } from "./LogStream";
 import type { Me } from "./Me";
@@ -78,7 +81,15 @@ instructions_unavailable: boolean, } } | { "type": "SshCa", "data": { cas: Array
 /**
  * `@cert-authority * ssh-ed25519 …`: the value for `keel_runner_host_ca`.
  */
-cert_authority: string, } } | { "type": "HostState", "data": { host: string, state: HostStatus, } } | { "type": "HostChangedOutside", "data": { host: string, } } | { "type": "Reviews", "data": { items: Array<ReviewInfo>, } } | { "type": "Review", "data": { review: ReviewInfo, commits: Array<ReviewCommit>, flags: Array<ReviewFlag>, decisions: Array<ReviewDecision>, } } | { "type": "ReviewDiff", "data": { group: string, files: Array<DiffFile>, page: DiffPage | null, } } | { "type": "OverrideChallenge", "data": OverrideChallenge } | { "type": "ReviewRequested", "data": { group: string, run: string, workspace: string, } } | { "type": "Signers", "data": { workspace: string, items: Array<SignerInfo>, } } | { "type": "Settings", "data": { template: string, instructions: string, 
+cert_authority: string, } } | { "type": "HostState", "data": { host: string, state: HostStatus, } } | { "type": "HostChangedOutside", "data": { host: string, } } | { "type": "JoinRequests", "data": { items: Array<JoinRequestInfo>, } } | { "type": "JoinRequested", "data": { request: JoinRequestInfo, } } | { "type": "JoinRequestDecided", "data": { request: JoinRequestInfo, } } | { "type": "JoinToken", "data": JoinTokenInfo } | { "type": "JoinTokenSecret", "data": { info: JoinTokenInfo, token: JoinTokenSecret, 
+/**
+ * The pending requests the rotation rejected.
+ */
+rejected: number, } } | { "type": "JoinSigningKey", "data": { kid: string, created_at: string, 
+/**
+ * Join tokens the rotation retired.
+ */
+retired_tokens: number, } } | { "type": "Reviews", "data": { items: Array<ReviewInfo>, } } | { "type": "Review", "data": { review: ReviewInfo, commits: Array<ReviewCommit>, flags: Array<ReviewFlag>, decisions: Array<ReviewDecision>, } } | { "type": "ReviewDiff", "data": { group: string, files: Array<DiffFile>, page: DiffPage | null, } } | { "type": "OverrideChallenge", "data": OverrideChallenge } | { "type": "ReviewRequested", "data": { group: string, run: string, workspace: string, } } | { "type": "Signers", "data": { workspace: string, items: Array<SignerInfo>, } } | { "type": "Settings", "data": { template: string, instructions: string, 
 /**
  * 0 while no settings have been saved.
  */

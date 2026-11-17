@@ -23,7 +23,9 @@ use crate::types::{InstanceRole, TeamRole};
 use crate::run::{ApprovalReason, Pattern, PolicySpec, RunPhase};
 // Hosts and the SSH CAs (US7)
 use crate::governance::ProfileName;
-use crate::host::{EnrollmentState, HostName, HostProfiles, SshCaKind};
+use crate::host::{
+    EnrollmentState, HostName, HostProfiles, JoinComment, JoinRequestState, SshCaKind,
+};
 // Workspaces, the repository catalog and hosts (spec 066)
 use crate::repository::{ApiBase, ForgeProvider, HostGroups, RepositorySpec};
 // Signed mode: review and signers (US8)
@@ -568,6 +570,64 @@ pub enum Cmd {
     /// `Preview` (instance admin, step-up); `Confirm` replies `SshCa`.
     PreviewSshCaRotate { kind: SshCaKind },
 
+    // Join tokens and join requests (contracts/join.md)
+    /// `JoinRequests`: the workspace's join requests, newest first. `Operate`.
+    ListJoinRequests {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        #[serde(default)]
+        state: Option<JoinRequestState>,
+    },
+    /// `Preview` (step-up); `Confirm` creates the host as an enrollment token would (its
+    /// certificate is issued at the runner's next attempt) and replies `JoinRequestDecided`.
+    PreviewJoinAccept {
+        #[ts(type = "string")]
+        request: Uuid,
+        inventory_name: HostName,
+        profiles: HostProfiles,
+    },
+    /// `Preview`; `Confirm` rejects the request and replies `JoinRequestDecided`.
+    PreviewJoinReject {
+        #[ts(type = "string")]
+        request: Uuid,
+        #[serde(default)]
+        comment: Option<JoinComment>,
+    },
+    /// `JoinToken`: the workspace's join token, never the token itself. `Operate`.
+    GetJoinToken {
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// `Preview` (step-up, `Administer`); `Confirm` replies `JoinTokenSecret` once. Refused
+    /// while the workspace has an active token: rotate it instead.
+    PreviewJoinTokenIssue {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        /// 1 to 365.
+        expires_in_days: u16,
+        #[serde(default)]
+        inventory_name: Option<HostName>,
+        #[serde(default)]
+        profiles: Option<HostProfiles>,
+    },
+    /// `Preview` (step-up, `Administer`); `Confirm` retires the active token, rejects the
+    /// requests made with it (`token_rotated`) and replies `JoinTokenSecret` with a new one.
+    PreviewJoinTokenRotate {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        /// 1 to 365.
+        expires_in_days: u16,
+    },
+    /// `Preview` (step-up, `Administer`); `Confirm` retires the active token, rejects its
+    /// pending requests and replies `JoinToken`.
+    PreviewJoinTokenDisable {
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// `Preview` (instance admin, step-up); `Confirm` replaces Keel's join signing key, so every
+    /// workspace's join token stops working, and replies `JoinSigningKey`.
+    PreviewJoinSigningKeyRotate,
+
     // Signed mode: review and signers (US8)
     /// `Reviews`: review groups the caller may see, newest first.
     ListReviews {
@@ -772,6 +832,7 @@ pub const TOKEN_ACTIONS: &[&str] = &[
     "list_hosts",
     "get_host",
     "get_ssh_ca",
+    "list_join_requests",
     // Signed mode: review and signers (US8)
     "list_reviews",
     "get_review",
@@ -875,6 +936,14 @@ impl Cmd {
             Cmd::PreviewHostRevoke { .. } => "preview_host_revoke",
             Cmd::GetSshCa => "get_ssh_ca",
             Cmd::PreviewSshCaRotate { .. } => "preview_ssh_ca_rotate",
+            Cmd::ListJoinRequests { .. } => "list_join_requests",
+            Cmd::PreviewJoinAccept { .. } => "preview_join_accept",
+            Cmd::PreviewJoinReject { .. } => "preview_join_reject",
+            Cmd::GetJoinToken { .. } => "get_join_token",
+            Cmd::PreviewJoinTokenIssue { .. } => "preview_join_token_issue",
+            Cmd::PreviewJoinTokenRotate { .. } => "preview_join_token_rotate",
+            Cmd::PreviewJoinTokenDisable { .. } => "preview_join_token_disable",
+            Cmd::PreviewJoinSigningKeyRotate => "preview_join_signing_key_rotate",
             // Signed mode: review and signers (US8)
             Cmd::ListReviews { .. } => "list_reviews",
             Cmd::GetReview { .. } => "get_review",
@@ -1002,6 +1071,15 @@ impl Cmd {
             | Cmd::PreviewHostRevoke { .. }
             | Cmd::GetSshCa
             | Cmd::PreviewSshCaRotate { .. } => false,
+            // Join tokens and join requests (contracts/join.md)
+            Cmd::ListJoinRequests { .. }
+            | Cmd::PreviewJoinAccept { .. }
+            | Cmd::PreviewJoinReject { .. }
+            | Cmd::GetJoinToken { .. }
+            | Cmd::PreviewJoinTokenIssue { .. }
+            | Cmd::PreviewJoinTokenRotate { .. }
+            | Cmd::PreviewJoinTokenDisable { .. }
+            | Cmd::PreviewJoinSigningKeyRotate => false,
             // Signed mode: review and signers (US8)
             Cmd::ListReviews { .. }
             | Cmd::GetReview { .. }

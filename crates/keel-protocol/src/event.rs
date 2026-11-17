@@ -19,7 +19,10 @@ use crate::governance::{
     WorkspaceInfo,
 };
 // Hosts and the SSH CAs (US7)
-use crate::host::{EnrollToken, EnrollmentInfo, HostDetail, HostInfo, HostStatus, SshCaInfo};
+use crate::host::{
+    EnrollToken, EnrollmentInfo, HostDetail, HostInfo, HostStatus, JoinRequestInfo, JoinTokenInfo,
+    JoinTokenSecret, SshCaInfo,
+};
 // Signed mode: review and signers (US8)
 use crate::review::{
     DiffFile, DiffPage, OverrideChallenge, ReviewCommit, ReviewDecision, ReviewFlag, ReviewInfo,
@@ -250,6 +253,31 @@ pub enum Event {
     HostChangedOutside {
         #[ts(type = "string")]
         host: Uuid,
+    },
+
+    // Join tokens and join requests (contracts/join.md)
+    /// Reply to `ListJoinRequests`.
+    JoinRequests { items: Vec<JoinRequestInfo> },
+    /// Pushed when a host asks to join (new, or asking again), to the workspace's operators.
+    JoinRequested { request: JoinRequestInfo },
+    /// A confirmed `PreviewJoinAccept` or `PreviewJoinReject`; also pushed to the workspace.
+    JoinRequestDecided { request: JoinRequestInfo },
+    /// Reply to `GetJoinToken` and to a confirmed `PreviewJoinTokenDisable`.
+    JoinToken(JoinTokenInfo),
+    /// A confirmed `PreviewJoinTokenIssue` or `PreviewJoinTokenRotate`. `token` is shown this
+    /// once; Keel keeps only its `jti` and hash.
+    JoinTokenSecret {
+        info: JoinTokenInfo,
+        token: JoinTokenSecret,
+        /// The pending requests the rotation rejected.
+        rejected: u32,
+    },
+    /// A confirmed `PreviewJoinSigningKeyRotate`.
+    JoinSigningKey {
+        kid: String,
+        created_at: String,
+        /// Join tokens the rotation retired.
+        retired_tokens: u32,
     },
 
     // Signed mode: review and signers (US8)

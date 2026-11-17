@@ -34,6 +34,7 @@ pub mod runs;
 
 // Hosts and the SSH CAs (US7)
 pub mod hosts;
+pub mod join;
 pub mod runner_dist;
 
 // Signed mode with reviewed overrides (US8)

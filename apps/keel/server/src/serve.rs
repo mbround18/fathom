@@ -155,6 +155,8 @@ pub struct AppState {
     /// Each relay link's live state (spec 067), kept by [`crate::relays::RelaySupervisor`]: read
     /// it, subscribe to its changes, or ask the supervisor to re-read the relay rows.
     pub relay_live: crate::relays::LiveRelays,
+    /// Join attempts per source in the last minute (spec 055 contracts/join.md).
+    pub join: crate::join::JoinLimiter,
 }
 
 impl FromRef<AppState> for AuthState {
@@ -209,6 +211,7 @@ impl AppState {
             forges: crate::proposals::Forges::default(),
             relay_link: crate::relays::LinkKey::default(),
             relay_live: crate::relays::LiveRelays::default(),
+            join: crate::join::JoinLimiter::default(),
         }
     }
 

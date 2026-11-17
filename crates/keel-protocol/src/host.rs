@@ -203,3 +203,109 @@ pub struct SshCaInfo {
     pub not_after: Option<String>,
     pub created_at: String,
 }
+
+// ---- join tokens and join requests (contracts/join.md) -------------------------------------
+
+/// The longest lifetime a join token may be issued with, in days.
+pub const MAX_JOIN_TOKEN_DAYS: u16 = 365;
+/// The lifetime a join token is issued with unless the operator picks another, in days.
+pub const DEFAULT_JOIN_TOKEN_DAYS: u16 = 30;
+
+checked_string!(
+    /// An operator's note on a rejected join request: at most 500 characters, no control
+    /// characters but newlines.
+    JoinComment,
+    "join comment",
+    |v| {
+        if v.chars().count() > 500 {
+            return Err("length");
+        }
+        if v.chars().any(|c| c.is_control() && c != '\n') {
+            return Err("control character");
+        }
+        Ok(())
+    }
+);
+
+impl fmt::Debug for JoinComment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "JoinComment({:?})", self.0)
+    }
+}
+
+/// Where a join request stands (data-model "join_requests").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum JoinRequestState {
+    Pending,
+    Accepted,
+    Rejected,
+    Expired,
+}
+
+/// A host knocking with a join token. Everything but `fingerprint` is the host's own claim.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct JoinRequestInfo {
+    #[ts(type = "string")]
+    pub id: Uuid,
+    #[ts(type = "string")]
+    pub workspace: Uuid,
+    /// `SHA256:…` of the host key: compare it with `keel-runner fingerprint` on the host.
+    pub fingerprint: String,
+    /// The inventory name the host suggests (its `policy.toml`, or the token's).
+    pub inventory_name: String,
+    /// The host's own ceiling.
+    pub allowed_profiles: Vec<String>,
+    /// Profiles the token suggests, within `allowed_profiles`: the accept form's prefill.
+    pub suggested_profiles: Vec<String>,
+    pub require_signed: bool,
+    pub hostname: String,
+    pub os: String,
+    pub arch: String,
+    pub runner_version: String,
+    /// Where the request came from: an address, or the relay that carried it.
+    pub source: String,
+    pub state: JoinRequestState,
+    /// Why it was rejected or expired (`rejected`, `token_rotated`, `expired`, …).
+    pub reason: Option<String>,
+    /// The operator's note on a rejection.
+    pub comment: Option<String>,
+    /// The join token it came with.
+    pub jti: String,
+    pub first_seen_at: String,
+    pub last_seen_at: String,
+    /// The operator who accepted or rejected it, while the user exists.
+    pub decided_by: Option<String>,
+    pub decided_at: Option<String>,
+    /// The host an accepted request created.
+    #[ts(type = "string | null")]
+    pub host: Option<Uuid>,
+}
+
+/// A workspace's join token, without the token.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct JoinTokenInfo {
+    #[ts(type = "string")]
+    pub workspace: Uuid,
+    /// Whether the workspace has an active token. None is the default.
+    pub active: bool,
+    pub jti: Option<String>,
+    pub expires_at: Option<String>,
+    pub created_at: Option<String>,
+    /// The issuer's display name, while the user exists.
+    pub created_by: Option<String>,
+    pub inventory_name: Option<String>,
+    pub profiles: Vec<String>,
+}
+
+/// A join token, `<header>.<claims>.<signature>`. Shown once on issue or rotate; Keel keeps
+/// only its `jti` and hash. Never logged.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(transparent)]
+pub struct JoinTokenSecret(pub String);
+
+impl fmt::Debug for JoinTokenSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("JoinTokenSecret(..)")
+    }
+}

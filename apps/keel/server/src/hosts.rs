@@ -169,7 +169,7 @@ pub(crate) const fn serial_from_db(s: i64) -> u64 {
     u64::from_ne_bytes(s.to_ne_bytes())
 }
 
-fn public_key(line: &str) -> Result<KeyData, SshError> {
+pub(crate) fn public_key(line: &str) -> Result<KeyData, SshError> {
     PublicKey::from_openssh(line)
         .map(|k| k.key_data().clone())
         .map_err(|e| SshError::Ca(e.to_string()))
@@ -544,7 +544,7 @@ pub async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
     }
 }
 
-fn pending<F, Fut>(f: F) -> PendingOp
+pub(crate) fn pending<F, Fut>(f: F) -> PendingOp
 where
     F: FnOnce(AppState, Caller) -> Fut + Send + 'static,
     Fut: Future<Output = Vec<Event>> + Send + 'static,
@@ -552,7 +552,12 @@ where
     Box::new(move |app, caller| Box::pin(f(app, caller)))
 }
 
-fn preview(app: &AppState, req: &Request<'_>, draft: Draft, op: PendingOp) -> Vec<Event> {
+pub(crate) fn preview(
+    app: &AppState,
+    req: &Request<'_>,
+    draft: Draft,
+    op: PendingOp,
+) -> Vec<Event> {
     let key = req.caller.preview_key(req.session);
     if key.is_empty() {
         return internal();
@@ -561,7 +566,12 @@ fn preview(app: &AppState, req: &Request<'_>, draft: Draft, op: PendingOp) -> Ve
 }
 
 /// Re-checks `cap` when a confirmed operation runs (grants may have changed since the preview).
-fn recheck(caller: &Caller, action: &str, cap: Capability, ws: Uuid) -> Result<(), Vec<Event>> {
+pub(crate) fn recheck(
+    caller: &Caller,
+    action: &str,
+    cap: Capability,
+    ws: Uuid,
+) -> Result<(), Vec<Event>> {
     let refused = match &caller.token {
         Some(t) if t.workspace.0 != ws => Some("token_scope"),
         _ => authz::require(&crate::bindings::subject(caller), cap, WorkspaceId(ws), &[])
