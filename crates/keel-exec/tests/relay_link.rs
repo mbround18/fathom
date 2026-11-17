@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use keel_exec::relay::{
-    self, LinkClientPolicy, LinkRefusal, RELAY_SUBSYSTEM, RefusalSink, RelayServerPolicy,
+    self, LinkClientPolicy, LinkRefusal, LinkViolation, RELAY_SUBSYSTEM, RelayServerPolicy,
     RunnerChannel, link_client_config, relay_server_config,
 };
 use russh::client::{self, AuthResult, Handle};
@@ -25,9 +25,11 @@ fn data(k: &PrivateKey) -> KeyData {
     k.public_key().key_data().clone()
 }
 
-fn sink() -> (RefusalSink, mpsc::UnboundedReceiver<LinkRefusal>) {
+type Sink<T> = Arc<dyn Fn(T) + Send + Sync>;
+
+fn sink<T: Send + 'static>() -> (Sink<T>, mpsc::UnboundedReceiver<T>) {
     let (tx, rx) = mpsc::unbounded_channel();
-    let sink: RefusalSink = Arc::new(move |r| {
+    let sink: Sink<T> = Arc::new(move |r| {
         let _ = tx.send(r);
     });
     (sink, rx)
@@ -38,7 +40,8 @@ struct Link {
     keel_err: Option<russh::Error>,
     relay: Option<russh::server::Handle>,
     relay_refused: mpsc::UnboundedReceiver<LinkRefusal>,
-    keel_refused: mpsc::UnboundedReceiver<LinkRefusal>,
+    relay_violations: mpsc::UnboundedReceiver<LinkViolation>,
+    keel_violations: mpsc::UnboundedReceiver<LinkViolation>,
     control: oneshot::Receiver<ChannelStream<russh::server::Msg>>,
     runners: mpsc::UnboundedReceiver<RunnerChannel>,
 }
@@ -53,13 +56,14 @@ impl Link {
 async fn link_with(host_key: PrivateKey, hub_keys: Vec<KeyData>, pinned: KeyData) -> Link {
     let (relay_io, keel_io) = tokio::io::duplex(256 * 1024);
     let (relay_sink, relay_refused) = sink();
-    let (keel_sink, keel_refused) = sink();
+    let (relay_violation_sink, relay_violations) = sink();
+    let (keel_sink, keel_violations) = sink();
     let (control_tx, control) = oneshot::channel();
     let (runners_tx, runners) = mpsc::unbounded_channel();
 
     let mut config = relay_server_config(host_key);
     config.auth_rejection_time = Duration::from_millis(1);
-    let policy = RelayServerPolicy::new(hub_keys, relay_sink, control_tx);
+    let policy = RelayServerPolicy::new(hub_keys, relay_sink, relay_violation_sink, control_tx);
     let (handle_tx, handle_rx) = oneshot::channel();
     tokio::spawn(async move {
         if let Ok(session) = russh::server::run_stream(Arc::new(config), relay_io, policy).await {
@@ -80,13 +84,17 @@ async fn link_with(host_key: PrivateKey, hub_keys: Vec<KeyData>, pinned: KeyData
         Err(e) => (None, Some(e)),
     };
     // `None` when the handshake failed before the relay's session started.
-    let relay = tokio::time::timeout(WAIT, handle_rx).await.ok().and_then(Result::ok);
+    let relay = tokio::time::timeout(WAIT, handle_rx)
+        .await
+        .ok()
+        .and_then(Result::ok);
     Link {
         keel,
         keel_err,
         relay,
         relay_refused,
-        keel_refused,
+        relay_violations,
+        keel_violations,
         control,
         runners,
     }
@@ -123,7 +131,7 @@ async fn reply(channel: &mut russh::Channel<client::Msg>) -> ChannelMsg {
     }
 }
 
-async fn refused(rx: &mut mpsc::UnboundedReceiver<LinkRefusal>) -> LinkRefusal {
+async fn refused<T>(rx: &mut mpsc::UnboundedReceiver<T>) -> T {
     tokio::time::timeout(WAIT, rx.recv())
         .await
         .expect("no refusal reported")
@@ -181,6 +189,10 @@ async fn only_user_keel_with_a_hub_key_logs_in() {
         LinkRefusal::Auth { user, fingerprint } if user == "keel" && fingerprint == expected
     ));
     assert!(auth(link.keel(), "keel", &hub).await, "the hub key");
+    assert!(
+        link.relay_violations.try_recv().is_err(),
+        "a failed login is an ordinary refusal, not a violation"
+    );
 }
 
 #[tokio::test]
@@ -200,28 +212,55 @@ async fn exec_shell_pty_env_agent_x11_and_other_subsystems_are_refused() {
         .request_pty(true, "xterm", 80, 24, 0, 0, &[])
         .await
         .unwrap();
-    assert!(matches!(reply(&mut channel).await, ChannelMsg::Failure), "pty");
+    assert!(
+        matches!(reply(&mut channel).await, ChannelMsg::Failure),
+        "pty"
+    );
     channel.request_shell(true).await.unwrap();
-    assert!(matches!(reply(&mut channel).await, ChannelMsg::Failure), "shell");
+    assert!(
+        matches!(reply(&mut channel).await, ChannelMsg::Failure),
+        "shell"
+    );
     channel.exec(true, "id").await.unwrap();
-    assert!(matches!(reply(&mut channel).await, ChannelMsg::Failure), "exec");
-    channel.set_env(true, "LD_PRELOAD", "/tmp/x.so").await.unwrap();
-    assert!(matches!(reply(&mut channel).await, ChannelMsg::Failure), "env");
+    assert!(
+        matches!(reply(&mut channel).await, ChannelMsg::Failure),
+        "exec"
+    );
+    channel
+        .set_env(true, "LD_PRELOAD", "/tmp/x.so")
+        .await
+        .unwrap();
+    assert!(
+        matches!(reply(&mut channel).await, ChannelMsg::Failure),
+        "env"
+    );
     channel.agent_forward(true).await.unwrap();
-    assert!(matches!(reply(&mut channel).await, ChannelMsg::Failure), "agent");
+    assert!(
+        matches!(reply(&mut channel).await, ChannelMsg::Failure),
+        "agent"
+    );
     channel
         .request_x11(true, false, "MIT-MAGIC-COOKIE-1", "00", 0)
         .await
         .unwrap();
-    assert!(matches!(reply(&mut channel).await, ChannelMsg::Failure), "x11");
+    assert!(
+        matches!(reply(&mut channel).await, ChannelMsg::Failure),
+        "x11"
+    );
     channel.request_subsystem(true, "sftp").await.unwrap();
-    assert!(matches!(reply(&mut channel).await, ChannelMsg::Failure), "sftp");
+    assert!(
+        matches!(reply(&mut channel).await, ChannelMsg::Failure),
+        "sftp"
+    );
 
     let mut kinds = Vec::new();
     for _ in 0..7 {
-        match refused(&mut link.relay_refused).await {
-            LinkRefusal::Request { kind, detail } => {
-                assert!(!detail.contains("/tmp/x.so"), "env values are never reported");
+        match refused(&mut link.relay_violations).await {
+            LinkViolation::Request { kind, detail } => {
+                assert!(
+                    !detail.contains("/tmp/x.so"),
+                    "env values are never reported"
+                );
                 kinds.push(kind);
             }
             other => panic!("unexpected {other:?}"),
@@ -229,7 +268,15 @@ async fn exec_shell_pty_env_agent_x11_and_other_subsystems_are_refused() {
     }
     assert_eq!(
         kinds,
-        ["pty", "shell", "exec", "env", "auth-agent", "x11", "subsystem"]
+        [
+            "pty",
+            "shell",
+            "exec",
+            "env",
+            "auth-agent",
+            "x11",
+            "subsystem"
+        ]
     );
 
     // The same channel still carries the control subsystem afterwards.
@@ -256,16 +303,22 @@ async fn forwarding_and_other_channel_types_from_keel_are_refused() {
             .is_err(),
         "streamlocal"
     );
-    assert!(keel.channel_open_x11("127.0.0.1", 6000).await.is_err(), "x11");
-    assert!(keel.tcpip_forward("0.0.0.0", 0).await.is_err(), "tcpip-forward");
+    assert!(
+        keel.channel_open_x11("127.0.0.1", 6000).await.is_err(),
+        "x11"
+    );
+    assert!(
+        keel.tcpip_forward("0.0.0.0", 0).await.is_err(),
+        "tcpip-forward"
+    );
     assert!(
         keel.streamlocal_forward("/tmp/k.sock").await.is_err(),
         "streamlocal-forward"
     );
     let mut kinds = Vec::new();
     for _ in 0..5 {
-        match refused(&mut link.relay_refused).await {
-            LinkRefusal::Channel { kind, .. } | LinkRefusal::Request { kind, .. } => {
+        match refused(&mut link.relay_violations).await {
+            LinkViolation::Channel { kind, .. } | LinkViolation::Request { kind, .. } => {
                 kinds.push(kind)
             }
             other => panic!("unexpected {other:?}"),
@@ -287,13 +340,16 @@ async fn forwarding_and_other_channel_types_from_keel_are_refused() {
 async fn a_second_session_is_refused_and_closes_the_link() {
     let mut link = linked().await;
     let mut first = link.keel().channel_open_session().await.unwrap();
-    first.request_subsystem(true, RELAY_SUBSYSTEM).await.unwrap();
+    first
+        .request_subsystem(true, RELAY_SUBSYSTEM)
+        .await
+        .unwrap();
     assert!(matches!(reply(&mut first).await, ChannelMsg::Success));
 
     assert!(link.keel().channel_open_session().await.is_err());
     assert_eq!(
-        refused(&mut link.relay_refused).await,
-        LinkRefusal::SecondSession
+        refused(&mut link.relay_violations).await,
+        LinkViolation::SecondSession
     );
     tokio::time::timeout(WAIT, async {
         while !link.keel().is_closed() {
@@ -323,7 +379,10 @@ async fn keel_accepts_runner_channels_and_bytes_flow() {
     assert_eq!(runner.originator_port, 40122);
     let mut keel_end = runner.channel.into_stream();
 
-    relay_end.write_all(b"SSH-2.0-keel-runner\r\n").await.unwrap();
+    relay_end
+        .write_all(b"SSH-2.0-keel-runner\r\n")
+        .await
+        .unwrap();
     let mut buf = [0u8; 21];
     keel_end.read_exact(&mut buf).await.unwrap();
     assert_eq!(&buf, b"SSH-2.0-keel-runner\r\n");
@@ -373,13 +432,16 @@ async fn keel_refuses_every_other_channel_from_the_relay() {
             .is_err(),
         "forwarded-streamlocal"
     );
-    assert!(relay.channel_open_x11("10.0.0.5", 6000).await.is_err(), "x11");
+    assert!(
+        relay.channel_open_x11("10.0.0.5", 6000).await.is_err(),
+        "x11"
+    );
     assert!(relay.channel_open_agent().await.is_err(), "agent");
 
     let mut kinds = Vec::new();
     for _ in 0..8 {
-        match refused(&mut link.keel_refused).await {
-            LinkRefusal::Channel { kind, .. } => kinds.push(kind),
+        match refused(&mut link.keel_violations).await {
+            LinkViolation::Channel { kind, .. } => kinds.push(kind),
             other => panic!("unexpected {other:?}"),
         }
     }
@@ -408,9 +470,42 @@ async fn keel_refuses_a_relay_host_key_other_than_the_pinned_one() {
     assert!(link.keel.is_none(), "handshake must fail");
     assert!(link.keel_err.is_some());
     assert_eq!(
-        refused(&mut link.keel_refused).await,
-        LinkRefusal::HostKey {
+        refused(&mut link.keel_violations).await,
+        LinkViolation::HostKey {
             fingerprint: keel_exec::ca::fingerprint(&data(&host))
+        }
+    );
+}
+
+#[tokio::test]
+async fn bad_control_frames_are_violations_but_a_hang_up_is_not() {
+    // Over the cap: refused from the length prefix, before any body is read or allocated.
+    let (mut a, mut b) = tokio::io::duplex(1024);
+    a.write_all(&(relay::MAX_CONTROL_FRAME_LEN as u32 + 1).to_be_bytes())
+        .await
+        .unwrap();
+    let err = relay::read_frame(&mut b).await.unwrap_err();
+    assert!(matches!(
+        LinkViolation::frame(&err),
+        Some(LinkViolation::Frame { .. })
+    ));
+
+    let err = relay::decode_body(br#"{"t":"Exec","cmd":"id"}"#).unwrap_err();
+    assert_eq!(
+        LinkViolation::frame(&err).map(|v| v.reason()),
+        Some("bad_frame")
+    );
+
+    let (mut a, mut b) = tokio::io::duplex(1024);
+    a.write_all(&[0, 0]).await.unwrap();
+    drop(a);
+    let err = relay::read_frame(&mut b).await.unwrap_err();
+    assert_eq!(LinkViolation::frame(&err), None, "truncated is a hang-up");
+
+    assert_eq!(
+        LinkViolation::out_of_order("Pong before Hello"),
+        LinkViolation::Frame {
+            detail: "out of order: Pong before Hello".into()
         }
     );
 }

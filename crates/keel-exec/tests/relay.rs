@@ -63,7 +63,11 @@ async fn every_control_frame_round_trips_through_the_codec() {
         assert_eq!(decode_body(&wire[4..]).unwrap(), frame);
     }
     drop(a);
-    assert_eq!(read_frame(&mut b).await.unwrap(), None, "clean end of stream");
+    assert_eq!(
+        read_frame(&mut b).await.unwrap(),
+        None,
+        "clean end of stream"
+    );
 }
 
 #[test]

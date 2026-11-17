@@ -180,22 +180,13 @@ pub fn link_client_config() -> russh::client::Config {
     }
 }
 
-/// Something one end of the link refused. Reported through a [`RefusalSink`] so Keel can audit
-/// it (`relay.refused`) and the relay can log it. Never carries secrets: an `env` request reports
-/// the variable name, not its value, and an `exec` request only its length.
+/// An ordinary refusal: someone knocked without the right credentials. Logged and audited
+/// (`relay.refused`), but not held against the peer, because anyone who can reach the port can
+/// cause one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkRefusal {
     /// Relay: a login that is not user `keel` with a key from `hub_keys`.
     Auth { user: String, fingerprint: String },
-    /// Keel: the relay presented a host key (or certificate) other than the pinned key.
-    HostKey { fingerprint: String },
-    /// Either end: a channel type it never accepts, or a `forwarded-tcpip` channel to anything
-    /// but [`RUNNER_CHANNEL_ADDR`].
-    Channel { kind: &'static str, detail: String },
-    /// Relay: a channel or global request it never grants.
-    Request { kind: &'static str, detail: String },
-    /// Relay: a second session channel. The link is closed.
-    SecondSession,
 }
 
 impl LinkRefusal {
@@ -203,26 +194,76 @@ impl LinkRefusal {
     pub const fn reason(&self) -> &'static str {
         match self {
             LinkRefusal::Auth { .. } => "auth_refused",
-            LinkRefusal::HostKey { .. } => "host_key_mismatch",
-            LinkRefusal::Channel { .. } => "channel_refused",
-            LinkRefusal::Request { .. } => "request_refused",
-            LinkRefusal::SecondSession => "second_session",
         }
     }
 }
 
-/// Where a policy reports refusals. Called inline from the SSH handler, so it must not block.
+/// A protocol violation by an authenticated (or, for the host key, pinned) peer: something the
+/// other end of a correct link never does. Keel quarantines a relay on one
+/// (`relays.quarantined_at`) and the relay closes the link. Never carries secrets: an `env`
+/// request reports the variable name, not its value, and an `exec` request only its length.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LinkViolation {
+    /// Keel: the relay presented a host key (or certificate) other than the pinned key.
+    HostKey { fingerprint: String },
+    /// Either end: a channel type it never accepts, or a `forwarded-tcpip` channel to anything
+    /// but [`RUNNER_CHANNEL_ADDR`].
+    Channel { kind: &'static str, detail: String },
+    /// Relay: a channel or global request it never grants.
+    Request { kind: &'static str, detail: String },
+    /// Relay: a second session (control) channel. The link is closed.
+    SecondSession,
+    /// Either end: a control frame that is unknown, malformed, over the cap, or out of order.
+    Frame { detail: String },
+}
+
+impl LinkViolation {
+    /// The audit `reason` code, also stored as `relays.quarantine_reason`.
+    pub const fn reason(&self) -> &'static str {
+        match self {
+            LinkViolation::HostKey { .. } => "host_key_mismatch",
+            LinkViolation::Channel { .. } => "forbidden_channel",
+            LinkViolation::Request { .. } => "forbidden_request",
+            LinkViolation::SecondSession => "second_control_channel",
+            LinkViolation::Frame { .. } => "bad_frame",
+        }
+    }
+
+    /// The violation a control-channel read error amounts to. An oversized, unknown or
+    /// malformed frame is one; the peer hanging up (`Truncated`, I/O) is not.
+    pub fn frame(err: &CodecError) -> Option<Self> {
+        match err {
+            CodecError::TooLarge { .. } | CodecError::Malformed(_) => Some(LinkViolation::Frame {
+                detail: err.to_string(),
+            }),
+            CodecError::Truncated | CodecError::Io(_) => None,
+        }
+    }
+
+    /// A well-formed frame at the wrong time, such as anything before `Hello`.
+    pub fn out_of_order(what: impl std::fmt::Display) -> Self {
+        LinkViolation::Frame {
+            detail: format!("out of order: {what}"),
+        }
+    }
+}
+
+/// Where a policy reports ordinary refusals. Called inline from the SSH handler, so it must not
+/// block.
 pub type RefusalSink = Arc<dyn Fn(LinkRefusal) + Send + Sync>;
 
-fn channel_refusal(kind: &'static str, detail: impl Into<String>) -> LinkRefusal {
-    LinkRefusal::Channel {
+/// Where a policy reports violations. Called inline from the SSH handler, so it must not block.
+pub type ViolationSink = Arc<dyn Fn(LinkViolation) + Send + Sync>;
+
+fn channel_violation(kind: &'static str, detail: impl Into<String>) -> LinkViolation {
+    LinkViolation::Channel {
         kind,
         detail: detail.into(),
     }
 }
 
-fn request_refusal(kind: &'static str, detail: impl Into<String>) -> LinkRefusal {
-    LinkRefusal::Request {
+fn request_violation(kind: &'static str, detail: impl Into<String>) -> LinkViolation {
+    LinkViolation::Request {
         kind,
         detail: detail.into(),
     }
@@ -234,6 +275,7 @@ fn request_refusal(kind: &'static str, detail: impl Into<String>) -> LinkRefusal
 pub struct RelayServerPolicy {
     hub_keys: Vec<KeyData>,
     on_refusal: RefusalSink,
+    on_violation: ViolationSink,
     control: Option<oneshot::Sender<ChannelStream<server::Msg>>>,
     authenticated: bool,
     session_opened: bool,
@@ -255,11 +297,13 @@ impl RelayServerPolicy {
     pub fn new(
         hub_keys: Vec<KeyData>,
         on_refusal: RefusalSink,
+        on_violation: ViolationSink,
         control: oneshot::Sender<ChannelStream<server::Msg>>,
     ) -> Self {
         Self {
             hub_keys,
             on_refusal,
+            on_violation,
             control: Some(control),
             authenticated: false,
             session_opened: false,
@@ -268,8 +312,8 @@ impl RelayServerPolicy {
         }
     }
 
-    fn report(&self, refusal: LinkRefusal) {
-        (self.on_refusal)(refusal);
+    fn violation(&self, violation: LinkViolation) {
+        (self.on_violation)(violation);
     }
 
     /// Checks a login, reporting a refusal once per (user, key) although russh asks twice.
@@ -282,7 +326,7 @@ impl RelayServerPolicy {
         }
         let seen = (user.to_owned(), crate::ca::fingerprint(key));
         if self.last_auth_refusal.as_ref() != Some(&seen) {
-            self.report(LinkRefusal::Auth {
+            (self.on_refusal)(LinkRefusal::Auth {
                 user: seen.0.clone(),
                 fingerprint: seen.1.clone(),
             });
@@ -298,7 +342,7 @@ impl RelayServerPolicy {
         kind: &'static str,
         detail: impl Into<String>,
     ) -> Result<(), russh::Error> {
-        self.report(request_refusal(kind, detail));
+        self.violation(request_violation(kind, detail));
         session.channel_failure(channel)
     }
 
@@ -308,7 +352,7 @@ impl RelayServerPolicy {
         kind: &'static str,
         detail: impl Into<String>,
     ) -> Result<(), russh::Error> {
-        self.report(channel_refusal(kind, detail));
+        self.violation(channel_violation(kind, detail));
         reply
             .reject(ChannelOpenFailure::AdministrativelyProhibited)
             .await;
@@ -353,7 +397,7 @@ impl server::Handler for RelayServerPolicy {
         cert: &Certificate,
     ) -> Result<Auth, Self::Error> {
         // Hub keys are plain keys; a certificate is never accepted.
-        self.report(LinkRefusal::Auth {
+        (self.on_refusal)(LinkRefusal::Auth {
             user: user.to_owned(),
             fingerprint: crate::ca::fingerprint(cert.public_key()),
         });
@@ -367,10 +411,12 @@ impl server::Handler for RelayServerPolicy {
         session: &mut server::Session,
     ) -> Result<(), Self::Error> {
         if !self.authenticated {
-            return self.refuse_open(reply, "session", "not authenticated").await;
+            return self
+                .refuse_open(reply, "session", "not authenticated")
+                .await;
         }
         if self.session_opened {
-            self.report(LinkRefusal::SecondSession);
+            self.violation(LinkViolation::SecondSession);
             reply
                 .reject(ChannelOpenFailure::AdministrativelyProhibited)
                 .await;
@@ -390,8 +436,12 @@ impl server::Handler for RelayServerPolicy {
         reply: server::ChannelOpenHandle,
         _session: &mut server::Session,
     ) -> Result<(), Self::Error> {
-        self.refuse_open(reply, "x11", format!("{originator_address}:{originator_port}"))
-            .await
+        self.refuse_open(
+            reply,
+            "x11",
+            format!("{originator_address}:{originator_port}"),
+        )
+        .await
     }
 
     async fn channel_open_direct_tcpip(
@@ -500,7 +550,7 @@ impl server::Handler for RelayServerPolicy {
         _channel: ChannelId,
         _session: &mut server::Session,
     ) -> Result<bool, Self::Error> {
-        self.report(request_refusal("auth-agent", ""));
+        self.violation(request_violation("auth-agent", ""));
         Ok(false)
     }
 
@@ -510,7 +560,10 @@ impl server::Handler for RelayServerPolicy {
         port: &mut u32,
         _session: &mut server::Session,
     ) -> Result<bool, Self::Error> {
-        self.report(request_refusal("tcpip-forward", format!("{address}:{port}")));
+        self.violation(request_violation(
+            "tcpip-forward",
+            format!("{address}:{port}"),
+        ));
         Ok(false)
     }
 
@@ -520,7 +573,7 @@ impl server::Handler for RelayServerPolicy {
         port: u32,
         _session: &mut server::Session,
     ) -> Result<bool, Self::Error> {
-        self.report(request_refusal(
+        self.violation(request_violation(
             "cancel-tcpip-forward",
             format!("{address}:{port}"),
         ));
@@ -532,7 +585,7 @@ impl server::Handler for RelayServerPolicy {
         socket_path: &str,
         _session: &mut server::Session,
     ) -> Result<bool, Self::Error> {
-        self.report(request_refusal("streamlocal-forward", socket_path));
+        self.violation(request_violation("streamlocal-forward", socket_path));
         Ok(false)
     }
 
@@ -541,7 +594,7 @@ impl server::Handler for RelayServerPolicy {
         socket_path: &str,
         _session: &mut server::Session,
     ) -> Result<bool, Self::Error> {
-        self.report(request_refusal("cancel-streamlocal-forward", socket_path));
+        self.violation(request_violation("cancel-streamlocal-forward", socket_path));
         Ok(false)
     }
 
@@ -579,7 +632,7 @@ pub struct RunnerChannel {
 /// channel is refused.
 pub struct LinkClientPolicy {
     pinned: KeyData,
-    on_refusal: RefusalSink,
+    on_violation: ViolationSink,
     runners: mpsc::UnboundedSender<RunnerChannel>,
 }
 
@@ -594,18 +647,18 @@ impl std::fmt::Debug for LinkClientPolicy {
 impl LinkClientPolicy {
     pub fn new(
         pinned: KeyData,
-        on_refusal: RefusalSink,
+        on_violation: ViolationSink,
         runners: mpsc::UnboundedSender<RunnerChannel>,
     ) -> Self {
         Self {
             pinned,
-            on_refusal,
+            on_violation,
             runners,
         }
     }
 
     /// The host-key decision, separate from the russh callback so it can be tested alone.
-    pub fn check(&self, key: &PublicKeyOrCertificate) -> Result<(), LinkRefusal> {
+    pub fn check(&self, key: &PublicKeyOrCertificate) -> Result<(), LinkViolation> {
         let presented = match key {
             PublicKeyOrCertificate::PublicKey { key, .. } => {
                 if key.key_data() == &self.pinned {
@@ -615,7 +668,7 @@ impl LinkClientPolicy {
             }
             PublicKeyOrCertificate::Certificate(cert) => cert.public_key(),
         };
-        Err(LinkRefusal::HostKey {
+        Err(LinkViolation::HostKey {
             fingerprint: crate::ca::fingerprint(presented),
         })
     }
@@ -626,7 +679,7 @@ impl LinkClientPolicy {
         kind: &'static str,
         detail: impl Into<String>,
     ) -> Result<(), russh::Error> {
-        (self.on_refusal)(channel_refusal(kind, detail));
+        (self.on_violation)(channel_violation(kind, detail));
         reply
             .reject(ChannelOpenFailure::AdministrativelyProhibited)
             .await;
@@ -643,8 +696,8 @@ impl client::Handler for LinkClientPolicy {
     ) -> Result<bool, Self::Error> {
         match self.check(key) {
             Ok(()) => Ok(true),
-            Err(refusal) => {
-                (self.on_refusal)(refusal);
+            Err(violation) => {
+                (self.on_violation)(violation);
                 Ok(false)
             }
         }
@@ -660,8 +713,7 @@ impl client::Handler for LinkClientPolicy {
         reply: client::ChannelOpenHandle,
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
-        if (connected_address, connected_port) != RUNNER_CHANNEL_ADDR || self.runners.is_closed()
-        {
+        if (connected_address, connected_port) != RUNNER_CHANNEL_ADDR || self.runners.is_closed() {
             return self
                 .refuse_open(
                     reply,
@@ -746,7 +798,11 @@ impl client::Handler for LinkClientPolicy {
         reply: client::ChannelOpenHandle,
         _session: &mut client::Session,
     ) -> Result<(), Self::Error> {
-        self.refuse_open(reply, "x11", format!("{originator_address}:{originator_port}"))
-            .await
+        self.refuse_open(
+            reply,
+            "x11",
+            format!("{originator_address}:{originator_port}"),
+        )
+        .await
     }
 }
