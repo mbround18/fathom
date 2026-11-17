@@ -73,12 +73,12 @@ Migration numbers are fixed so that parallel branches don't collide: `0015_join.
   - grants of `select, insert, update` to `keel_app`, with `delete` only on `host_queries`.
 
   Extend `server/tests/migrate.rs` to apply it.
-- [ ] T005 [P] Test first, `exec/relay.rs` tests:
+- [X] T005 [P] Test first, `exec/relay.rs` tests:
   - serde round trips for every control frame in contracts/relay.md (`Hello`, `Ping`, `Pong`,
     `CacheGet`, `CacheChunk`, `CacheMiss`, `Close`);
   - an unknown tag fails;
   - a frame over 1 MiB fails.
-- [ ] T006 Implement `exec/relay.rs` and export it from `exec/lib.rs`:
+- [X] T006 Implement `exec/relay.rs` and export it from `exec/lib.rs`:
   - the control `Frame` enum on keel-exec `codec`;
   - `RELAY_SUBSYSTEM = "keel-relay-v1"`, `LINK_USER = "keel"`, and the
     `RUNNER_CHANNEL_ADDR = ("keel-runner", 0)` constants;

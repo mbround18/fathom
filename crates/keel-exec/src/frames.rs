@@ -626,7 +626,7 @@ fn bounded_outside_runs<'de, D: serde::Deserializer<'de>>(
 }
 
 /// Standard base64 for `Vec<u8>` fields.
-mod b64 {
+pub(crate) mod b64 {
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD;
     use serde::{Deserialize, Deserializer, Serializer};

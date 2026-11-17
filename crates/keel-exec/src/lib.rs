@@ -11,5 +11,6 @@ pub mod fake;
 pub mod frames;
 pub mod krl;
 pub mod pack_builder;
+pub mod relay;
 pub mod server_config;
 pub mod versions;
