@@ -144,7 +144,7 @@ leaves the host disconnected, not failed.
     disconnected;
   - enrollment through the relay works, and the token never appears in the relay's logs or
     buffers (assert on the relay's captured tracing output).
-- [ ] T015 [P] [US1] `runner/tests/dial.rs`:
+- [X] T015 [P] [US1] `runner/tests/dial.rs`:
   - dials in order;
   - skips a dialled address whose host cert does not verify for `--server`'s name;
   - with no `--dial`, dials `--server` as before;
@@ -183,7 +183,7 @@ leaves the host disconnected, not failed.
 - [ ] T021 [US1] On each accepted `forwarded-tcpip` channel in `server/src/relays.rs`, call
   `runner_listener::serve_connection` with `RunnerPath::Relay { relay_id, advisory_peer }` over
   the channel stream. Keep a handle per stream, so revocation (T027) can close them.
-- [ ] T022 [US1] Add the runner dial list in `runner/src/runner/mod.rs`:
+- [X] T022 [US1] Add the runner dial list in `runner/src/runner/mod.rs`:
   - `RunnerConfig.dial: Vec<String>`, with `--dial` (repeatable) and `KEEL_RUNNER_DIAL`
     (comma-separated) in `runner/src/bin/keel-runner.rs`;
   - `connect()` tries each address in order, building `HostCertVerifier` from `--server`'s host
