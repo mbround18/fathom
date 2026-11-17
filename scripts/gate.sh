@@ -58,8 +58,11 @@ if has shared; then
 else echo 'cargo-deny not installed (cargo install cargo-deny --locked): skipped'; fi \
 && pnpm audit --prod --audit-level high"
 fi
+# `make test` starts keel's throwaway database (TEST_PREP in apps/keel/Makefile). CI=1 makes its
+# database tests fail instead of skipping if that start failed (spec 067 D4).
 for app in depths keel; do
-  has "$app" && step "$app" "make --no-print-directory -C apps/$app lint test bindings"
+  ci=; [ "$app" = keel ] && ci="CI=1 "
+  has "$app" && step "$app" "${ci}make --no-print-directory -C apps/$app lint test bindings"
 done
 has fathom && step fathom "make --no-print-directory -C ui lint test bindings"
 
