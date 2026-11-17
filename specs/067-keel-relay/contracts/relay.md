@@ -81,8 +81,8 @@ Keel rate-limits it to 4 concurrent requests and 64 MiB per release per relay.
   # max_streams = 256
   ```
 
-- **CLI**: `keel-relay serve` (systemd), `keel-relay key` (prints the public line and
-  fingerprint, generating the key if missing), `keel-relay check-config`.
+- **CLI**: `keel-relay serve` (systemd), `keel-relay key` (prints exactly two lines, the public
+  line then `SHA256:<fp>`, generating `/var/lib/keel-relay/host_ed25519` if missing), `keel-relay check-config`.
 
 ## Runner additions (contracts/runner.md, additive)
 
