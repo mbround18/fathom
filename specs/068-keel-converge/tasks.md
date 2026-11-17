@@ -188,6 +188,8 @@ that host's rest; retry resumes.
 - [ ] T043 [server] `server/src/runs.rs` `create_run`: coverage lookup via
   `converge_hosts`/`converge_steps` and `converge::covers`, mirror ancestry check, insert
   `covered` rows with `covered_by`, audit `run_host.covered`.
+- [ ] T072 [P] [core] Tests first, then `converge::narrow_by_vars(changed: &[Path], matched_paths, inventory) -> Option<BTreeSet<HostName>>` in `core/converge.rs` (FR-020): `None` when any matched change is not a group/host vars file or is `group_vars/all.*`; otherwise the hosts in the named groups (children included) and named hosts. Cover `.yml`/`.yaml`, directory-form `group_vars/<g>/`, child groups, and an unknown group (narrows to no hosts → no run, audited `run.skipped: no_hosts`).
+- [ ] T073 [server] `server/src/runs.rs` `on_push`: intersect the job's host set with `narrow_by_vars` for path-triggered runs only; record the narrowing reason on the run (`narrowed_by: ["group_vars/keel_servers.yml"]`) and show it in the run header. Test in `server/tests/coverage.rs`.
 - [ ] T044 [P] [web] "covered by converge" in run host rows; `s068/covered.spec.ts`.
 - [ ] T045 (../ansible) Hand contracts/ansible.md §2–§3 (narrow jobs, covers, the paths
   recommendation) to the ansible session.

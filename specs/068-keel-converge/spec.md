@@ -203,6 +203,7 @@ finishes: the narrow job runs on its own.
    the per-host lock.
 3. **Given** a job that declares `covers`, **When** the manifest is synced, **Then** every
    covered name must be a job in the same manifest, or the manifest is refused.
+4. **Given** a commit that changes only `inventory/group_vars/keel_servers.yml`, **When** the `debian` job's paths match it, **Then** the run targets only the hosts in `keel_servers`, not every `debian` host (FR-020).
 
 ---
 
@@ -373,6 +374,7 @@ commit. The run passes `stack` as an extra var, and the playbook never pauses.
 - **FR-018**: Converge, steps, coverage, check mode, profile changes and suggestions MUST go
   through `keel-protocol` with ts-rs bindings. They are shown on the run page, the host page and
   Hosts.
+- **FR-020**: When every changed path that matched a job's `paths` is a group or host vars file (`inventory/group_vars/<g>.yml` or `.yaml`, `inventory/group_vars/<g>/**`, `inventory/host_vars/<h>…`), the path-triggered run MUST target only the hosts in group `<g>` (including its child groups, at the pinned inventory revision) or host `<h>`. `all.yml` keeps the full target set. If any other matched path changed too, the run targets every eligible host as before. Manual runs and converges are never narrowed. Added 2026-11-17 at the ansible session's request: adding `debian` to every group's ceiling put every group's vars file in `debian`'s paths.
 - **FR-019**: OTel spans MUST cover `converge.plan` (hosts, steps), `converge.step` (job,
   outcome) and `profile.suggest`. The runtime flag `KEEL_CONVERGE` gates auto-converge on
   enrollment and the converge command. With it off, Keel behaves as before.
