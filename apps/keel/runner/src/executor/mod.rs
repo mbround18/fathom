@@ -762,6 +762,8 @@ fn read_job(
         ));
     }
     check_params(&def.params, &a.params).map_err(|e| Stop::Refuse(Refusal::ParamsMismatch, e))?;
+    check_choices(&def.params, &a.params, &tree)
+        .map_err(|e| Stop::Refuse(Refusal::ChoiceMismatch, e))?;
     secrets::check_env_items(secrets, &def.env)
         .map_err(|e| Stop::Refuse(Refusal::EnvRefused, e))?;
     let missing_env = secrets::missing_env(secrets, &def.env);
@@ -810,6 +812,24 @@ fn check_params(
     Ok(())
 }
 
+/// Re-checks every `choice` param Keel sent against the choices at the runner's own checkout
+/// of the target (spec 068 FR-019): `values`, or the directories under `from` as they are in
+/// this commit, not as the server saw them. Runs after [`check_params`], so names are declared
+/// and values well-formed. The error names the param but never echoes its value.
+fn check_choices(
+    declared: &BTreeMap<String, manifest::ParamSpec>,
+    sent: &BTreeMap<String, String>,
+    tree: &dyn manifest::RepoTree,
+) -> Result<(), String> {
+    for (name, value) in sent {
+        if let Some(spec) = declared.get(name) {
+            spec.check_value(value, tree)
+                .map_err(|e| format!("param {name:?}: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
 /// The `-e` arguments, in precedence order: job vars, secret vars, params (when sent), and the
 /// forced vars last, so nothing before them can override them.
 fn extra_var_args(
@@ -841,9 +861,7 @@ mod tests {
     fn declared() -> BTreeMap<String, ParamSpec> {
         BTreeMap::from([(
             "keel_server_image_digest".to_owned(),
-            ParamSpec {
-                kind: ParamKind::OciDigest,
-            },
+            ParamSpec::of(ParamKind::OciDigest),
         )])
     }
 
