@@ -1,0 +1,422 @@
+---
+description: "Task list for spec 067, Keel relays for hosts Keel cannot be reached from"
+---
+
+# Tasks: Keel relays for hosts Keel cannot be reached from
+
+**Paths**:
+
+- `server/` means `apps/keel/server/`.
+- `runner/` means `apps/keel/runner/`.
+- `relay/` means `apps/keel/relay/` (new).
+- `web/` means `apps/keel/web/`.
+- `exec/` means `crates/keel-exec/src/`.
+- `proto/` means `crates/keel-protocol/src/`.
+
+**Gates for agents**:
+
+- Run only targeted checks for what you touched, one command at a time, with
+  `CARGO_BUILD_JOBS=4`, logging to files. For example `cargo test -p keel-exec relay`,
+  `cargo test -p keel-server --test relay_link`, `pnpm --filter @companion/keel-web test`, or
+  one Playwright project (`--project=s067`).
+- **Never** run `scripts/ci.sh`, `paws`, `dagger` or the full Playwright suite. The main session
+  runs the full gate once, on the combined branch.
+- Server integration tests need `KEEL_TEST_DATABASE_URL`. Report the `running N tests` count for
+  each test file you ran, so a silent skip is visible (plan D4).
+- Delete any kind cluster or compose project you start before reporting.
+
+**Tests**: the spec asks for them (Independent Tests, SC-002), and constitution Principle III
+requires them. Write the tests in each story first, and see them fail before you implement.
+
+**External work**: tasks marked **(../ansible, owner go-ahead)** change the operator's
+repository, outside this one. Do not start them until the owner says go.
+
+## Phase 1: Setup
+
+- [ ] T001 Create crate `relay/` (lib + bin `keel-relay`) with `Cargo.toml` on the workspace's
+  `russh = "0.65.0"`, tokio, serde, toml, clap and tracing, and empty modules
+  `src/{lib,config,link,forward,cache,key}.rs` and `src/bin/keel-relay.rs`. Add it to the
+  workspace `members` in `Cargo.toml`, and check `cargo build -p keel-relay`.
+- [ ] T002 [P] Add Playwright project `s067` (`testDir: './tests/e2e/s067'`) to
+  `web/playwright.config.ts`, update its header comment list, and create
+  `web/tests/e2e/s067/` and an empty `web/tests/support/fake-relays.ts`.
+- [ ] T003 [P] Add `server/tests/common` helper `require_db()`. Under `CI=1` it panics when
+  `KEEL_TEST_DATABASE_URL` is unset; otherwise it prints one `SKIPPED: KEEL_TEST_DATABASE_URL
+  unset` line to stderr. Use it in every new server test in this spec (plan D4). Do not change
+  the 19 existing files.
+
+## Phase 2: Foundational (blocks every story)
+
+- [ ] T004 Write `server/migrations/0015_relays.sql` per data-model.md:
+  - tables `zones`, `relay_link_keys`, `relays`, `host_queries`;
+  - `hosts.zone_id` and `hosts.last_path jsonb`;
+  - zone/relay name check `^[a-z0-9][a-z0-9-]{0,62}$`, with `direct` reserved;
+  - unique `(workspace_id, name)` on zones and relays, and unique `host_key_fingerprint`;
+  - one `active` relay-link key (partial unique index);
+  - grants of `select, insert, update` to `keel_app`, with `delete` only on `host_queries`.
+
+  Extend `server/tests/migrate.rs` to apply it.
+- [ ] T005 [P] Test first, `exec/relay.rs` tests:
+  - serde round trips for every control frame in contracts/relay.md (`Hello`, `Ping`, `Pong`,
+    `CacheGet`, `CacheChunk`, `CacheMiss`, `Close`);
+  - an unknown tag fails;
+  - a frame over 1 MiB fails.
+- [ ] T006 Implement `exec/relay.rs` and export it from `exec/lib.rs`:
+  - the control `Frame` enum on keel-exec `codec`;
+  - `RELAY_SUBSYSTEM = "keel-relay-v1"`, `LINK_USER = "keel"`, and the
+    `RUNNER_CHANNEL_ADDR = ("keel-runner", 0)` constants;
+  - `relay_server_config(host_key)`, a russh server `Config` built from `server_preferred()`
+    with no certificate;
+  - `link_client_config()` from `client_preferred()`, with a 15 s keepalive.
+- [ ] T007 [P] Test first, `exec/relay.rs` policy tests over an in-process russh pair.
+  `RelayServerPolicy` accepts only user `keel` with a key in `hub_keys`, and only one `session`
+  channel with subsystem `keel-relay-v1`. It refuses `direct-tcpip`, `x11`, agent forwarding,
+  `tcpip-forward`, `exec`, `shell`, `pty`, `env` and a second session. `LinkClientPolicy`
+  accepts only `forwarded-tcpip` to `keel-runner:0` and only the pinned relay host key.
+- [ ] T008 Implement `RelayServerPolicy` and `LinkClientPolicy` (russh `server::Handler` and
+  `client::Handler`) in `exec/relay.rs`. Each refusal is reported through a callback, so the
+  server can audit it.
+- [ ] T009 [P] Add `Hello.capabilities: Vec<String>` to `exec/frames.rs`
+  (`#[serde(default, skip_serializing_if = "Vec::is_empty")]`). Add a round-trip test, and a test
+  that an old `Hello` without the field still parses.
+- [ ] T010 Thread a `RunnerPath { Direct { peer }, Relay { relay_id, advisory_peer } }` through
+  `server/src/runner_listener.rs`. Factor the per-connection code into
+  `serve_connection(app, config, stream, path)`, so it accepts any
+  `AsyncRead + AsyncWrite + Unpin + Send` stream. The TCP accept loop then calls it with
+  `Direct`. Pass the path to `queue::attach` (`server/src/queue.rs:573`). Store it in the run
+  hub's session entry, and write `hosts.last_path` on `Hello`. The existing connect and
+  disconnect audit entries gain `path`. Existing runner tests must stay green
+  (`cargo test -p keel-server --test enroll --test runs`).
+- [ ] T011 Add Keel's relay-link key in `server/src/relays.rs`, following the `ssh_cas` code in
+  `server/src/hosts.rs`:
+  - generate an Ed25519 key on startup when no `active` row exists;
+  - seal it under the master key with aad `relay_link_key:<id>`;
+  - load it into `AppState`;
+  - audit `relay_link_key.create`.
+- [ ] T012 Add server config `--relay-health-interval` / `KEEL_RELAY_HEALTH_INTERVAL` (default
+  30 s) and runtime flag `KEEL_RELAYS` (default on) in `server/src/config.rs`, with tests next
+  to the existing `runner_listen` config tests.
+- [ ] T013 [P] Implement `relay/src/config.rs`: `relay.toml` with `deny_unknown_fields` and the
+  keys `link_listen` (default `0.0.0.0:7832`), `runner_listen` (default `0.0.0.0:7831`),
+  `hub_keys` (path), `http_listen` (optional) and `max_streams` (default 256). Implement
+  `relay/src/key.rs`: generate `/var/lib/keel-relay/host_ed25519` with mode `0600` when missing,
+  and print the public line and `SHA256:` fingerprint. A `hub_keys` file that is empty or holds
+  a non-`ssh-ed25519` line fails closed. Add unit tests for each.
+
+**Checkpoint**: migration applies, the link policy is tested in isolation, and the runner
+listener can serve a non-TCP stream.
+
+## Phase 3: User Story 1, run jobs on a host Keel cannot be reached from (P1) 🎯 MVP
+
+**Goal**: a runner that can only reach a relay connects to Keel through it and runs jobs exactly
+as a direct host does.
+
+**Independent test**: `cargo test -p keel-server --test relay_link`. Keel binds no runner
+listener and dials an in-process relay. A real runner, dialling only the relay, enrolls, shows
+as `connected · via relay`, and runs a fixture job with its log streamed. Stopping the relay
+leaves the host disconnected, not failed.
+
+### Tests (write first)
+
+- [ ] T014 [P] [US1] `server/tests/relay_link.rs` covers US1 acceptance 1–5:
+  - path recorded as the relay;
+  - a run streams its logs and its result;
+  - the runner refuses a relay that answers with its own key instead of Keel's host
+    certificate;
+  - with Keel unable to reach the relay, the runner keeps retrying and the host shows
+    disconnected;
+  - enrollment through the relay works, and the token never appears in the relay's logs or
+    buffers (assert on the relay's captured tracing output).
+- [ ] T015 [P] [US1] `runner/tests/dial.rs`:
+  - dials in order;
+  - skips a dialled address whose host cert does not verify for `--server`'s name;
+  - with no `--dial`, dials `--server` as before;
+  - backoff applies per full pass and is capped at 60 s.
+- [ ] T016 [P] [US1] `relay/tests/link.rs`:
+  - with no link, a runner TCP connection is accepted and closed at once;
+  - with a link, bytes are copied both ways unchanged;
+  - a channel Keel does not accept within 20 s closes the TCP side;
+  - stream number `max_streams + 1` is refused.
+
+### Implementation
+
+- [ ] T017 [US1] Implement `relay/src/link.rs`. It is an SSH server on `link_listen` using
+  `RelayServerPolicy`, and allows one link at a time: a new authenticated link replaces the old
+  one and closes its streams. It serves the `keel-relay-v1` control channel: `Hello` first, then
+  `Pong` for each `Ping` with `streams` and `uptime_s`. `CacheGet` is not sent yet.
+- [ ] T018 [US1] Implement `relay/src/forward.rs`, the runner TCP listener on `runner_listen`.
+  For each connection it opens a `forwarded-tcpip` channel `keel-runner:0`, with the runner's
+  peer as originator, and runs `copy_bidirectional`. It enforces `max_streams` (256) and
+  `max_pending_accepts` (64). It logs open and close with peer and byte counts, and never logs
+  contents.
+- [ ] T019 [US1] Implement `relay/src/bin/keel-relay.rs` with the subcommands `serve`, `key` and
+  `check-config`, and `relay/packaging/keel-relay.service` as an unprivileged `keel-relay` user
+  with `NoNewPrivileges`, `ProtectSystem=strict`, `StateDirectory=keel-relay` and no
+  capabilities.
+- [ ] T020 [US1] Implement `RelaySupervisor` in `server/src/relays.rs`:
+  - one task per non-revoked relay row;
+  - dial `dial_address` with `link_client_config()` and `LinkClientPolicy`, pinned to
+    `relays.host_key`;
+  - authenticate as `keel` with the active relay-link key;
+  - open the control channel, then `Ping` each health interval and measure RTT;
+  - keep `RelayLive { state, rtt_ms, version, streams, last_error, since }` in memory;
+  - redial with exponential backoff capped at the health interval;
+  - audit state changes as `relay.state`;
+  - start the tasks from `server/src/serve.rs` when `KEEL_RELAYS` is on.
+- [ ] T021 [US1] On each accepted `forwarded-tcpip` channel in `server/src/relays.rs`, call
+  `runner_listener::serve_connection` with `RunnerPath::Relay { relay_id, advisory_peer }` over
+  the channel stream. Keep a handle per stream, so revocation (T027) can close them.
+- [ ] T022 [US1] Add the runner dial list in `runner/src/runner/mod.rs`:
+  - `RunnerConfig.dial: Vec<String>`, with `--dial` (repeatable) and `KEEL_RUNNER_DIAL`
+    (comma-separated) in `runner/src/bin/keel-runner.rs`;
+  - `connect()` tries each address in order, building `HostCertVerifier` from `--server`'s host
+    every time;
+  - the existing backoff loop (`mod.rs:533`) wraps a full pass.
+- [ ] T023 [US1] Add a minimal relay registration path (needed by T014 before US3's UI): a
+  server function `register_relay(tx, workspace, zone, name, dial_address, host_key, host)` in
+  `server/src/relays.rs`. It validates `dial_address` (`host:port`, port 1–65535) and `host_key`
+  (exactly one `ssh-ed25519` line), and audits `relay.register`. US3 wraps it in
+  preview/confirm.
+
+**Checkpoint**: the MVP works end to end in-process. Run T014–T016 and record the test counts.
+
+## Phase 4: User Story 2, a relay cannot be used to attack hosts or Keel (P1)
+
+**Goal**: whoever controls the relay host can drop or delay traffic, and nothing more.
+
+**Independent test**: the hostile-relay suites run the SC-002 matrix in contracts/relay.md. Every
+attempt fails closed, no job runs, and each attempt leaves an audit row.
+
+- [ ] T024 [P] [US2] `runner/tests/hostile_relay.rs`, built on `runner/tests/hostile.rs`'s
+  harness with a tampering hop between runner and server. It covers flip a byte, replay a
+  recorded session, reorder chunks, drop chunks, and inject before the banner. Each must close
+  the session with no run directory, an unchanged ledger, and the reconnect loop still running.
+- [ ] T025 [P] [US2] `server/tests/hostile_relay.rs` uses a hostile in-process relay that:
+  - opens `forwarded-tcpip` with no runner behind it and tries auth (gets enroll-only, and is
+    refused without a token);
+  - opens `direct-tcpip`, `session` and `x11`;
+  - sends `tcpip-forward` and `exec`;
+  - presents a host key other than the pinned one;
+  - sends an unknown control frame, then an oversized one.
+
+  Assert a `relay.refused` audit row for each, and no run.
+- [ ] T026 [US2] Wire the refusal callbacks from T008 into `server/src/relays.rs`, so every
+  refusal writes `relay.refused { reason, detail }`. A host-key mismatch also sets the relay
+  `unreachable` with `last_error = "host_key_mismatch"`.
+- [ ] T027 [US2] Implement revocation in `server/src/relays.rs`, US2 acceptance 6 and FR-006:
+  - `revoke_relay` sets `revoked_at` and audits `relay.revoke` in one transaction;
+  - it sends `Close`, drops the link, and closes every carried runner stream at once;
+  - runs on those streams follow the lost-runner path in `queue.rs`;
+  - the supervisor never dials a revoked row.
+
+  Test it in `server/tests/relays.rs`.
+
+## Phase 5: User Story 3, see zones, relays and how each host is reached (P1)
+
+**Goal**: the Hosts page groups hosts by zone and shows each host's path, and Settings → Relays
+manages relays and Keel's link key.
+
+**Independent test**: with two zones, one direct and one behind a relay, stopping the relay turns
+only that zone's hosts to `disconnected (relay unreachable)`, and the change is audited (Vitest,
+Playwright `s067`, `server/tests/relays.rs`).
+
+- [ ] T028 [P] [US3] Add the protocol types from contracts/protocol.md in a new `proto/relay.rs`:
+  `ZoneInfo`, `RelayState`, `RelayInfo`, `RunnerPath`, `HostReach`, `RelayLinkKey`, `QueryKind`,
+  `HostQuery`.
+  - `HostInfo` gains `zone: Option<Uuid>` and `reach: HostReach`, both `#[serde(default)]`.
+  - Add the commands under a "Zones and relays" section in `proto/cmd.rs`, with action names
+    and `is_mutating`.
+  - Add the events `RelayChanged`, `HostReachChanged` and `HostQueryAnswered` in
+    `proto/event.rs`.
+  - Add round-trip tests for every new variant, and regenerate `web/src/protocol/generated`.
+- [ ] T029 [P] [US3] Test first, unit tests for `derive_reach(host, zone, relays_live)` in
+  `server/src/relays.rs`, covering every row of data-model.md's "Host (display, derived)" table:
+  - connected direct or via a relay;
+  - disconnected;
+  - relay unreachable;
+  - relay revoked;
+  - no path.
+- [ ] T030 [US3] Implement the zone and relay handlers in `server/src/relays.rs` and route them
+  in `server/src/api.rs`:
+  - `ListZones`, `PreviewZoneCreate`, `PreviewZoneUpdate` and `PreviewZoneRemove`. The remove
+    preview lists blocking hosts and relays.
+  - `PreviewHostZone`, where the zone must be in the host's workspace.
+  - `ListRelays`, `PreviewRelayRegister` and `PreviewRelayUpdate` (both step-up, wrapping T023;
+    the preview shows the fingerprint and Keel's relay-link key line), and `PreviewRelayRevoke`
+    (the preview lists connected hosts, wrapping T027).
+  - `GetRelayLinkKeys`, and `PreviewRelayLinkKeyRotate`, `PreviewRelayLinkKeyActivate` and
+    `PreviewRelayLinkKeyRetire` (instance admin, step-up, mirroring `PreviewSshCaRotate`).
+
+  Every confirm audits in the same transaction. Add tests in `server/tests/relays.rs`.
+- [ ] T031 [US3] Fill `HostInfo.zone` and `reach` in `ListHosts`. Push `RelayChanged` on state
+  changes (RTT and stream-count updates at most every 30 s), and `HostReachChanged` when a host's
+  derived reach changes (`server/src/relays.rs`, `server/src/ws.rs`). In
+  `server/tests/relays.rs`, stopping the relay must emit `HostReachChanged` to
+  `relay_unreachable` within one health interval.
+- [ ] T032 [US3] Add a run preview warning in `server/src/preview.rs`. It fires when targets
+  include `relays.host_id` of the only non-revoked relay of a zone, and other targets are in
+  that zone. It names the relay host and the dependent hosts. Test it in
+  `server/tests/preview.rs`.
+- [ ] T033 [P] [US3] Add the fake backend `web/tests/support/fake-relays.ts`, which serves zones,
+  relays, link keys, reach and events for the commands above.
+- [ ] T034 [US3] Update `web/src/features/hosts/`:
+  - `reach.ts`, with grouping helpers and reach text, plus Vitest tests;
+  - `HostsPage.tsx`, grouped by zone with `direct` first, relay chips (an icon and colour for
+    state; RTT and streams at ≥ 768 px), and a Path column below state and above versions;
+  - an inspector "Change zone" action through preview/confirm.
+- [ ] T035 [US3] Add `web/src/features/settings/RelaysTab.tsx` and `relays-store.ts`, registered
+  in `tabs.ts` and lazy-loaded. It shows Keel's relay-link key with a copy button, labelled
+  "Add this to `keel_relay_hub_keys`", the zones list, and the relays list with
+  Register/Edit/Revoke dialogs per contracts/ui.md.
+- [ ] T036 [US3] Playwright `web/tests/e2e/s067/hosts-relays.spec.ts` and `relays-tab.spec.ts`:
+  - grouping and paths;
+  - a relay going unreachable flips only its zone;
+  - register with a fingerprint preview;
+  - revoke naming the connected hosts;
+  - link key copy;
+  - the run preview warning.
+
+  Run with `--project=s067`.
+
+## Phase 6: User Story 4, more than one relay per zone (P2)
+
+**Goal**: if one relay in a zone goes away, runners reconnect through the other and runs keep
+dispatching.
+
+**Independent test**: `cargo test -p keel-server --test relay_failover`.
+
+- [ ] T037 [P] [US4] `server/tests/relay_failover.rs` uses two in-process relays in one zone and
+  a runner with both in `--dial`:
+  - stop the relay in use, and the runner reconnects through the other within 60 s with the
+    path updated;
+  - a run in progress on the stopped relay is handled as a lost connection and never runs twice;
+  - a run queued meanwhile dispatches after the reconnect.
+- [ ] T038 [US4] Add a test in `runner/tests/dial.rs` for a dial list with relays first and the
+  direct address last. When the relays are down and the direct address answers, the runner
+  connects direct, and Keel shows `direct`. Fix whatever T037/T038 reveal in
+  `runner/src/runner/mod.rs` or `server/src/relays.rs`.
+
+## Phase 7: User Story 5, typed questions to hosts (P3)
+
+**Goal**: owners ask hosts typed questions over the runner session, direct or relayed. There is
+no shell and no tunnel.
+
+**Independent test**: ask a host behind a relay for an allowed unit's state and its disk health,
+and get answers. Ask for a unit outside `queries.toml`, and get a refusal audited on both sides.
+
+- [ ] T039 [P] [US5] Add `Query { query_id, kind, params, asked_by }`, `QueryAnswer { query_id,
+  answer }` and `QueryRefused { query_id, reason }` to `exec/frames.rs`.
+  - `reason` is one of `not_allowed`, `bad_params`, `unavailable`, `too_large` or `busy`.
+  - Wire them into `Frame::name`, `subsystem` and `may_be_sent_by`.
+  - Add round-trip tests.
+- [ ] T040 [P] [US5] Test first, `runner/tests/queries.rs`:
+  - parsing `queries.toml` with `deny_unknown_fields`;
+  - a missing file refuses every query with `not_allowed`;
+  - unit matching is exact or a trailing `*` on a literal prefix, with the unit matching
+    `^[A-Za-z0-9@._:-]{1,256}$`;
+  - path matching is exact or a path below an allowed one, absolute, normalised, with no `..`,
+    and at most 4096 bytes;
+  - answers over 64 KiB are refused `too_large`, and a fifth query in flight is refused `busy`;
+  - an assertion that the `systemctl` invocation is an argv array with `--` before the unit.
+- [ ] T041 [US5] Implement `runner/src/queries.rs`, which loads
+  `/etc/keel-runner/trust/queries.toml` and answers each kind per contracts/relay.md:
+  - `facts` and `applied_revision` from data the runner already has;
+  - `unit_state` with `systemctl show --property=LoadState,ActiveState,SubState,
+    ActiveEnterTimestamp -- <unit>` through `Command` argv;
+  - `path_free` with `statvfs`;
+  - `disk_health` from `/proc/mounts` and `/sys/block`, plus `smartctl --json` argv when
+    installed, routed to the executor over its socket like `ReadLedger`.
+
+  Append each query to `/var/lib/keel-runner/queries.log` as JSON lines, rotated at 1 MiB
+  keeping 3. Advertise `capabilities: ["query-v1"]` in `Hello`. Dispatch in
+  `runner/src/runner/session.rs` without blocking run frames.
+- [ ] T042 [US5] Implement `server/src/host_queries.rs`:
+  - `AskHost` refuses early when the host is offline or lacks `query-v1` (`no_capability`), and
+    otherwise inserts into `host_queries` and sends `Query` through the run hub (`queue.rs`);
+  - a 15 s timeout gives `timeout`, and the answer, refusal or timeout updates the row and pushes
+    `HostQueryAnswered`;
+  - `ListHostQueries` lists them;
+  - every query is audited as `host.query` with kind, params and outcome, never the answer;
+  - the newest 200 rows per host are kept, with older ones deleted in the same transaction as
+    the insert.
+
+  Test it in `server/tests/host_queries.rs`, both direct and through a relay.
+- [ ] T043 [US5] Add `web/src/features/hosts/QueriesPanel.tsx` in the host inspector, with kind
+  picker, parameter field, Ask, and answers newest first with time, asker and outcome. A host
+  without `query-v1` shows "runner too old for queries". Add Vitest, and Playwright
+  `web/tests/e2e/s067/queries.spec.ts` for answered, refused and too old.
+
+## Phase 8: Release-file cache (FR-010, MAY), blocked on plan D1
+
+**Do not start until spec 055's `/runner/<release>/…` route exists (055 T128/T147/T149).**
+
+- [ ] T044 [US1] Server side, in `server/src/relays.rs`, answer `CacheGet` from the files behind
+  the `/runner` route only. Paths must be under `runner/<release>/` and named in the release
+  manifest. Send 512 KiB `CacheChunk`s, allow at most 4 concurrent requests and 64 MiB per
+  release per relay, and answer `CacheMiss` (`unavailable`, `not_found` or `too_large`).
+  Before D1 lands, implement only the `CacheMiss { reason: "unavailable" }` answer and its test.
+- [ ] T045 [US1] Relay side, in `relay/src/cache.rs`, serve `GET /runner/<release>/<path>` on
+  `http_listen` from `/var/lib/keel-relay/cache/<release>/`, fetching via `CacheGet` on a miss.
+  Add a test that a tampered cache file still fails the host's checksum check.
+
+## Phase 9: Polish, packaging and cross-cutting
+
+- [ ] T046 [P] Add the OTel spans `relay.link` (relay id, state), `relay.stream` (relay id and
+  byte counts, never contents) and `host.query` (kind, outcome) in `server/src/relays.rs`,
+  `server/src/host_queries.rs` and `relay/src/forward.rs`.
+- [ ] T047 [P] Add `apps/keel/compose.relay.yaml` per quickstart.md §2:
+  - networks `hub` and `spoke`, with `relay` on both and `runner` on `spoke` only;
+  - `restart: ${RESTART_POLICY:-no}` on every service.
+
+  Walk through the quickstart §2 steps by hand and record the results in this file under T047.
+- [ ] T048 Add `keel-relay` to the release build that produces `keel-runner`: the same checksums
+  file, x86_64 and aarch64 (`apps/keel/Makefile`, release scripts).
+- [ ] T049 [P] Write `docs/guides/keel/relays.md`, covering:
+  - when to use a relay;
+  - zones;
+  - registering by pasting keys both ways;
+  - the trust properties (the relay can only drop or delay);
+  - relays as host services, never cluster workloads;
+  - queries and `queries.toml`.
+
+  Also add an architecture note to `CONTRIBUTING.md`.
+- [ ] T050 **(../ansible, owner go-ahead)** Add `keel_runner_dial`,
+  `keel_runner_download_origin` and `keel_runner_queries` to `roles/keel_runner`, with the
+  validation in contracts/ansible.md. The unit gets one `--dial` per entry.
+- [ ] T051 **(../ansible, owner go-ahead)** Add a new `roles/keel_relay` and a `keel-relay`
+  profile per contracts/ansible.md, including the checksum fail-closed install and printing the
+  relay key.
+- [ ] T052 Main session only: run `scripts/hygiene.sh`, then the full gate once on the combined
+  branch (`scripts/ci.sh`). Report wall time, the slowest steps and the delta from the last pass.
+- [ ] T053 Brochure screens last: `polish-screens` shots of the Hosts page with zones and of
+  Settings → Relays at 360 and 1280 px, then the impeccable pass over both.
+- [ ] T054 After D1–D3 land: SC-001 on real hosts (quickstart.md §3). Install the relay on one
+  OVH host, set `keel_runner_dial` on `ns534168` and `ns5004891`, confirm no inbound port is
+  open at home and no tailnet is in use, and run a signed job on each.
+
+## Dependencies & execution order
+
+- Phase 1 → Phase 2 → stories.
+- US1 (Phase 3) is the MVP and blocks US2, US4 and US5. US2 ships with US1 and is not optional.
+- US3 needs T023 and T027, and can start after Phase 2 in parallel with the US1 implementation,
+  apart from T030/T031, which need the supervisor (T020).
+- US4 needs US1. US5 needs Phase 2 only for the frames, but its relayed test needs US1.
+- Phase 8 is blocked on plan D1. T050/T051 are blocked on the owner. T054 is blocked on D1–D3.
+
+## Parallel opportunities
+
+- Phase 2: T005, T007, T009 and T013 touch separate files.
+- US1: T014, T015 and T016 (tests) in parallel. Then the relay half (T017–T019), the server half
+  (T020, T021, T023) and the runner half (T022) can go to three agents in separate worktrees.
+- US2: T024 and T025 in parallel.
+- US3: T028, T029 and T033 in parallel. Then server (T030–T032) and web (T034–T036).
+- US5: T039 and T040 in parallel. Then runner (T041) and server (T042), then web (T043).
+
+## Implementation strategy
+
+1. **MVP = Phases 1–4** (US1 and US2 together): a relayed host runs signed jobs, and a hostile
+   relay is proven harmless. US1 must not ship without US2 (spec).
+2. Then US3, so operators can see relays.
+3. Then US4, then US5.
+4. Phase 8 when D1 lands. The ../ansible tasks when the owner says go.
+5. Brochure screens last (T053).
