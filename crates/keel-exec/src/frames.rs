@@ -276,6 +276,10 @@ pub enum Frame {
         /// (spec 066 R7). Omitted by old runners and when the box has none.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         age_recipient: Option<String>,
+        /// What this runner can answer beyond runs, e.g. `query.facts` (spec 067). Omitted by old
+        /// runners and when empty.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        capabilities: Vec<String>,
     },
     /// Either side may start a renewal; the server answers with `Cert`.
     RenewCert {},
@@ -516,6 +520,7 @@ impl fmt::Debug for Frame {
                 ledger_head,
                 bases,
                 age_recipient,
+                capabilities,
             } => d
                 .field("host_id", host_id)
                 .field("version", version)
@@ -526,7 +531,8 @@ impl fmt::Debug for Frame {
                 .field("override_quorum", override_quorum)
                 .field("ledger_head", ledger_head)
                 .field("bases", bases)
-                .field("age_recipient", age_recipient),
+                .field("age_recipient", age_recipient)
+                .field("capabilities", capabilities),
             Frame::RenewCert {} | Frame::Ping | Frame::Pong | Frame::ReadLedger => &mut d,
             Frame::Cert { cert } => d.field("cert", cert),
             Frame::Krl { bytes } => d.field("bytes", &Len(bytes.len())),

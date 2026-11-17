@@ -154,6 +154,8 @@ impl Runner {
             ledger_head,
             bases,
             age_recipient: self.age_recipient(),
+            // `query-v1` once the runner answers host queries (spec 067).
+            capabilities: Vec::new(),
         };
         send(&out, hello)?;
         // Results Keel missed while it restarted, oldest first, then a Ping whose Pong

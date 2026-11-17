@@ -60,6 +60,7 @@ async fn attach(h: &Harness, id: Uuid) -> DuplexStream {
             ledger_head: None,
             bases: vec![],
             age_recipient: None,
+            capabilities: Vec::new(),
         },
     )
     .await

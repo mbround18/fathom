@@ -60,6 +60,7 @@ fn every_frame() -> Vec<Frame> {
                 commit: "a".repeat(40),
             }],
             age_recipient: Some(format!("age1{}", "q".repeat(58))),
+            capabilities: vec!["query.facts".into()],
         },
         Frame::RenewCert {},
         Frame::Cert {
@@ -675,4 +676,27 @@ fn an_env_var_secret_round_trips_and_old_runners_refuse_it() {
     assert_eq!(v["items"][0]["env_name"], "CLOUDFLARE_API_TOKEN");
     assert!(serde_json::from_value::<SecretItem061>(v["items"][0].clone()).is_err());
     assert!(!format!("{frame:?}").contains("\"tok\""));
+}
+
+/// Spec 067 T009: `capabilities` round-trips, an old runner's `Hello` without it still parses,
+/// and an empty list is omitted so an old Keel never sees the field.
+#[test]
+fn hello_capabilities_are_optional_on_the_wire() {
+    let old = serde_json::json!({
+        "frame": "Hello", "host_id": "h-1", "version": "0.1.0", "ansible_core": "2.19.1",
+        "python": "3.12.3", "allowed_profiles": [], "require_signed": false,
+        "override_quorum": 1, "ledger_head": null, "bases": []
+    });
+    let frame: Frame = serde_json::from_value(old.clone()).unwrap();
+    assert!(matches!(&frame, Frame::Hello { capabilities, .. } if capabilities.is_empty()));
+    assert_eq!(serde_json::to_value(&frame).unwrap(), old);
+
+    let mut new = old;
+    new["capabilities"] = serde_json::json!(["query.facts", "query.unit_state"]);
+    let frame: Frame = serde_json::from_value(new.clone()).unwrap();
+    assert!(matches!(
+        &frame,
+        Frame::Hello { capabilities, .. } if capabilities == &["query.facts", "query.unit_state"]
+    ));
+    assert_eq!(serde_json::to_value(&frame).unwrap(), new);
 }
