@@ -221,11 +221,14 @@ attempt fails closed, no job runs, and each attempt leaves an audit row.
   - sends an unknown control frame, then an oversized one.
 
   Assert a `relay.refused` audit row for each, and no run.
-- [ ] T026 [US2] Wire the refusal callbacks from T008 into `server/src/relays.rs`. Every refusal
+
+  Remaining: `tcpip-forward` and `exec` are refused by russh 0.65 itself with no handler hook, so
+  the test asserts the refusal but there is no audit row; needs an upstream russh hook or a patch.
+- [X] T026 [US2] Wire the refusal callbacks from T008 into `server/src/relays.rs`. Every refusal
   writes `relay.refused { reason, detail }` (coalesced per T061). A **protocol violation**
   quarantines the relay (T059); a refused runner auth on a carried stream does not, because that
   is a runner's failure, not the relay's.
-- [ ] T027 [US2] Implement revocation in `server/src/relays.rs`, US2 acceptance 6 and FR-006:
+- [X] T027 [US2] Implement revocation in `server/src/relays.rs`, US2 acceptance 6 and FR-006:
   - `revoke_relay` sets `revoked_at` and audits `relay.revoke` in one transaction;
   - it sends `Close`, drops the link, and closes every carried runner stream at once;
   - runs on those streams follow the lost-runner path in `queue.rs`;
@@ -253,6 +256,10 @@ side, and anything an honest relay never does takes the relay out of service.
   since. Before a carried stream is served, Keel re-reads the relay row, so a stream that races a
   revoke or quarantine is refused. Test it in `server/tests/hostile_relay.rs`, checking every
   violation above.
+
+  Remaining: global requests and unknown channel requests (`tcpip-forward`, `exec`, `shell`,
+  `pty`, `env`, agent) are refused by russh without a hook, so they do not quarantine yet; the
+  `PreviewRelayRelease` mutation and preview are US3 (`release_relay` is in place for it).
 - [ ] T060 [US2] **Keel-side limits, independent of the relay's own**, in `server/src/relays.rs`
   and `exec/relay.rs`. A server config value sets each:
   - at most 256 concurrent carried streams per relay, beyond which channel opens are refused;
@@ -267,11 +274,15 @@ side, and anything an honest relay never does takes the relay out of service.
   quarantine the relay, since a busy honest zone can hit these limits. Test with a flooding
   relay: Keel stays within a fixed memory bound, and direct runners and other relays stay
   served.
-- [ ] T061 [US2] **Audit and log flood control**: `relay.refused` and limit hits are coalesced
+
+  Remaining: the 1 MiB frame cap, 4 unanswered Pings, link window/packet sizes and keepalives
+  are constants in `keel-exec`, not server config values (streams, rate, burst and auth deadline
+  are config).
+- [X] T061 [US2] **Audit and log flood control**: `relay.refused` and limit hits are coalesced
   per `(relay, reason)` per minute into one row with a `count`. `tracing` output on relay paths
   is rate-limited the same way. A relay can never grow the audit table faster than this. Test
   that 10 000 refusals in a minute give one row with `count = 10000`.
-- [ ] T062 [US2] **The advisory peer is never trusted**. A relay's claimed `advisory_peer` is used
+- [X] T062 [US2] **The advisory peer is never trusted**. A relay's claimed `advisory_peer` is used
   only for display and audit. No authentication, rate-limit key, allow list or host identity is
   derived from it. Enrollment and join attempts through a relay are rate-limited per relay id.
   Add a test, and a grep-style unit test that `advisory_peer` is read only by the
