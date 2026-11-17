@@ -448,6 +448,47 @@ async fn a_runner_lost_while_the_run_is_alone_fails_it_runner_lost() {
     f.finish().await;
 }
 
+/// Spec 067 D2: after a crash, hosts left `running` are marked lost at start-up, so the
+/// one-run-per-host lock cannot block them forever, and the run ends `runner_lost`.
+#[tokio::test]
+async fn hosts_in_flight_at_start_up_are_lost_and_freed() {
+    let Some(f) = Fixture::new("run_recover_in_flight", settings()).await else {
+        return;
+    };
+    f.push("playbooks/web.yaml", "- hosts: web\n").await;
+    let run = f.runs().await[0].0;
+    // What a crash leaves behind: rows in flight with no session to finish them.
+    sqlx::query("update run_hosts set state = 'running' where run_id = $1")
+        .bind(run)
+        .execute(&f.h.db.owner)
+        .await
+        .unwrap();
+    sqlx::query("update runs set state = 'running', started_at = now() where id = $1")
+        .bind(run)
+        .execute(&f.h.db.owner)
+        .await
+        .unwrap();
+    assert_eq!(
+        keel_server::queue::recover_in_flight(&f.h.app)
+            .await
+            .unwrap(),
+        2
+    );
+    assert!(f.host_states(run).await.iter().all(|(_, s)| s == "lost"));
+    assert_eq!(
+        f.ended(run, Duration::from_secs(10)).await,
+        ("failed".into(), Some("runner_lost".into()))
+    );
+    // Nothing is left in flight, so a second start-up finds nothing.
+    assert_eq!(
+        keel_server::queue::recover_in_flight(&f.h.app)
+            .await
+            .unwrap(),
+        0
+    );
+    f.finish().await;
+}
+
 /// Spec 067 D2: one run per host. Two queued runs for the same hosts: each host is sent the
 /// older one only (both hosts at once), and the newer one goes out when the older one ends.
 #[tokio::test]

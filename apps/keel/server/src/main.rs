@@ -267,6 +267,11 @@ async fn serve(cfg: Config, tls: Option<tokio_rustls::TlsAcceptor>, exporting: b
     if let Err(e) = keel_server::updates::record_build_seen(&app.db, &app.updates.build).await {
         tracing::error!(error = %e, "recording the running build failed");
     }
+    // Runs in flight when Keel last stopped can never finish on their old sessions; free their
+    // hosts before any runner connects (spec 067 D2).
+    if let Err(e) = keel_server::queue::recover_in_flight(&app).await {
+        return refuse(&format!("recovering in-flight runs: {e}"));
+    }
     let runners = match runner_listener::spawn(app.clone(), runner_listener) {
         Ok(t) => t,
         Err(e) => return refuse(&format!("runner listener: {e}")),

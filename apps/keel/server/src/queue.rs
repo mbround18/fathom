@@ -1358,6 +1358,42 @@ async fn disconnected(app: &AppState, host: Uuid) {
     }
 }
 
+/// At start-up no runner session survives, so every host still `sent` or `running` is lost.
+/// Without this a crash would leave those hosts blocked by the one-run-per-host lock forever
+/// (spec 067 D2). A runner that reconnects and replays `Finished` still records the real
+/// outcome on the lost row (spec 060). Returns how many hosts were marked lost.
+pub async fn recover_in_flight(app: &AppState) -> Result<usize, sqlx::Error> {
+    let rows: Vec<(Uuid, String)> = sqlx::query_as(
+        "update run_hosts set state = 'lost', ended_at = now() \
+         where state in ('sent', 'running') returning run_id, host_name",
+    )
+    .fetch_all(&app.db)
+    .await?;
+    let count = rows.len();
+    let mut runs = std::collections::BTreeSet::new();
+    for (run, name) in rows {
+        record(
+            app,
+            run,
+            vec![Rec::Event {
+                kind: "runner_lost".into(),
+                host: Some(name),
+                task: None,
+                data: json!({ "reason": "keel_restart" }),
+            }],
+        )
+        .await;
+        runs.insert(run);
+    }
+    for run in runs {
+        maybe_finish(app, run).await;
+    }
+    if count > 0 {
+        tracing::warn!(hosts = count, "hosts in flight at start-up marked lost");
+    }
+    Ok(count)
+}
+
 /// Ends `run` once every host is terminal: its state, summary, log tail, audit and push.
 pub(crate) async fn maybe_finish(app: &AppState, run: Uuid) {
     if let Err(e) = try_finish(app, run).await {
