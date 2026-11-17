@@ -121,6 +121,10 @@ pub struct Flags {
     /// Web dist, served from disk [env: KEEL_STATIC_DIR] [default: /usr/share/keel/web]
     #[arg(long, global = true)]
     pub static_dir: Option<PathBuf>,
+    /// Runner release served at /runner/latest/…, from disk; missing means 404, not a start
+    /// failure [env: KEEL_RUNNER_DIST_DIR] [default: /usr/share/keel/runner]
+    #[arg(long, global = true)]
+    pub runner_dist_dir: Option<PathBuf>,
     /// OIDC issuer URL [env: KEEL_OIDC_ISSUER]
     #[arg(long, global = true)]
     pub oidc_issuer: Option<String>,
@@ -402,6 +406,8 @@ pub struct Config {
     pub master_key_file: PathBuf,
     pub data_dir: PathBuf,
     pub static_dir: PathBuf,
+    /// The runner release (`/runner/…`). Never checked at start: missing serves 404.
+    pub runner_dist_dir: PathBuf,
     pub providers: Vec<ProviderConfig>,
     pub step_up_window: Duration,
     pub approval_ttl_default: Duration,
@@ -778,6 +784,13 @@ impl Config {
             "KEEL_STATIC_DIR",
         );
         let static_dir = PathBuf::from(static_dir.unwrap_or_else(|| "/usr/share/keel/web".into()));
+        let runner_dist_dir = r.pick(
+            "runner_dist_dir",
+            flags.runner_dist_dir.map(|p| p.display().to_string()),
+            "KEEL_RUNNER_DIST_DIR",
+        );
+        let runner_dist_dir =
+            PathBuf::from(runner_dist_dir.unwrap_or_else(|| "/usr/share/keel/runner".into()));
 
         let otel_endpoint = r.pick(
             "otel_endpoint",
@@ -889,6 +902,7 @@ impl Config {
             master_key_file,
             data_dir,
             static_dir,
+            runner_dist_dir,
             providers,
             step_up_window,
             approval_ttl_default,

@@ -241,6 +241,8 @@ async fn serve(cfg: Config, tls: Option<tokio_rustls::TlsAcceptor>, exporting: b
         public_url = %cfg.public_url,
         providers = ?cfg.provider_ids(),
         static_dir = %cfg.static_dir.display(),
+        runner_dist_dir = %cfg.runner_dist_dir.display(),
+        runner_dist_present = cfg.runner_dist_dir.is_dir(),
         insecure_dev = cfg.insecure_dev,
         otel = exporting,
         build = %cfg.build.display(),

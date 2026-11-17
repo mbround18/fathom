@@ -9,6 +9,7 @@
 //! | GET | `/api/v1/ws` | the WebSocket (`ws.rs`) |
 //! | POST | `/api/v1/cmd` | one command over HTTP (`api.rs`) |
 //! | POST | `/hooks/{id}` | a source-control webhook delivery (`hooks.rs`), 1 MiB cap |
+//! | GET | `/runner/…` | the runner release from `--runner-dist-dir` (`runner_dist.rs`) |
 //! | GET | `/*` | static files from `--static-dir`, SPA fallback to `index.html` |
 //!
 //! The web build is served from disk, never embedded in the binary. Unknown `/api` and `/auth`
@@ -340,6 +341,9 @@ pub fn router(app: AppState) -> Router {
         .route("/api/{*rest}", any(not_found))
         .route("/auth", any(not_found))
         .route("/auth/{*rest}", any(not_found))
+        .merge(crate::runner_dist::router(
+            crate::runner_dist::RunnerDist::from_config(&app.cfg),
+        ))
         .nest_service("/assets", assets)
         .fallback_service(spa)
         .method_not_allowed_fallback(method_not_allowed)
