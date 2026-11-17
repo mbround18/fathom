@@ -4,6 +4,7 @@ import { HOST_NAME, useEnroll } from '@/features/hosts/enroll-store'
 import { parseProfiles, useHosts } from '@/features/hosts/store'
 import type { HostInfo, Preview } from '@/protocol/wire'
 
+import { HOST_068 } from '../support/defaults'
 import type { FakeSocket } from './fake-socket'
 import { frames, lastCmd, resetSession, signIn } from './session-helpers'
 
@@ -31,6 +32,7 @@ const host = (over: Partial<HostInfo> = {}): HostInfo => ({
   changed_outside: false,
   age_recipient: null,
   inventory_status: 'unknown',
+  ...HOST_068,
   ...over,
 })
 

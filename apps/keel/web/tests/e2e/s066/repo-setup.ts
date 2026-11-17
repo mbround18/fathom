@@ -10,6 +10,7 @@ import { catalog, type FakeCatalog } from '../../support/fake-catalog'
 import { FakeForge } from '../../support/fake-forge'
 import { governance, type FakeGovernance } from '../../support/fake-governance'
 import { FakeHosts } from '../../support/fake-hosts'
+import { BINDING_068 } from '../../support/defaults'
 import { HEAD, NOW } from '../../support/fake-repos'
 import { workspaceRepo } from '../../support/fake-workspace-repo'
 
@@ -74,6 +75,7 @@ function bind(backend: FakeBackend, ops: WorkspaceInfo): void {
     last_synced_at: NOW,
     last_sync_error: null,
     manifest_problems: [],
+    ...BINDING_068,
   }
   backend.repos.bindings.push(binding)
   ops.primary_binding = binding.id

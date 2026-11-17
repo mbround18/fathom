@@ -34,7 +34,7 @@ function Detail({ job, canRun }: { job: JobInfo; canRun: boolean }) {
             size="sm"
             variant="outline"
             onClick={() => {
-              propose(`Run ${job.name}`, { type: 'PreviewRunStart', data: { job: job.id, limit: null } })
+              propose(`Run ${job.name}`, { type: 'PreviewRunStart', data: { job: job.id, limit: null, params: {}, check: false } })
             }}
           >
             <PlayIcon aria-hidden />

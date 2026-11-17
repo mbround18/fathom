@@ -35,6 +35,7 @@ import type {
   UpdateStatusLine,
 } from '../../src/protocol/wire'
 import type { FakeBackend } from './fake-backend'
+import { RUN_068 } from './defaults'
 import { NOW } from './fake-repos'
 import { SYSTEM_WORKSPACE } from './fake-settings'
 
@@ -163,6 +164,7 @@ export const updateFixtures = {
     summary: null,
     params: { keel_server_image_digest: digest },
     approval: null,
+    ...RUN_068,
   }),
 }
 
