@@ -3,13 +3,14 @@
  * the per-host results with each host’s first failure. The job params it was queued with sit next to
  * its commit (spec 061). A run pinned to an inventory revision that has since been replaced says so.
  * A run that has not ended can be cancelled, previewed first. A run held for approval (spec 064) shows
- * its approval panel above the output.
+ * its approval panel above the output. A converge run (spec 068) is its own page,
+ * `features/converge/ConvergePage.tsx`, loaded once the run says its kind.
  */
 import { ArrowLeftIcon, StopIcon } from '@phosphor-icons/react'
 import { LogView } from '@companion/terminal'
 import { Button } from '@companion/ui'
-import { ConfirmDialog, DataTable, H2, LABEL, Link, LINK, Page, PageHeader, type Params } from '@companion/ui/kit'
-import { useEffect, useMemo, useState } from 'react'
+import { ConfirmDialog, DataTable, H2, LABEL, Link, LINK, LoadState, Page, PageHeader, type Params } from '@companion/ui/kit'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { canOperate } from '@/features/hosts/workspaces'
@@ -19,6 +20,8 @@ import { when } from '@/features/settings/updates'
 import { ApprovalPanel, DecisionDialog } from './ApprovalPanel'
 import { ErrorLine, StateBadge } from './parts'
 import { active, reasonText, short, useRuns } from './store'
+
+const ConvergePage = lazy(() => import('@/features/converge/ConvergePage'))
 
 const STATS: (keyof HostStats)[] = ['ok', 'changed', 'failed', 'unreachable', 'skipped', 'rescued', 'ignored']
 
@@ -210,6 +213,13 @@ export default function RunPage({ params }: { params: Params }) {
 
   const shown = useMemo(() => (partial ? [...lines, partial] : lines), [lines, partial])
   const run = detail?.run.id === id ? detail.run : null
+
+  if (run?.kind === 'converge')
+    return (
+      <Suspense fallback={<LoadState loading label="Loading the converge…" />}>
+        <ConvergePage run={run} />
+      </Suspense>
+    )
 
   return (
     <Page name="run" labelledBy="run-title">
