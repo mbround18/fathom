@@ -1438,16 +1438,60 @@ pub async fn recover_in_flight(app: &AppState) -> Result<usize, sqlx::Error> {
     for run in runs {
         maybe_finish(app, run).await;
     }
+    // A converge hold with no step queued or out would never be released (spec 068 T021).
+    for parent in release_stale_holds(app).await? {
+        tracing::warn!(run = %parent, "a converge hold with no live step was released");
+        settle_converge(app, parent).await;
+    }
     if count > 0 {
         tracing::warn!(hosts = count, "hosts in flight at start-up marked lost");
     }
     Ok(count)
 }
 
+/// Fails each converge host held with no step queued, sent or running, and skips its blocked
+/// steps. Returns the converges touched.
+async fn release_stale_holds(app: &AppState) -> Result<Vec<Uuid>, sqlx::Error> {
+    let mut tx = app.db.begin().await?;
+    let stale: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        "update converge_hosts ch set state = 'failed', ended_at = now() \
+         where ch.state = 'holding' and not exists ( \
+             select 1 from converge_steps s join run_hosts rh \
+               on rh.run_id = s.step_run_id and rh.host_id = s.host_id \
+              where s.run_id = ch.run_id and s.host_id = ch.host_id \
+                and rh.state in ('queued', 'sent', 'running')) \
+         returning ch.run_id, ch.host_id",
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    if stale.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (runs, hosts): (Vec<Uuid>, Vec<Uuid>) = stale.iter().copied().unzip();
+    sqlx::query(
+        "update run_hosts rh set state = 'skipped', ended_at = now(), \
+                skip_reason = 'dependency_failed' \
+         from converge_steps s, unnest($1::uuid[], $2::uuid[]) c(run, host) \
+         where s.run_id = c.run and s.host_id = c.host \
+           and rh.run_id = s.step_run_id and rh.host_id = s.host_id and rh.state = 'blocked'",
+    )
+    .bind(&runs)
+    .bind(&hosts)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let parents: std::collections::BTreeSet<Uuid> = runs.into_iter().collect();
+    Ok(parents.into_iter().collect())
+}
+
 /// Ends `run` once every host is terminal: its state, summary, log tail, audit and push.
 pub(crate) async fn maybe_finish(app: &AppState, run: Uuid) {
     match try_finish(app, run).await {
-        Ok(Some(parent)) => settle_converge(app, parent).await,
+        Ok(Some(parent)) => {
+            use tracing::Instrument as _;
+            let span = tracing::info_span!("converge.step", converge = %parent, step = %run);
+            settle_converge(app, parent).instrument(span).await;
+        }
         Ok(None) => {}
         Err(e) => tracing::error!(error = %e, run = %run, "finishing a run failed"),
     }

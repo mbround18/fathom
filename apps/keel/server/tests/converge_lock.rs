@@ -290,7 +290,10 @@ async fn one_converge_holds_a_host_at_a_time() {
         .bind(run)
         .bind(x)
     };
-    hold(first.parent).execute(&h.db.app).await.expect("first holds");
+    hold(first.parent)
+        .execute(&h.db.app)
+        .await
+        .expect("first holds");
     let err = hold(second.parent)
         .execute(&h.db.app)
         .await
@@ -333,5 +336,93 @@ async fn converge_rows_have_their_shape() {
     .await
     .expect_err("rollback child");
     assert!(err.to_string().contains("runs_converge_shape"), "{err}");
+    h.finish().await;
+}
+
+async fn ended(h: &Harness, run: Uuid) -> (String, bool) {
+    sqlx::query_as("select state, ended_at is not null from runs where id = $1")
+        .bind(run)
+        .fetch_one(&h.db.owner)
+        .await
+        .expect("run")
+}
+
+#[tokio::test]
+async fn a_restart_with_a_step_out_fails_that_host_and_ends_the_converge() {
+    let Some(h) = Harness::new("converge_restart_in_flight").await else {
+        return;
+    };
+    let x = host(&h, "x").await;
+    let t = three(&h, &[x]).await;
+    sqlx::query("update converge_hosts set state = 'holding' where run_id = $1")
+        .bind(t.parent)
+        .execute(&h.db.app)
+        .await
+        .unwrap();
+    set(&h, t.a, x, "sent").await;
+    keel_server::queue::recover_in_flight(&h.app)
+        .await
+        .expect("recover");
+    assert_eq!(step(&h, t.a, x).await.0, "lost");
+    assert_eq!(
+        step(&h, t.b, x).await,
+        ("skipped".into(), Some("dependency_failed".into()))
+    );
+    assert_eq!(hold(&h, t.parent, x).await, ("failed".into(), true));
+    assert_eq!(ended(&h, t.parent).await, ("failed".into(), true));
+    for c in [t.a, t.b, t.c] {
+        assert!(ended(&h, c).await.1, "every step run ends");
+    }
+    h.finish().await;
+}
+
+#[tokio::test]
+async fn a_restart_reconciles_a_hold_with_no_live_step() {
+    let Some(h) = Harness::new("converge_restart_stale_hold").await else {
+        return;
+    };
+    let x = host(&h, "x").await;
+    let parent = parent(&h, "running").await;
+    let a = child(&h, parent, "a").await;
+    let b = child(&h, parent, "b").await;
+    // Held, but nothing queued or out: no step will ever release it.
+    plan(&h, parent, x, &[(a, "a"), (b, "b")], "blocked").await;
+    sqlx::query("update converge_hosts set state = 'holding' where run_id = $1")
+        .bind(parent)
+        .execute(&h.db.app)
+        .await
+        .unwrap();
+    keel_server::queue::recover_in_flight(&h.app)
+        .await
+        .expect("recover");
+    assert_eq!(hold(&h, parent, x).await, ("failed".into(), true));
+    assert_eq!(
+        step(&h, b, x).await,
+        ("skipped".into(), Some("dependency_failed".into()))
+    );
+    assert_eq!(ended(&h, parent).await, ("failed".into(), true));
+    h.finish().await;
+}
+
+#[tokio::test]
+async fn a_restart_leaves_a_hold_between_steps_alone() {
+    let Some(h) = Harness::new("converge_restart_between").await else {
+        return;
+    };
+    let x = host(&h, "x").await;
+    let t = three(&h, &[x]).await;
+    sqlx::query("update converge_hosts set state = 'holding' where run_id = $1")
+        .bind(t.parent)
+        .execute(&h.db.app)
+        .await
+        .unwrap();
+    set(&h, t.a, x, "sent").await;
+    set(&h, t.a, x, "succeeded").await;
+    keel_server::queue::recover_in_flight(&h.app)
+        .await
+        .expect("recover");
+    assert_eq!(step(&h, t.b, x).await.0, "queued");
+    assert_eq!(hold(&h, t.parent, x).await, ("holding".into(), false));
+    assert_eq!(ended(&h, t.parent).await, ("running".into(), false));
     h.finish().await;
 }
