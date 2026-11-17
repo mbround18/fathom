@@ -1119,11 +1119,15 @@ async fn cancel_run(
     )
     .await?;
     tx.commit().await?;
-    for (host,) in stop {
+    for &(host,) in &stop {
         crate::queue::cancel(app, run, host);
     }
     crate::queue::push_state(app, ws, run, next);
     crate::queue::maybe_finish(app, run).await;
+    // A host whose `sent` row was cancelled is free for its next queued run (spec 067 D2).
+    if !stop.is_empty() {
+        crate::queue::kick(app);
+    }
     Ok(Ok(next))
 }
 

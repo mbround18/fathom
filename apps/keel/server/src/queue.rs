@@ -6,7 +6,8 @@
 //! closed session marks its in-flight hosts `lost`.
 //!
 //! [`kick`] dispatches: it claims queued `run_hosts` of connected hosts with
-//! `FOR UPDATE SKIP LOCKED` (so concurrent kicks never claim one twice), moves their runs from
+//! `FOR UPDATE SKIP LOCKED` (so concurrent kicks never claim one twice), one run per host at a
+//! time in `created_at` order (a host's row leaving `sent`/`running` kicks again), moves their runs from
 //! `queued` to `running`, and sends each host `Assign`, `Secrets` and the `Pack` frames, the
 //! last `Pack` being the runner's signal to start. Secret values go to the runner only: never
 //! into a log line, a run event or an error.
@@ -830,6 +831,8 @@ impl Session {
                 }
                 self.active.remove(&run);
                 maybe_finish(&self.app, run).await;
+                // The host is free: its next queued run goes out.
+                kick(&self.app);
             }
             Frame::Event { run_id, json, .. } => {
                 let Some(run) = self.active(&run_id).await else {
@@ -926,6 +929,8 @@ impl Session {
                 if let Err(e) = crate::outside::after_finished(&self.app, self.host).await {
                     tracing::warn!(error = %e, host = %self.host, "clearing changed_outside failed");
                 }
+                // The host is free: its next queued run goes out.
+                kick(&self.app);
             }
             // Runs outside Keel (058 A2): acknowledged only once stored, so a failure is re-sent.
             Frame::OutsideRuns {
@@ -1330,6 +1335,10 @@ async fn disconnected(app: &AppState, host: Uuid) {
     }
     match result {
         Ok(rows) => {
+            // A runner that is already back gets its next queued run (spec 067 D2).
+            if !rows.is_empty() {
+                kick(app);
+            }
             for (run, name) in rows {
                 record(
                     app,
@@ -1559,10 +1568,22 @@ async fn dispatch_ready(app: &AppState) -> Result<(), sqlx::Error> {
         return Ok(());
     }
     let mut tx = app.db.begin().await?;
+    // One run per host (spec 067 D2): a host with a row in `sent` or `running` gets nothing new,
+    // and an idle host gets only its oldest queued run. `distinct on` cannot take `for update`,
+    // so the pick is a subquery and the outer select locks it; a row another kick holds is
+    // skipped (that kick sends it), and one it already claimed fails the recheck of `state`.
+    // Migration 0016's unique index is the backstop.
     let claimed: Vec<(Uuid, Uuid)> = sqlx::query_as(
-        "select rh.run_id, rh.host_id from run_hosts rh join runs r on r.id = rh.run_id \
-         where rh.state = 'queued' and rh.host_id = any($1) and r.state in ('queued', 'running') \
-         order by r.created_at for update of rh skip locked",
+        "select rh.run_id, rh.host_id from run_hosts rh \
+         where rh.state = 'queued' and (rh.run_id, rh.host_id) in ( \
+             select distinct on (q.host_id) q.run_id, q.host_id \
+               from run_hosts q join runs r on r.id = q.run_id \
+              where q.state = 'queued' and q.host_id = any($1) \
+                and r.state in ('queued', 'running') \
+                and not exists (select 1 from run_hosts b \
+                                 where b.host_id = q.host_id and b.state in ('sent', 'running')) \
+              order by q.host_id, r.created_at, r.id) \
+         for update of rh skip locked",
     )
     .bind(&connected)
     .fetch_all(&mut *tx)
@@ -1856,6 +1877,8 @@ async fn fail_host(app: &AppState, run: Uuid, host: Uuid, why: AssignError) {
         .await;
     }
     maybe_finish(app, run).await;
+    // The host is free again (or gone): the next queued run is tried.
+    kick(app);
 }
 
 /// Sends `Cancel` to `host`'s runner (best effort).

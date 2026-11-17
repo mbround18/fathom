@@ -448,6 +448,129 @@ async fn a_runner_lost_while_the_run_is_alone_fails_it_runner_lost() {
     f.finish().await;
 }
 
+/// Spec 067 D2: one run per host. Two queued runs for the same hosts: each host is sent the
+/// older one only (both hosts at once), and the newer one goes out when the older one ends.
+#[tokio::test]
+async fn a_host_is_sent_one_run_at_a_time_in_created_order() {
+    let Some(f) = Fixture::new("run_host_lock", settings()).await else {
+        return;
+    };
+    f.push("playbooks/web.yaml", "- hosts: web\n").await;
+    f.push("playbooks/web.yaml", "- hosts: web\n# again\n")
+        .await;
+    let runs = f.runs().await;
+    assert_eq!(runs.len(), 2, "{runs:?}");
+    let (first, second) = (runs[0].0, runs[1].0);
+    let mut runners = f
+        .attach(|_, id| FakeRunner::new(id.to_string()).default_script(Script::hang()))
+        .await;
+    // Both hosts take the first run in parallel.
+    let start = Instant::now();
+    loop {
+        let states = f.host_states(first).await;
+        if states.iter().all(|(_, s)| s == "running") {
+            break;
+        }
+        assert!(start.elapsed() < Duration::from_secs(10), "{states:?}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // The second stays queued while they are busy, however often dispatch runs.
+    for _ in 0..3 {
+        keel_server::queue::kick(&f.h.app);
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(
+        f.host_states(second).await,
+        [
+            ("web-1".to_owned(), "queued".to_owned()),
+            ("web-2".to_owned(), "queued".to_owned())
+        ]
+    );
+    for r in &mut runners {
+        let mut assigned = Vec::new();
+        while let Ok(frame) = r.received.try_recv() {
+            if let Frame::Assign { run_id, .. } = frame {
+                assigned.push(run_id);
+            }
+        }
+        assert_eq!(assigned, [first.to_string()]);
+    }
+    // The first ends (cancelled: the runners answer Cancel with Finished); the second goes out.
+    f.h.confirm(Cmd::PreviewCancel { run: first }).await;
+    assert_eq!(f.ended(first, Duration::from_secs(10)).await.0, "cancelled");
+    let start = Instant::now();
+    loop {
+        let states = f.host_states(second).await;
+        if states.iter().all(|(_, s)| s == "running") {
+            break;
+        }
+        assert!(start.elapsed() < Duration::from_secs(10), "{states:?}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    f.h.confirm(Cmd::PreviewCancel { run: second }).await;
+    assert_eq!(
+        f.ended(second, Duration::from_secs(10)).await.0,
+        "cancelled"
+    );
+    f.finish().await;
+}
+
+/// Spec 067 D2: queued runs drain in order as each one finishes, never overlapping on a host;
+/// the database refuses a second in-flight row for a host (migration 0016).
+#[tokio::test]
+async fn queued_runs_drain_one_by_one_as_each_finishes() {
+    let Some(f) = Fixture::new("run_host_lock_drain", settings()).await else {
+        return;
+    };
+    f.push("playbooks/web.yaml", "- hosts: web\n").await;
+    f.push("playbooks/web.yaml", "- hosts: web\n# again\n")
+        .await;
+    f.push("playbooks/web.yaml", "- hosts: web\n# and again\n")
+        .await;
+    let runs: Vec<Uuid> = f.runs().await.into_iter().map(|r| r.0).collect();
+    assert_eq!(runs.len(), 3);
+    let _runners = f
+        .attach(|name, id| {
+            FakeRunner::new(id.to_string())
+                .default_script(Script::finish(0).stats(name, ok_stats()))
+        })
+        .await;
+    for run in &runs {
+        assert_eq!(f.ended(*run, SC_003).await, ("succeeded".into(), None));
+    }
+    // Per host, each run started after the previous one ended, in created order.
+    let rows: Vec<(Uuid, Uuid, time::OffsetDateTime, time::OffsetDateTime)> = sqlx::query_as(
+        "select rh.host_id, rh.run_id, rh.started_at, rh.ended_at from run_hosts rh \
+         join runs r on r.id = rh.run_id order by rh.host_id, rh.started_at",
+    )
+    .fetch_all(&f.h.db.owner)
+    .await
+    .expect("run hosts");
+    for (_, id) in &f.hosts {
+        let mine: Vec<_> = rows.iter().filter(|r| r.0 == *id).collect();
+        assert_eq!(mine.iter().map(|r| r.1).collect::<Vec<_>>(), runs);
+        for w in mine.windows(2) {
+            assert!(w[1].2 >= w[0].3, "overlap on {id}: {w:?}");
+        }
+    }
+    // The backstop: two in-flight rows for one host are refused.
+    let host = f.hosts[0].1;
+    sqlx::query("update run_hosts set state = 'running' where run_id = $1 and host_id = $2")
+        .bind(runs[0])
+        .bind(host)
+        .execute(&f.h.db.owner)
+        .await
+        .expect("one in flight");
+    let err = sqlx::query("update run_hosts set state = 'sent' where run_id = $1 and host_id = $2")
+        .bind(runs[1])
+        .bind(host)
+        .execute(&f.h.db.owner)
+        .await
+        .expect_err("a second in flight");
+    assert!(err.to_string().contains("run_hosts_one_in_flight"), "{err}");
+    f.finish().await;
+}
+
 /// A runner may end a run with `Finished` and no `Started`: exit 125 is a setup failure (a short
 /// or bad pack, or a refusal frames.rs has no variant for), exit 130 a cancel before start. Both
 /// are recorded as ended hosts, not protocol errors.
