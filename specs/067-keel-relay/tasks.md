@@ -208,7 +208,7 @@ leaves the host disconnected, not failed.
 **Independent test**: the hostile-relay suites run the SC-002 matrix in contracts/relay.md. Every
 attempt fails closed, no job runs, and each attempt leaves an audit row.
 
-- [ ] T024 [P] [US2] `runner/tests/hostile_relay.rs`, built on `runner/tests/hostile.rs`'s
+- [X] T024 [P] [US2] `runner/tests/hostile_relay.rs`, built on `runner/tests/hostile.rs`'s
   harness with a tampering hop between runner and server. It covers flip a byte, replay a
   recorded session, reorder chunks, drop chunks, and inject before the banner. Each must close
   the session with no run directory, an unchanged ledger, and the reconnect loop still running.
@@ -276,17 +276,21 @@ side, and anything an honest relay never does takes the relay out of service.
   derived from it. Enrollment and join attempts through a relay are rate-limited per relay id.
   Add a test, and a grep-style unit test that `advisory_peer` is read only by the
   display/audit functions.
-- [ ] T063 [US2] **Runner fails closed through a relay**, in `runner/tests/hostile_relay.rs`. A
+- [X] T063 [US2] **Runner fails closed through a relay**, in `runner/tests/hostile_relay.rs`. A
   relay that answers with its own SSH server, or replays Keel's host certificate with a
   different key, gets nothing:
   - no enrollment token, join token or ledger bytes leave the runner before Keel's host
     certificate verifies for `--server`'s name;
   - an algorithm downgrade (anything outside keel-exec `server_preferred()`) is refused.
-- [ ] T064 [P] [US2] **Property tests** with `proptest`, a dev-dependency only (owner decision;
+  *The runner has no join token yet; when it lands it must go through the same `connect()`
+  path, which these tests cover with the enrollment token.*
+- [X] T064 [P] [US2] **Property tests** with `proptest`, a dev-dependency only (owner decision;
   check with `cargo deny`). Arbitrary bytes into the control-frame decoder, `Hello` and the
   query frames, `relay.toml`, `hub_keys` and `queries.toml` parsing. None may panic,
   allocate more than the frame cap, or accept anything the strict parser would refuse. Put them
   in `exec/relay.rs` tests, `relay/tests/` and `runner/tests/queries.rs`.
+  *Done for the control frames, `Hello`, `relay.toml` and `hub_keys` (`keel-exec/tests/relay_props.rs`,
+  `relay/tests/props.rs`). The query frames and `queries.toml` are still owed: add them with US5.*
 - [X] T065 [US2] **Relay sandbox** in `relay/systemd/keel-relay.service`:
   - the runner unit's hardening, plus `CapabilityBoundingSet=` and `AmbientCapabilities=`
     (empty);
