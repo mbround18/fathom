@@ -20,6 +20,7 @@ use crate::inventory::InventoryText;
 use crate::governance::{ApiTokenState, GrantProfiles, Label, Slug, TokenActions};
 use crate::types::{InstanceRole, TeamRole};
 // Runs (US2)
+use crate::converge::ConvergeTarget;
 use crate::run::{ApprovalReason, Pattern, PolicySpec, RunPhase};
 // Hosts and the SSH CAs (US7)
 use crate::governance::ProfileName;
@@ -495,6 +496,42 @@ pub enum Cmd {
         #[ts(type = "string")]
         run: Uuid,
     },
+    /// `ConvergePlan` and its `Preview` (spec 068): each host's steps, the combined approval
+    /// terms, and the held converges it replaces. `ConfirmConverge` carries it out.
+    PreviewConverge(ConvergeTarget),
+    /// Carries out a `PreviewConverge`: replies `Confirmed` and `ConvergeStarted`.
+    ConfirmConverge {
+        preview_token: PreviewId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        step_up: Option<PasskeyAssertion>,
+    },
+    /// `ConvergePlan` and its `Preview` of retrying a finished converge on the hosts that did not
+    /// succeed: at its commit, or at the binding's newest with `replan`.
+    PreviewConvergeRetry {
+        #[ts(type = "string")]
+        run_id: Uuid,
+        #[serde(default)]
+        replan: bool,
+    },
+    /// Carries out a `PreviewConvergeRetry`: replies `Confirmed` and `ConvergeStarted`.
+    ConfirmConvergeRetry {
+        preview_token: PreviewId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        step_up: Option<PasskeyAssertion>,
+    },
+    /// Cancels a converge: steps not yet run are cancelled, running ones are sent `Cancel`.
+    /// Replies `Converge`.
+    CancelConverge {
+        #[ts(type = "string")]
+        run_id: Uuid,
+    },
+    /// `Converge`: the parent run, each host's state and steps.
+    GetConverge {
+        #[ts(type = "string")]
+        run_id: Uuid,
+    },
     /// `Preview` (step-up) of approving a run held for approval (spec 064). `Confirm` replies
     /// `Run`. Needs `Approve` in the run's workspace.
     PreviewRunApprove {
@@ -771,6 +808,7 @@ pub const TOKEN_ACTIONS: &[&str] = &[
     // Runs (US2)
     "list_runs",
     "get_run",
+    "get_converge",
     "list_jobs",
     "list_policies",
     "explain_policy",
@@ -866,6 +904,12 @@ impl Cmd {
             Cmd::UnsubscribeRun { .. } => "unsubscribe_run",
             Cmd::PreviewRunStart { .. } => "preview_run_start",
             Cmd::PreviewCancel { .. } => "preview_cancel",
+            Cmd::PreviewConverge(_) => "preview_converge",
+            Cmd::ConfirmConverge { .. } => "confirm_converge",
+            Cmd::PreviewConvergeRetry { .. } => "preview_converge_retry",
+            Cmd::ConfirmConvergeRetry { .. } => "confirm_converge_retry",
+            Cmd::CancelConverge { .. } => "cancel_converge",
+            Cmd::GetConverge { .. } => "get_converge",
             Cmd::PreviewRunApprove { .. } => "preview_run_approve",
             Cmd::PreviewRunDeny { .. } => "preview_run_deny",
             Cmd::CountPendingApprovals => "count_pending_approvals",
@@ -993,6 +1037,12 @@ impl Cmd {
             | Cmd::GetRun { .. }
             | Cmd::PreviewRunStart { .. }
             | Cmd::PreviewCancel { .. }
+            | Cmd::PreviewConverge(_)
+            | Cmd::ConfirmConverge { .. }
+            | Cmd::PreviewConvergeRetry { .. }
+            | Cmd::ConfirmConvergeRetry { .. }
+            | Cmd::CancelConverge { .. }
+            | Cmd::GetConverge { .. }
             | Cmd::PreviewRunApprove { .. }
             | Cmd::PreviewRunDeny { .. }
             | Cmd::CountPendingApprovals

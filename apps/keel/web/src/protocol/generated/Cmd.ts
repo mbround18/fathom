@@ -7,6 +7,7 @@ import type { BaselineHosts } from "./BaselineHosts";
 import type { BindingSpec } from "./BindingSpec";
 import type { BindingUpdate } from "./BindingUpdate";
 import type { CommitSha } from "./CommitSha";
+import type { ConvergeTarget } from "./ConvergeTarget";
 import type { CredentialKind } from "./CredentialKind";
 import type { DeliveryDecision } from "./DeliveryDecision";
 import type { EnrollmentState } from "./EnrollmentState";
@@ -69,7 +70,7 @@ params: { [key in string]: string },
 /**
  * Run `ansible-playbook --check` (spec 068).
  */
-check: boolean, } } | { "type": "PreviewCancel", "data": { run: string, } } | { "type": "PreviewRunApprove", "data": { run: string, } } | { "type": "PreviewRunDeny", "data": { run: string, reason: ApprovalReason | null, } } | { "type": "CountPendingApprovals" } | { "type": "ListJobs", "data": { binding: string, } } | { "type": "ListPolicies", "data": { workspace: string, } } | { "type": "PreviewPolicyUpsert", "data": PolicySpec } | { "type": "PreviewPolicyRemove", "data": { policy: string, } } | { "type": "ExplainPolicy", "data": { job: string, limit: Pattern | null, } } | { "type": "ListHosts", "data": { workspace: string, profile: ProfileName | null, drift: boolean | null, 
+check: boolean, } } | { "type": "PreviewCancel", "data": { run: string, } } | { "type": "PreviewConverge", "data": ConvergeTarget } | { "type": "ConfirmConverge", "data": { preview_token: PreviewId, step_up?: PasskeyAssertion, } } | { "type": "PreviewConvergeRetry", "data": { run_id: string, replan: boolean, } } | { "type": "ConfirmConvergeRetry", "data": { preview_token: PreviewId, step_up?: PasskeyAssertion, } } | { "type": "CancelConverge", "data": { run_id: string, } } | { "type": "GetConverge", "data": { run_id: string, } } | { "type": "PreviewRunApprove", "data": { run: string, } } | { "type": "PreviewRunDeny", "data": { run: string, reason: ApprovalReason | null, } } | { "type": "CountPendingApprovals" } | { "type": "ListJobs", "data": { binding: string, } } | { "type": "ListPolicies", "data": { workspace: string, } } | { "type": "PreviewPolicyUpsert", "data": PolicySpec } | { "type": "PreviewPolicyRemove", "data": { policy: string, } } | { "type": "ExplainPolicy", "data": { job: string, limit: Pattern | null, } } | { "type": "ListHosts", "data": { workspace: string, profile: ProfileName | null, drift: boolean | null, 
 /**
  * Only hosts that did (`true`) or did not (`false`) change outside Keel.
  */

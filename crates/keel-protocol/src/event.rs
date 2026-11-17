@@ -26,6 +26,7 @@ use crate::review::{
     SignerInfo,
 };
 // Runs (US2)
+use crate::converge::{ConvergeHostState, ConvergePlan, ConvergeView};
 use crate::run::{
     JobInfo, LogStream, PolicyCheck, PolicyInfo, RunHostInfo, RunInfo, RunPhase, RunReason,
     WorkspaceCount,
@@ -184,6 +185,27 @@ pub enum Event {
         run: Uuid,
         state: RunPhase,
         reason: Option<RunReason>,
+    },
+    /// Reply to `PreviewConverge` and `PreviewConvergeRetry`, before their `Preview`; the token
+    /// is the preview's id, for `ConfirmConverge`/`ConfirmConvergeRetry`.
+    ConvergePlan {
+        preview_token: PreviewId,
+        plan: ConvergePlan,
+    },
+    /// Reply to `ConfirmConverge` and `ConfirmConvergeRetry`: the new parent run.
+    ConvergeStarted {
+        #[ts(type = "string")]
+        run_id: Uuid,
+    },
+    /// Reply to `GetConverge` and `CancelConverge`.
+    Converge(ConvergeView),
+    /// A converge host changed state (pushed to the workspace's viewers).
+    ConvergeChanged {
+        #[ts(type = "string")]
+        run_id: Uuid,
+        #[ts(type = "string")]
+        host_id: Uuid,
+        state: ConvergeHostState,
     },
     /// Reply to `ListJobs`.
     Jobs {

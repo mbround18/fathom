@@ -266,3 +266,107 @@ fn older_payloads_still_parse_with_defaults() {
     };
     round_trip(&with);
 }
+
+#[test]
+fn converge_commands_and_events_round_trip_in_the_web_lanes_shape() {
+    let token = PreviewId(id(7));
+    let cmds = [
+        (
+            Cmd::PreviewConverge(ConvergeTarget {
+                binding_id: id(3),
+                hosts: TargetSelection::All,
+                check: false,
+            }),
+            "PreviewConverge",
+        ),
+        (
+            Cmd::ConfirmConverge {
+                preview_token: token,
+                step_up: None,
+            },
+            "ConfirmConverge",
+        ),
+        (
+            Cmd::PreviewConvergeRetry {
+                run_id: id(1),
+                replan: true,
+            },
+            "PreviewConvergeRetry",
+        ),
+        (
+            Cmd::ConfirmConvergeRetry {
+                preview_token: token,
+                step_up: None,
+            },
+            "ConfirmConvergeRetry",
+        ),
+        (Cmd::CancelConverge { run_id: id(1) }, "CancelConverge"),
+        (Cmd::GetConverge { run_id: id(1) }, "GetConverge"),
+    ];
+    for (cmd, name) in cmds {
+        let v = round_trip(&cmd);
+        assert_eq!(v["type"], name, "{v}");
+    }
+    // The web lane sends `ConfirmConverge` without `step_up`, and `run_id` as a string.
+    let c: Cmd = serde_json::from_value(json!({
+        "type": "ConfirmConverge",
+        "data": { "preview_token": id(7).to_string() },
+    }))
+    .unwrap();
+    assert_eq!(
+        c,
+        Cmd::ConfirmConverge {
+            preview_token: token,
+            step_up: None,
+        }
+    );
+    let c: Cmd = serde_json::from_value(json!({
+        "type": "PreviewConvergeRetry",
+        "data": { "run_id": id(1).to_string() },
+    }))
+    .unwrap();
+    assert_eq!(
+        c,
+        Cmd::PreviewConvergeRetry {
+            run_id: id(1),
+            replan: false,
+        }
+    );
+    let v = round_trip(&Event::ConvergeStarted { run_id: id(1) });
+    assert_eq!(v, json!({ "type": "ConvergeStarted", "data": { "run_id": id(1) } }));
+    let v = round_trip(&Event::ConvergeChanged {
+        run_id: id(1),
+        host_id: id(5),
+        state: ConvergeHostState::Holding,
+    });
+    assert_eq!(v["data"]["state"], "holding");
+    let v = round_trip(&Event::Converge(ConvergeView {
+        run: run_info(),
+        hosts: Vec::new(),
+        retry_of: Some(id(8)),
+    }));
+    assert_eq!(v["type"], "Converge");
+    assert_eq!(v["data"]["retry_of"], json!(id(8)));
+    let v = round_trip(&Event::ConvergePlan {
+        preview_token: token,
+        plan: ConvergePlan {
+            binding_id: id(3),
+            commit: "a".repeat(40),
+            inventory_revision: id(4),
+            check: false,
+            hosts: Vec::new(),
+            policy: ApprovalTerms {
+                requires_approval: true,
+                approvals_needed: 1,
+                four_eyes: false,
+                approval_ttl_secs: 3600,
+            },
+            review: Vec::new(),
+            replaces: Vec::new(),
+            blocked_by: Vec::new(),
+        },
+    });
+    assert_eq!(v["data"]["preview_token"], json!(id(7)));
+    assert_eq!(Cmd::GetConverge { run_id: id(1) }.name(), "get_converge");
+    assert!(TOKEN_ACTIONS.contains(&"get_converge"));
+}
