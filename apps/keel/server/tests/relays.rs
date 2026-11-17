@@ -16,9 +16,7 @@ use keel_server::relays::{
     self, RelayActionError, RelayState, RelaySupervisor, release_relay, revoke_relay,
 };
 use keel_server::runner_listener::RunnerHost;
-use relay_kit::{
-    TestRelay, WAIT, detached, harness, opts, register, runner_session, wait_live,
-};
+use relay_kit::{TestRelay, WAIT, detached, harness, opts, register, runner_session, wait_live};
 use uuid::Uuid;
 
 async fn actions(h: &repos::Harness, action: &str) -> Vec<serde_json::Value> {

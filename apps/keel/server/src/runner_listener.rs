@@ -236,7 +236,11 @@ impl SubsystemService for Service {
             Access::EnrollOnly => {
                 // One relay can front any number of peers: its enrollments are rate-limited
                 // (T062). A refused one closes the stream before a frame is read.
-                if !self.app.relay_live.attempt(&self.path, RelayAttempt::Enroll) {
+                if !self
+                    .app
+                    .relay_live
+                    .attempt(&self.path, RelayAttempt::Enroll)
+                {
                     return;
                 }
                 if let Err(reason) = enroll(&self.app, &key, stream).await {

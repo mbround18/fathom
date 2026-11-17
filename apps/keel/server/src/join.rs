@@ -821,7 +821,13 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
             Frame::JoinRejected { reason }
         }
         Ok(JoinOutcome::Closed(reason)) => {
-            tracing::info!(reason, %path, "join attempt refused");
+            if reason == "rate_limited" && path.relay().is_some() {
+                // A relay's joins share one budget keyed on the relay (`source_key`, spec 067
+                // T062); hitting it is a coalesced `relay.refused`, logged once per window (T061).
+                app.relay_live.refused(path, "join_rate", "join");
+            } else {
+                tracing::info!(reason, %path, "join attempt refused");
+            }
             return;
         }
         Err(e) => {

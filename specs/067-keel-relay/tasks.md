@@ -287,6 +287,10 @@ side, and anything an honest relay never does takes the relay out of service.
   derived from it. Enrollment and join attempts through a relay are rate-limited per relay id.
   Add a test, and a grep-style unit test that `advisory_peer` is read only by the
   display/audit functions.
+
+  Enrollments use the per-relay bucket in `LiveRelays::attempt` (`KEEL_RELAY_ENROLL_*`); joins
+  are owned by `join::JoinLimiter`, keyed `relay:<id>` (`KEEL_JOIN_RATE`), and a relayed join it
+  refuses is a coalesced `relay.refused { reason: join_rate }`.
 - [X] T063 [US2] **Runner fails closed through a relay**, in `runner/tests/hostile_relay.rs`. A
   relay that answers with its own SSH server, or replays Keel's host certificate with a
   different key, gets nothing:

@@ -819,10 +819,11 @@ impl LiveRelays {
         }
     }
 
-    /// Whether one more `attempt` (enrollment, join) may come through `path` (T062): a token
-    /// bucket per relay, shared by every kind of attempt. A refused attempt is noted as
-    /// `relay.refused` with [`RelayAttempt::reason`]. A direct path is always allowed: the
-    /// limit exists because one relay concentrates many peers behind one link.
+    /// Whether one more `attempt` may come through `path` (T062): a token bucket per relay. A
+    /// refused attempt is noted as `relay.refused` with [`RelayAttempt::reason`]. A direct path
+    /// is always allowed: the limit exists because one relay concentrates many peers behind one
+    /// link. Joins are not counted here: [`crate::join::JoinLimiter`] already keys a relayed
+    /// join on the relay alone (`relay:<id>`), so it owns them.
     #[must_use]
     pub fn attempt(&self, path: &RunnerPath, attempt: RelayAttempt) -> bool {
         let Some(relay) = path.relay() else {
@@ -900,8 +901,6 @@ impl LiveRelays {
 pub enum RelayAttempt {
     /// A runner enrolling (`keel-enroll-v1`).
     Enroll,
-    /// A relay-assisted join (spec 067 US4; not built yet).
-    Join,
 }
 
 impl RelayAttempt {
@@ -909,7 +908,6 @@ impl RelayAttempt {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Enroll => "enroll",
-            Self::Join => "join",
         }
     }
 
@@ -918,7 +916,6 @@ impl RelayAttempt {
     pub const fn reason(self) -> &'static str {
         match self {
             Self::Enroll => "enroll_rate",
-            Self::Join => "join_rate",
         }
     }
 }
@@ -1924,7 +1921,9 @@ impl LinkRun {
                         .note(relay, workspace, "runner_unauthenticated", &peer);
                 }
                 StreamEnd::AuthDeadline => {
-                    shared.refusals.note(relay, workspace, "auth_deadline", &peer);
+                    shared
+                        .refusals
+                        .note(relay, workspace, "auth_deadline", &peer);
                 }
             }
         });
@@ -2037,7 +2036,10 @@ mod tests {
         assert!(b.take_at(t0) && b.take_at(t0));
         assert!(!b.take_at(t0), "burst spent");
         assert!(!b.take_at(t0 + Duration::from_secs(1)), "half a token");
-        assert!(b.take_at(t0 + Duration::from_secs(2)), "30 a minute: one per 2 s");
+        assert!(
+            b.take_at(t0 + Duration::from_secs(2)),
+            "30 a minute: one per 2 s"
+        );
     }
 
     /// T061: ten thousand refusals of one kind are one pending row with `count = 10000`.

@@ -27,8 +27,9 @@ use keel_exec::client_config::{KeelSshClient, client_config, open_subsystem};
 use keel_exec::codec::{read_frame, write_frame};
 use keel_exec::frames::{self, SecretString, Subsystem};
 use keel_exec::relay::{self, CacheMissReason, Frame};
+use keel_server::join;
 use keel_server::relays::{RelayState, RelaySupervisor, SupervisorOptions};
-use keel_server::runner_listener::{self, RunnerHost};
+use keel_server::runner_listener::{self, RunnerHost, RunnerPath};
 use relay_kit::{
     Answered, TestRelay, WAIT, closed, connect_over, connected, harness, key, mint, no_run, opts,
     quarantine_reason, quarantines, refused, register, runner_client, runner_session, wait_live,
@@ -120,7 +121,11 @@ impl Linked {
         assert_eq!(quarantine_reason(&self.h, self.id).await, None);
         assert!(quarantines(&self.h).await.is_empty());
         tokio::time::sleep(Duration::from_millis(300)).await;
-        assert!(connected(&self.h, self.id), "{:?}", self.h.app.relay_live.get(self.id));
+        assert!(
+            connected(&self.h, self.id),
+            "{:?}",
+            self.h.app.relay_live.get(self.id)
+        );
         no_run(&self.h).await;
     }
 
@@ -163,7 +168,10 @@ async fn a_forwarded_channel_to_anything_but_the_runner_port_quarantines() {
         .handle
         .channel_open_forwarded_tcpip("10.0.0.1", 22, "10.0.0.5", 2)
         .await;
-    assert!(opened.is_err(), "Keel accepted forwarded-tcpip to 10.0.0.1:22");
+    assert!(
+        opened.is_err(),
+        "Keel accepted forwarded-tcpip to 10.0.0.1:22"
+    );
     let l = l.quarantined("forbidden_channel", &mut held).await;
     let rows = quarantines(&l.h).await;
     assert!(
@@ -464,7 +472,8 @@ async fn a_runner_failing_auth_on_a_carried_stream_does_not_quarantine() {
         )
         .expect("builder");
         b.cert_type(CertType::User).expect("type");
-        b.valid_principal(Uuid::now_v7().to_string()).expect("principal");
+        b.valid_principal(Uuid::now_v7().to_string())
+            .expect("principal");
         b.sign(&rogue_ca).expect("sign")
     };
     let auth = ssh
@@ -520,7 +529,11 @@ async fn enrollment_through_a_relay_is_rate_limited_per_relay() {
     };
     let (_, token) = mint(&l.h, "web-1").await;
     // The burst goes on a bad token; the good one is then over the limit and never read.
-    assert!(enroll_over(&l, 1, "keel-enroll-v1-not-a-token").await.is_none());
+    assert!(
+        enroll_over(&l, 1, "keel-enroll-v1-not-a-token")
+            .await
+            .is_none()
+    );
     assert!(enroll_over(&l, 2, &token).await.is_none());
     let rows = l.refused_total("enroll_rate", 1).await;
     assert_eq!(rows[0]["detail"], "enroll");
@@ -528,11 +541,8 @@ async fn enrollment_through_a_relay_is_rate_limited_per_relay() {
     // The token still works directly.
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
-    let direct = runner_listener::spawn_with(
-        l.h.app.clone(),
-        RunnerHost::new().expect("host"),
-        listener,
-    );
+    let direct =
+        runner_listener::spawn_with(l.h.app.clone(), RunnerHost::new().expect("host"), listener);
     let ssh = direct_connect(&l.h, addr).await;
     let reply = enroll_on(ssh, &token, "web-1").await;
     assert!(
@@ -540,6 +550,55 @@ async fn enrollment_through_a_relay_is_rate_limited_per_relay() {
         "{reply:?}"
     );
     direct.abort();
+    l.finish().await;
+}
+
+/// T062: joins through a relay share one budget keyed on the relay (`join::source_key`), whatever
+/// peer it claims. Past `KEEL_JOIN_RATE` they are closed before the database and audited as one
+/// coalesced `relay.refused`; a direct join from elsewhere is not affected.
+#[tokio::test]
+async fn joins_through_a_relay_are_rate_limited_per_relay() {
+    let Some(l) = linked("hostile_join_rate", opts()).await else {
+        return;
+    };
+    let rate = l.h.app.cfg.join_rate;
+    for port in 1..=rate + 2 {
+        let reply = join_over(&l, port).await;
+        assert!(reply.is_none(), "{reply:?}");
+    }
+    let rows = l.refused_total("join_rate", 2).await;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0]["detail"], "join");
+
+    let allowed = vec!["debian".to_owned()];
+    let direct = join::JoinAttempt {
+        token: "keel-join-v1-not-a-token",
+        inventory_name: "web-1",
+        allowed_profiles: &allowed,
+        require_signed: false,
+        hostname: "web-1",
+        os: "Debian",
+        arch: "x86_64",
+        runner_version: "0.1.0",
+    };
+    let peer = RunnerPath::Direct {
+        peer: Some("203.0.113.9:4000".parse().expect("peer")),
+    };
+    let outcome = join::join_key(
+        &l.h.app,
+        &key().public_key().key_data().clone(),
+        &direct,
+        &peer,
+    )
+    .await
+    .expect("join");
+    assert_ne!(outcome, join::JoinOutcome::Closed("rate_limited"));
+    let (hosts,): (i64,) = sqlx::query_as("select count(*) from hosts")
+        .fetch_one(&l.h.db.owner)
+        .await
+        .expect("hosts");
+    assert_eq!(hosts, 0);
+    l.in_service().await;
     l.finish().await;
 }
 
@@ -638,11 +697,8 @@ async fn a_flooding_relay_does_not_starve_others() {
     // A direct listener.
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("addr");
-    let direct = runner_listener::spawn_with(
-        l.h.app.clone(),
-        RunnerHost::new().expect("host"),
-        listener,
-    );
+    let direct =
+        runner_listener::spawn_with(l.h.app.clone(), RunnerHost::new().expect("host"), listener);
 
     let rss_before = rss();
     let peak = Arc::new(AtomicU32::new(0));
@@ -662,14 +718,20 @@ async fn a_flooding_relay_does_not_starve_others() {
 
     // Meanwhile: a runner over the other relay attaches, and a direct runner enrolls.
     let (host, _ssh, _stream) = runner_session(&l.h, &other_side.handle, "web-1", 1).await;
-    assert_eq!(l.h.app.runs.path(host).and_then(|p| p.relay()), Some(other_id));
+    assert_eq!(
+        l.h.app.runs.path(host).and_then(|p| p.relay()),
+        Some(other_id)
+    );
     let (_, token) = mint(&l.h, "web-2").await;
     let reply = enroll_on(direct_connect(&l.h, addr).await, &token, "web-2").await;
     assert!(
         matches!(reply, Some(frames::Frame::Enrolled { .. })),
         "{reply:?}"
     );
-    assert!(!flooding.is_finished(), "the flood ended before the others were served");
+    assert!(
+        !flooding.is_finished(),
+        "the flood ended before the others were served"
+    );
     flooding.await.expect("flood");
     watch.abort();
 
@@ -688,7 +750,12 @@ async fn a_flooding_relay_does_not_starve_others() {
     settle(&l.h, l.id).await;
     l.sup.flush_refusals(true).await;
     let mut total = 0;
-    for reason in ["max_streams", "stream_rate", "auth_deadline", "runner_unauthenticated"] {
+    for reason in [
+        "max_streams",
+        "stream_rate",
+        "auth_deadline",
+        "runner_unauthenticated",
+    ] {
         let rows = refused(&l.h, reason).await;
         assert!(rows.len() <= 1, "{reason} not coalesced: {rows:?}");
         total += rows.iter().filter_map(|r| r["count"].as_u64()).sum::<u64>();
@@ -765,6 +832,38 @@ async fn enroll_on(
             inventory_name: name.to_owned(),
             allowed_profiles: vec!["debian".to_owned()],
             require_signed: false,
+        },
+    )
+    .await
+    .ok()?;
+    tokio::time::timeout(WAIT, read_frame(&mut stream))
+        .await
+        .expect("no reply")
+        .ok()
+        .flatten()
+}
+
+/// A bare key's join over the relay with a token that is not one, and Keel's answer if any.
+async fn join_over(l: &Linked, port: u32) -> Option<frames::Frame> {
+    let mut ssh = connect_over(&l.h, &l.side.handle, port).await;
+    let bare = PrivateKeyWithHashAlg::new(Arc::new(key()), None);
+    let auth = ssh
+        .authenticate_publickey("runner", bare)
+        .await
+        .expect("auth");
+    assert!(matches!(auth, AuthResult::Success), "join-only refused");
+    let mut stream = open_subsystem(&ssh, Subsystem::Join).await.ok()?;
+    write_frame(
+        &mut stream,
+        &frames::Frame::JoinRequest {
+            token: SecretString::new("keel-join-v1-not-a-token".to_owned()),
+            inventory_name: "web-1".to_owned(),
+            allowed_profiles: vec!["debian".to_owned()],
+            require_signed: false,
+            hostname: "web-1".to_owned(),
+            os: "Debian".to_owned(),
+            arch: "x86_64".to_owned(),
+            runner_version: "0.1.0".to_owned(),
         },
     )
     .await

@@ -61,13 +61,7 @@ pub async fn harness(test: &str) -> Option<(Harness, Uuid)> {
 }
 
 /// Registers a relay at `addr` pinning `host_key`.
-pub async fn register(
-    h: &Harness,
-    zone: Uuid,
-    name: &str,
-    addr: &str,
-    host_key: &KeyData,
-) -> Uuid {
+pub async fn register(h: &Harness, zone: Uuid, name: &str, addr: &str, host_key: &KeyData) -> Uuid {
     let line = russh::keys::PublicKey::from(host_key.clone())
         .to_openssh()
         .expect("line");

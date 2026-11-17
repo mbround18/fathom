@@ -514,8 +514,11 @@ impl RelayLimits {
         };
         let max_streams = count("relay_max_streams", "KEEL_RELAY_MAX_STREAMS", d.max_streams)?;
         let stream_rate = count("relay_stream_rate", "KEEL_RELAY_STREAM_RATE", d.stream_rate)?;
-        let stream_burst =
-            count("relay_stream_burst", "KEEL_RELAY_STREAM_BURST", d.stream_burst)?;
+        let stream_burst = count(
+            "relay_stream_burst",
+            "KEEL_RELAY_STREAM_BURST",
+            d.stream_burst,
+        )?;
         let max_unanswered_pings = count(
             "relay_max_unanswered_pings",
             "KEEL_RELAY_MAX_UNANSWERED_PINGS",
@@ -526,14 +529,20 @@ impl RelayLimits {
             "KEEL_RELAY_ENROLL_PER_MINUTE",
             d.enroll_per_minute,
         )?;
-        let enroll_burst =
-            count("relay_enroll_burst", "KEEL_RELAY_ENROLL_BURST", d.enroll_burst)?;
+        let enroll_burst = count(
+            "relay_enroll_burst",
+            "KEEL_RELAY_ENROLL_BURST",
+            d.enroll_burst,
+        )?;
         let mut duration = |setting: &'static str, env: &str, default: Duration| {
             r.pick(setting, None, env)
                 .map_or(Ok(default), |v| parse_duration(env, &v))
         };
-        let auth_deadline =
-            duration("relay_auth_deadline", "KEEL_RELAY_AUTH_DEADLINE", d.auth_deadline)?;
+        let auth_deadline = duration(
+            "relay_auth_deadline",
+            "KEEL_RELAY_AUTH_DEADLINE",
+            d.auth_deadline,
+        )?;
         let inactivity_timeout = duration(
             "relay_inactivity_timeout",
             "KEEL_RELAY_INACTIVITY_TIMEOUT",
