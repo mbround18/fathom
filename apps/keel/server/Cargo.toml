@@ -76,6 +76,9 @@ webauthn-rs = "0.5.5"
 # The fake runner for the run tests (no real ansible).
 keel-exec = { path = "../../../crates/keel-exec", features = ["fake"] }
 http-body-util = "0.1"
+# The real relay and runner for the relay end-to-end test (spec 067 T014).
+keel-relay = { path = "../relay" }
+keel-runner = { path = "../runner" }
 # FakeRegistry for the update check tests (spec 061).
 oci-registry = { path = "../../../crates/oci-registry", features = ["test-util"] }
 tempfile = "3"
