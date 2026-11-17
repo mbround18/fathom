@@ -40,6 +40,7 @@ fn running() -> KeelBuild {
         built_at: Some("2026-10-01T12:00:00Z".into()),
         digest: None,
         display: "0.2.0".into(),
+        flags: vec!["converge".into()],
     }
 }
 
@@ -137,6 +138,7 @@ fn events_round_trip() {
             built_at: None,
             digest: None,
             display: "development build".into(),
+            flags: vec![],
         }),
         Event::UpdateStatus(status(UpdatePath::Run)),
         Event::UpdateStatus(status(manual)),

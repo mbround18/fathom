@@ -20,6 +20,9 @@ pub struct KeelBuild {
     pub digest: Option<String>,
     /// `0.2.0`, `abc1234` or `development build`.
     pub display: String,
+    /// Runtime feature flags that are on, like `converge` (spec 068). Absent ⇒ none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<String>,
 }
 
 /// Where the last update check stands.
