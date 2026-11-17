@@ -3,17 +3,20 @@
 
 use std::path::PathBuf;
 
-use clap::Parser;
-use keel_runner::runner::{Runner, RunnerConfig};
+use clap::{Parser, Subcommand};
+use keel_runner::runner::join::EX_CONFIG;
+use keel_runner::runner::{KEY_FILE, Runner, RunnerConfig, load_or_create_key};
 
 /// Keel host runner: the network half. Holds the SSH channel to the Keel server.
 #[derive(Debug, Parser)]
 #[command(name = "keel-runner", version, about)]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
     /// Keel's runner listener, `host[:port]` (default port 7831). The host part must match the
-    /// server's host certificate.
+    /// server's host certificate. Required to run.
     #[arg(long, env = "KEEL_RUNNER_SERVER")]
-    server: String,
+    server: Option<String>,
     /// Dial this `host:port` instead of `--server` (repeatable; `KEEL_RUNNER_DIAL` is
     /// comma-separated). Tried in order each pass, for example a zone's relays. The host
     /// certificate must still verify for `--server`'s host name.
@@ -72,11 +75,47 @@ struct Cli {
     age_recipient_file: PathBuf,
 }
 
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Prints the host key's SHA-256 fingerprint, to compare with the one Keel shows beside a
+    /// join request, and exits.
+    Fingerprint,
+}
+
+/// `keel-runner fingerprint`: reads the key the runner created; never creates one, so running
+/// it as another user before the first start leaves no key owned by that user.
+fn fingerprint(cli: &Cli) -> ! {
+    if !cli.state_dir.join(KEY_FILE).exists() {
+        eprintln!("keel-runner: no host key yet; start keel-runner once to create it");
+        std::process::exit(1);
+    }
+    match load_or_create_key(&cli.state_dir) {
+        Ok(key) => {
+            println!(
+                "{}",
+                keel_exec::ca::fingerprint(key.public_key().key_data())
+            );
+            std::process::exit(0);
+        }
+        Err(e) => {
+            eprintln!("keel-runner: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+    if matches!(cli.command, Some(Command::Fingerprint)) {
+        fingerprint(&cli);
+    }
+    let Some(server) = cli.server else {
+        eprintln!("keel-runner: --server (KEEL_RUNNER_SERVER) is required");
+        std::process::exit(2);
+    };
     let runner = match Runner::load(RunnerConfig {
-        server: cli.server,
+        server,
         // `KEEL_RUNNER_DIAL=` (empty) or a trailing comma means no entry, not an empty one.
         dial: cli
             .dial
@@ -98,5 +137,16 @@ async fn main() {
             std::process::exit(1);
         }
     };
+    if runner.certificate().ok().flatten().is_none() {
+        eprintln!(
+            "keel-runner: not enrolled; host key {}",
+            keel_exec::ca::fingerprint(runner.public_key())
+        );
+    }
+    // A join token waits here until an operator decides; the session loop below is unchanged.
+    if let Err(e) = runner.join_if_needed().await {
+        eprintln!("keel-runner: {e}");
+        std::process::exit(if e.is_config() { EX_CONFIG } else { 1 });
+    }
     runner.run_forever().await
 }

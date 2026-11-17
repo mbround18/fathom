@@ -11,6 +11,7 @@
 //!
 //! It never interprets work: the executor checks everything itself.
 
+pub mod join;
 pub mod outside;
 pub(crate) mod session;
 pub mod spool;
@@ -93,6 +94,29 @@ pub enum RunnerError {
     BadCert(&'static str),
     #[error("executor: {0}")]
     Executor(String),
+    #[error("join-token is not a join token")]
+    JoinTokenInvalid,
+    #[error("join-token has expired; ask an operator for a new one")]
+    JoinTokenExpired,
+    #[error("join-token pins a host CA that is not in host_ca.pub; refusing to connect")]
+    JoinCaMismatch,
+    #[error("Keel rejected this host's join request: {0}")]
+    JoinRejected(String),
+}
+
+impl RunnerError {
+    /// A configuration the runner cannot proceed with: restarting will not help, so the binary
+    /// exits [`join::EX_CONFIG`].
+    #[must_use]
+    pub fn is_config(&self) -> bool {
+        matches!(
+            self,
+            RunnerError::JoinTokenInvalid
+                | RunnerError::JoinTokenExpired
+                | RunnerError::JoinCaMismatch
+                | RunnerError::JoinRejected(_)
+        )
+    }
 }
 
 impl From<SubsystemError> for RunnerError {
@@ -502,6 +526,8 @@ impl Runner {
             .map_err(|e| state_err("write", &id_path, e))?;
         self.save_cert(&cert)?;
         std::fs::remove_file(&token_path).map_err(|e| state_err("delete", &token_path, e))?;
+        // The enrollment token won; a join token beside it is no longer needed.
+        self.forget_join_token()?;
         let _ = handle
             .disconnect(russh::Disconnect::ByApplication, "", "")
             .await;
