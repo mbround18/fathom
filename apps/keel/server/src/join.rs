@@ -156,30 +156,16 @@ impl JoinLimiter {
     }
 }
 
-/// The rate limit's key: the peer address for a direct connection, the relay and the peer it
-/// claims for a relayed one (a relay's claim is all Keel has to tell its hosts apart).
+/// The rate limit's key: the peer address for a direct connection, the relay alone for a
+/// relayed one. The peer a relay claims is never trusted, so no key is derived from it (spec 067
+/// T062): every host behind one relay shares that relay's budget.
 #[must_use]
 pub fn source_key(path: &RunnerPath) -> String {
     match path {
         RunnerPath::Direct { peer: Some(p) } => p.ip().to_string(),
         RunnerPath::Direct { peer: None } => "direct".to_owned(),
-        RunnerPath::Relay {
-            relay_id,
-            advisory_peer,
-        } => {
-            let host = advisory_peer.as_deref().map(peer_host).unwrap_or_default();
-            format!("relay:{relay_id}:{host}")
-        }
+        RunnerPath::Relay { relay_id, .. } => format!("relay:{relay_id}"),
     }
-}
-
-/// A claimed `host:port` without its port, capped.
-fn peer_host(p: &str) -> String {
-    let host = p
-        .parse::<std::net::SocketAddr>()
-        .map(|a| a.ip().to_string())
-        .unwrap_or_else(|_| p.rsplit_once(':').map_or(p, |(h, _)| h).to_owned());
-    host.chars().take(128).collect()
 }
 
 /// What a request shows as its source.
@@ -1791,10 +1777,13 @@ mod tests {
             relay_id: Uuid::nil(),
             advisory_peer: Some("198.51.100.7:4000".into()),
         };
-        assert_eq!(
-            source_key(&relay),
-            format!("relay:{}:198.51.100.7", Uuid::nil())
-        );
+        assert_eq!(source_key(&relay), format!("relay:{}", Uuid::nil()));
+        // The claimed peer does not change the key.
+        let other = RunnerPath::Relay {
+            relay_id: Uuid::nil(),
+            advisory_peer: Some("192.0.2.99:1".into()),
+        };
+        assert_eq!(source_key(&other), source_key(&relay));
         let long = RunnerPath::Relay {
             relay_id: Uuid::nil(),
             advisory_peer: Some("x".repeat(1000)),
