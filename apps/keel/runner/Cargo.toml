@@ -17,7 +17,15 @@ path = "src/bin/keel-runner.rs"
 name = "keel-executor"
 path = "src/bin/keel-executor.rs"
 
+[features]
+# Release builds only (055 T128, T149: `make keel keel-runner-release`, the image's runner-dist
+# stage). keel-trust verifies passkey approvals with webauthn-rs, which links OpenSSL; a static
+# musl binary for x86_64 and aarch64 needs it built from source for each target.
+vendored-openssl = ["dep:openssl", "openssl/vendored"]
+
 [dependencies]
+# Only to switch on `vendored` (see [features]); the code does not use it directly.
+openssl = { version = "0.10.82", optional = true }
 clap = { version = "4.6", features = ["derive", "env"] }
 # The executor's Git store: unpack a pack and read trees. Isolated open, no hooks, no worktree.
 gix = { version = "0.90.0", default-features = false, features = ["sha1"] }

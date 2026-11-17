@@ -32,6 +32,76 @@ RUN --mount=type=cache,id=keel-cargo-registry,target=/usr/local/cargo/registry \
     cargo build --release -p keel-server --bin keel \
     && mkdir -p /out/var/lib/keel
 
+# ---- Runner release (055 T128, T149): what hosts fetch from /runner/latest/… (contracts/join.md).
+# Static musl keel-runner and keel-executor for x86_64 and aarch64 (and keel-relay, spec 067, once
+# apps/keel/relay exists), cross-built on the build platform with cargo-zigbuild: zig is the C
+# compiler and linker for both musl targets, so no per-arch sysroot or emulation is needed. OpenSSL
+# (webauthn-rs, via keel-trust) is built from source per target: keel-runner's `vendored-openssl`.
+FROM chef AS runner-builder
+ENV CARGO_BUILD_JOBS=4
+# Pinned zig and its published sums (ziglang.org/download/index.json), per build-host arch.
+RUN set -eu; \
+    arch="$(uname -m)"; \
+    case "$arch" in \
+      x86_64) sum=24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c ;; \
+      aarch64) sum=f7a654acc967864f7a050ddacfaa778c7504a0eca8d2b678839c21eea47c992b ;; \
+      *) echo "no pinned zig for build host $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSLo /tmp/zig.tar.xz "https://ziglang.org/download/0.14.1/zig-$arch-linux-0.14.1.tar.xz"; \
+    echo "$sum  /tmp/zig.tar.xz" | sha256sum -c --quiet -; \
+    mkdir /opt/zig; \
+    tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1; \
+    rm /tmp/zig.tar.xz
+ENV PATH=/opt/zig:$PATH
+RUN --mount=type=cache,id=keel-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=keel-cargo-git,target=/usr/local/cargo/git \
+    cargo install cargo-zigbuild --locked --version 0.24.1 \
+    && rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+COPY --from=planner /src/recipe.json recipe.json
+# keel-relay's dependencies are cooked too once the recipe has the crate.
+RUN --mount=type=cache,id=keel-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=keel-cargo-git,target=/usr/local/cargo/git \
+    set -eu; \
+    pkgs="-p keel-runner"; \
+    if grep -q '"apps/keel/relay/Cargo.toml"' recipe.json; then pkgs="$pkgs -p keel-relay"; fi; \
+    for arch in x86_64 aarch64; do \
+      cargo chef cook --release --zigbuild --target "$arch-unknown-linux-musl" $pkgs \
+        --features keel-runner/vendored-openssl --recipe-path recipe.json; \
+    done
+COPY . .
+# The release directory: <arch>/<binary>, requirements.txt, keel_events.tar.gz (keel_events.py at
+# its top level, byte-reproducible) and SHA256SUMS keyed by those same paths, which is how the
+# Ansible roles key keel_runner_sha256. keel-relay (spec 067 T001) joins the release once its crate
+# exists; if it links OpenSSL by a path other than keel-runner's, give it its own vendored-openssl
+# feature and add it to --features here.
+RUN --mount=type=cache,id=keel-cargo-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=keel-cargo-git,target=/usr/local/cargo/git \
+    set -eu; \
+    pkgs="-p keel-runner"; bins="keel-runner keel-executor"; \
+    if [ -f apps/keel/relay/Cargo.toml ]; then pkgs="$pkgs -p keel-relay"; bins="$bins keel-relay"; fi; \
+    for arch in x86_64 aarch64; do \
+      target="$arch-unknown-linux-musl"; \
+      cargo zigbuild --release --locked --target "$target" $pkgs --bins \
+        --features keel-runner/vendored-openssl; \
+      mkdir -p "/out/$arch"; \
+      for bin in $bins; do \
+        cp "target/$target/release/$bin" "/out/$arch/$bin"; \
+        if readelf -d "/out/$arch/$bin" | grep -q NEEDED; then \
+          echo "$arch/$bin is not static" >&2; exit 1; fi; \
+      done; \
+    done; \
+    cp apps/keel/runner/ansible/requirements.txt /out/requirements.txt; \
+    tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
+      -C apps/keel/runner/ansible/callback -cf - keel_events.py | gzip -9n > /out/keel_events.tar.gz; \
+    cd /out; \
+    find . -type f | sed 's|^\./||' | LC_ALL=C sort | xargs sha256sum > /tmp/SHA256SUMS; \
+    mv /tmp/SHA256SUMS SHA256SUMS
+
+# Only the release files, so `docker build --target runner-dist --output type=local,dest=<dir>`
+# (make keel keel-runner-release) exports exactly what the image serves.
+FROM scratch AS runner-dist
+COPY --from=runner-builder /out/ /
+
 # ---- Web: one lockfile for the workspace; install only the Keel app and its packages
 FROM node:26-trixie-slim AS web
 ENV npm_config_store_dir=/pnpm-store
@@ -73,9 +143,13 @@ LABEL org.opencontainers.image.title="keel" \
 COPY --from=builder /src/target/release/keel /usr/local/bin/keel
 COPY --from=builder --chown=10001:10001 /out/var/lib/keel /var/lib/keel
 COPY --from=web /src/apps/keel/web/dist /usr/share/keel/web
+# Served at /runner/latest/… from disk; operators pin hosts to this file's sums
+# (docker run --rm mbround18/keel:<tag> cat /usr/share/keel/runner/SHA256SUMS).
+COPY --from=runner-dist / /usr/share/keel/runner/
 ENV KEEL_LISTEN=0.0.0.0:7830 \
     KEEL_RUNNER_LISTEN=0.0.0.0:7831 \
     KEEL_STATIC_DIR=/usr/share/keel/web \
+    KEEL_RUNNER_DIST_DIR=/usr/share/keel/runner \
     KEEL_DATA_DIR=/var/lib/keel \
     KEEL_BUILD_VERSION=${VERSION} \
     KEEL_BUILD_REVISION=${REVISION} \

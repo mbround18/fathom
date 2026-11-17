@@ -58,6 +58,25 @@ image-push-check:
 image-push: image-push-check image ## Push the image; refuses on a dirty tree or without a registry login
 	docker push $(IMAGE)
 
+# ---- Runner release (055 T128) ---------------------------------------------------------------
+# The same build as the image's runner-dist stage (T149), exported instead of copied into the image,
+# so the files and sums are exactly what /runner/latest/… serves. Docker is the only host tool:
+# the stage cross-builds static musl x86_64 and aarch64 with a pinned zig and cargo-zigbuild.
+# keel-relay (spec 067) is included by the stage once apps/keel/relay exists; until then the
+# target builds keel-runner and keel-executor only. Layout: <arch>/<binary>, requirements.txt,
+# keel_events.tar.gz, SHA256SUMS (keyed by those paths, as keel_runner_sha256 is).
+RUNNER_DIST_OUT ?= $(ROOT)/target/keel-runner-release
+
+.PHONY: keel-runner-release
+keel-runner-release: ## Static runner binaries (x86_64, aarch64) + SHA256SUMS into RUNNER_DIST_OUT
+	@$(MAKE) --no-print-directory -C $(ROOT) gc
+	rm -rf $(RUNNER_DIST_OUT)
+	docker build -f $(ROOT)/apps/keel/Dockerfile --target runner-dist \
+	  --build-arg RUST_VERSION=$(RUST_VERSION) \
+	  --output type=local,dest=$(RUNNER_DIST_OUT) $(ROOT)
+	cd $(RUNNER_DIST_OUT) && sha256sum --check --quiet SHA256SUMS
+	@echo "keel: runner release in $(RUNNER_DIST_OUT):"; cat $(RUNNER_DIST_OUT)/SHA256SUMS
+
 compose-secrets: ## TLS cert + key and the master key into KEEL_SECRETS_DIR (from .env); never overwrites
 	@[ -f .env ] || { echo "keel: copy .env.example to .env first" >&2; exit 1; }
 	@set -a; . ./.env; set +a; \
