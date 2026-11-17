@@ -58,6 +58,10 @@ pub struct RunnerConfig {
     /// `host:port` of Keel's runner listener (`keel_runner_server`). The host part is the name
     /// the server's host certificate must carry.
     pub server: String,
+    /// Addresses (`host:port`) to dial instead of `server`, in order (spec 067 R4): a zone's
+    /// relays. Each attempt still verifies the host certificate for `server`'s host name. Empty:
+    /// dial `server`.
+    pub dial: Vec<String>,
     pub trust_dir: PathBuf,
     pub state_dir: PathBuf,
     pub executor_socket: PathBuf,
@@ -123,6 +127,43 @@ pub fn split_server(server: &str) -> Result<(String, u16), RunnerError> {
         return Err(bad());
     }
     Ok((host.to_owned(), port))
+}
+
+/// Splits a dial address, `host:port`. Unlike `--server`, the port is required.
+pub fn split_dial(addr: &str) -> Result<(String, u16), RunnerError> {
+    let bad = || RunnerError::Connect(format!("--dial {addr:?} is not host:port"));
+    if !addr.contains(':') {
+        return Err(bad());
+    }
+    split_server(addr).map_err(|_| bad())
+}
+
+/// The reconnect backoff, applied once per full pass over the dial list: 1 s doubling to 60 s,
+/// reset after a session that lasted over a minute.
+#[derive(Debug, Clone)]
+pub struct Backoff {
+    next: Duration,
+}
+
+impl Backoff {
+    pub const MIN: Duration = Duration::from_secs(1);
+    pub const MAX: Duration = Duration::from_secs(60);
+
+    /// How long to wait after a pass that took `lasted`.
+    pub fn next(&mut self, lasted: Duration) -> Duration {
+        if lasted > Self::MAX {
+            self.next = Self::MIN;
+        }
+        let wait = self.next;
+        self.next = (self.next * 2).min(Self::MAX);
+        wait
+    }
+}
+
+impl Default for Backoff {
+    fn default() -> Self {
+        Self { next: Self::MIN }
+    }
 }
 
 /// Loads `id_ed25519`, or creates it (`0600`, exclusively) when absent. A key file that is not a
@@ -252,6 +293,9 @@ impl Runner {
     /// Reads the trust files and loads or creates the host key.
     pub fn load(cfg: RunnerConfig) -> Result<Self, RunnerError> {
         split_server(&cfg.server)?;
+        for addr in &cfg.dial {
+            split_dial(addr)?;
+        }
         let policy = Policy::load(&cfg.trust_dir)?;
         let host_cas = parse_host_ca(&read_trust_file(&cfg.trust_dir.join(HOST_CA_FILE))?)?;
         let key = Arc::new(load_or_create_key(&cfg.state_dir)?);
@@ -352,31 +396,28 @@ impl Runner {
 
     /// Connects and checks the server's host certificate against `cas`. Nothing is sent before
     /// that check passes.
+    ///
+    /// With a dial list, tries each address once, in order, and returns the first connection
+    /// whose host certificate verifies for `--server`'s host name, whatever address was dialled
+    /// (spec 067 R4). A failed attempt is logged and the next is tried; when all fail, the last
+    /// error is returned and the caller's backoff applies to the whole pass.
     async fn connect(&self, cas: &[KeyData]) -> Result<Handle<KeelSshClient>, RunnerError> {
-        let (host, port) = split_server(&self.cfg.server)?;
-        let verifier = HostCertVerifier::new(
-            cas.iter().cloned().map(TrustedCa::active).collect(),
-            host.clone(),
-        );
-        let client = KeelSshClient::new(verifier);
-        let refusal = client.refusal_slot();
-        let stream =
-            tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect((host.as_str(), port)))
-                .await
-                .map_err(|_| RunnerError::Connect("timed out".to_owned()))?
-                .map_err(|e| RunnerError::Connect(e.to_string()))?;
-        let result = tokio::time::timeout(
-            CONNECT_TIMEOUT,
-            russh::client::connect_stream(Arc::new(client_config()), stream, client),
-        )
-        .await;
-        let refused = refusal.lock().ok().and_then(|mut slot| slot.take());
-        match (result, refused) {
-            (_, Some(why)) => Err(RunnerError::ServerRefused(why)),
-            (Ok(Ok(handle)), None) => Ok(handle),
-            (Ok(Err(e)), None) => Err(RunnerError::Connect(e.to_string())),
-            (Err(_), None) => Err(RunnerError::Connect("handshake timed out".to_owned())),
+        let (name, port) = split_server(&self.cfg.server)?;
+        if self.cfg.dial.is_empty() {
+            return connect_one(cas, &name, (&name, port)).await;
         }
+        let mut last = None;
+        for addr in &self.cfg.dial {
+            let (host, port) = split_dial(addr)?;
+            match connect_one(cas, &name, (&host, port)).await {
+                Ok(handle) => return Ok(handle),
+                Err(e) => {
+                    eprintln!("keel-runner: dial {addr}: {e}");
+                    last = Some(e);
+                }
+            }
+        }
+        Err(last.unwrap_or_else(|| RunnerError::Connect("empty dial list".to_owned())))
     }
 
     async fn auth_bare_key(&self, handle: &mut Handle<KeelSshClient>) -> Result<(), RunnerError> {
@@ -532,20 +573,49 @@ impl Runner {
 
     /// Runs forever, reconnecting with backoff (1 s doubling to 60 s; reset after a session that
     /// lasted a minute).
+    ///
+    /// One `run_once` is one full pass over the dial list, so the backoff applies per pass.
     pub async fn run_forever(&self) -> ! {
-        let mut backoff = Duration::from_secs(1);
+        let mut backoff = Backoff::default();
         loop {
             let started = std::time::Instant::now();
             match self.run_once().await {
                 Ok(()) => eprintln!("keel-runner: session ended"),
                 Err(e) => eprintln!("keel-runner: {e}"),
             }
-            if started.elapsed() > Duration::from_secs(60) {
-                backoff = Duration::from_secs(1);
-            }
-            tokio::time::sleep(backoff).await;
-            backoff = (backoff * 2).min(Duration::from_secs(60));
+            tokio::time::sleep(backoff.next(started.elapsed())).await;
         }
+    }
+}
+
+/// One attempt: dials `addr` and checks the host certificate against `cas` for `name`, the
+/// `--server` host name, never `addr`. Nothing is sent before that check passes.
+async fn connect_one(
+    cas: &[KeyData],
+    name: &str,
+    addr: (&str, u16),
+) -> Result<Handle<KeelSshClient>, RunnerError> {
+    let verifier = HostCertVerifier::new(
+        cas.iter().cloned().map(TrustedCa::active).collect(),
+        name.to_owned(),
+    );
+    let client = KeelSshClient::new(verifier);
+    let refusal = client.refusal_slot();
+    let stream = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr))
+        .await
+        .map_err(|_| RunnerError::Connect("timed out".to_owned()))?
+        .map_err(|e| RunnerError::Connect(e.to_string()))?;
+    let result = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        russh::client::connect_stream(Arc::new(client_config()), stream, client),
+    )
+    .await;
+    let refused = refusal.lock().ok().and_then(|mut slot| slot.take());
+    match (result, refused) {
+        (_, Some(why)) => Err(RunnerError::ServerRefused(why)),
+        (Ok(Ok(handle)), None) => Ok(handle),
+        (Ok(Err(e)), None) => Err(RunnerError::Connect(e.to_string())),
+        (Err(_), None) => Err(RunnerError::Connect("handshake timed out".to_owned())),
     }
 }
 

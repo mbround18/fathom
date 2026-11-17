@@ -14,6 +14,11 @@ struct Cli {
     /// server's host certificate.
     #[arg(long, env = "KEEL_RUNNER_SERVER")]
     server: String,
+    /// Dial this `host:port` instead of `--server` (repeatable; `KEEL_RUNNER_DIAL` is
+    /// comma-separated). Tried in order each pass, for example a zone's relays. The host
+    /// certificate must still verify for `--server`'s host name.
+    #[arg(long, env = "KEEL_RUNNER_DIAL", value_delimiter = ',')]
+    dial: Vec<String>,
     /// `policy.toml` and `host_ca.pub`.
     #[arg(
         long,
@@ -72,6 +77,13 @@ async fn main() {
     let cli = Cli::parse();
     let runner = match Runner::load(RunnerConfig {
         server: cli.server,
+        // `KEEL_RUNNER_DIAL=` (empty) or a trailing comma means no entry, not an empty one.
+        dial: cli
+            .dial
+            .into_iter()
+            .map(|a| a.trim().to_owned())
+            .filter(|a| !a.is_empty())
+            .collect(),
         trust_dir: cli.trust_dir,
         state_dir: cli.state_dir,
         executor_socket: cli.executor_socket,

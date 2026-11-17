@@ -141,6 +141,7 @@ impl Host {
     fn runner(&self, port: u16) -> Runner {
         Runner::load(RunnerConfig {
             server: format!("{SERVER_NAME}:{port}"),
+            dial: vec![],
             trust_dir: self.trust.clone(),
             state_dir: self.state.clone(),
             executor_socket: self.socket.clone(),
