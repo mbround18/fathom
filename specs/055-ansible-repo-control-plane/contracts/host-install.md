@@ -8,7 +8,7 @@ what Keel relies on. Nothing in `../ansible` changes as part of 055 without the 
 
 | Variable | Default | Notes |
 |---|---|---|
-| `keel_runner_enabled` | `false` | Per host or group. |
+| *(group `keel_nodes`)* | | A host runs the runner when it is in `keel_nodes`. `playbooks/keel-node.yaml` `group_by`s a single unlisted target into it for the run (there is no `keel_runner_enabled`). |
 | `keel_runner_version`, `keel_runner_sha256` | required | Release and checksum per architecture, for `github_release`. |
 | `keel_runner_server` | required | `host:port` of Keel's runner listener. A host name, not an IP (the repository keeps IPs out of Git). |
 | `keel_runner_host_ca` | required | The `@cert-authority` key from `GetSshCa`. |
@@ -19,9 +19,9 @@ what Keel relies on. Nothing in `../ansible` changes as part of 055 without the 
 | `keel_runner_allowed_profiles` | `[]` | The ceiling for profiles Keel may assign. Empty means the host refuses every job. |
 | `keel_runner_override_quorum` | `1` | |
 | `keel_runner_inventory_name` | `inventory_hostname` | |
-| `keel_enroll_token` | unset | Passed only with `-e` for the first run. Never stored in Git or in vars files. |
-| `keel_join_token` | unset | A join token (contracts/join.md). Multi-use and expiring, so it may live in encrypted vars. Supplies `keel_runner_server`, `keel_runner_host_ca`, `keel_runner_origin` and `keel_runner_rp_id` when those are unset; the role fails if a set var disagrees with the token. Never supplies trust decisions. |
-| `keel_runner_download` | `false` | `true` fetches the binaries, requirements and callback from `https://<origin>/runner/latest/…` instead of `github_release`; each file must match `keel_runner_sha256`. |
+| `KEEL_TOKEN` (environment) | unset | The enrollment or join token, read with `lookup('env')` for the first run only. Never a var: the role refuses `keel_enroll_token` and `keel_join_token` (`roles/keel_runner/tasks/token.yml`). |
+| *(join token in `KEEL_TOKEN`)* | | A join token (contracts/join.md) is passed the same way. Supplies `keel_runner_server`, `keel_runner_host_ca`, `keel_runner_origin` and `keel_runner_rp_id` when those are unset; the role fails if a set var disagrees with the token. Never supplies trust decisions. |
+| `keel_runner_download` | `true` | `true` fetches the binaries, requirements and callback from `https://<origin>/runner/latest/…` instead of `github_release`; each file must match `keel_runner_sha256`. |
 
 Validation: the role fails if `keel_runner_require_signed` is true and either signer or approver
 list is empty, because such a host could never run anything.
