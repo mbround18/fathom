@@ -44,7 +44,7 @@ Migration numbers are fixed so that parallel branches don't collide: `0015_join.
 - [X] T056 D4: `server/tests/common/mod.rs` `TestDb::new` panics when `CI` is set and
   `KEEL_TEST_DATABASE_URL` is unset. `scripts/ci.sh` starts `scripts/keel-test-db.sh` and
   exports the URL for the keel-server tests. Fix any test this exposes.
-- [ ] T057 D1: spec 055 T128, T140, T147 and T149: the release build target, the
+- [X] T057 D1: spec 055 T128, T140, T147 and T149: the release build target, the
   `/runner/…` routes from `--runner-dist-dir`, and the image's `runner-dist` stage.
 - [ ] T058 D3: spec 055 T137–T146 and T148: join tokens end to end.
 

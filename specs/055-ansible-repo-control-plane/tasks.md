@@ -518,7 +518,7 @@ free number when it lands (0007 is US8's `0007_signed.sql`, so T122 moves too).
   30 s doubling to 10 min with jitter (fake clock); `Enrolled` deletes `join-token`;
   `JoinRejected` deletes it and exits 78; an enrollment token beside a join token wins;
   `keel-runner fingerprint` prints the key's SHA-256.
-- [ ] T140 [P] [US7] Download tests in apps/keel/server/tests/runner_dist.rs: each file under
+- [X] T140 [P] [US7] Download tests in apps/keel/server/tests/runner_dist.rs: each file under
   `/runner/latest/` served with its SHA-256 as `ETag`; unknown arch, `..` and encoded traversal are
   `404`; a missing `--runner-dist-dir` gives `404` and the server still starts; `/runner/version`.
 - [ ] T141 [P] [US7] Round-trip tests for the join commands and events in
@@ -538,11 +538,11 @@ free number when it lands (0007 is US8's `0007_signed.sql`, so T122 moves too).
   requests (lazily on read, no timer, T131), the bounds and flags in config.rs. Pass T138, T141.
 - [ ] T146 [US7] Runner: join flow and `fingerprint` subcommand in apps/keel/runner/src/runner/;
   `RestartPreventExitStatus=78` in apps/keel/runner/systemd/keel-runner.service. Pass T139.
-- [ ] T147 [US7] `/runner/…` routes in apps/keel/server/src/runner_dist.rs serving
+- [X] T147 [US7] `/runner/…` routes in apps/keel/server/src/runner_dist.rs serving
   `--runner-dist-dir` from disk. Pass T140.
 - [ ] T148 [P] [US7] Web: Join requests tab in apps/keel/web/src/features/hosts/ and Settings →
   Hosts in apps/keel/web/src/features/settings/ (lazy-loaded route). Pass T142.
-- [ ] T149 [US7] Image: a `runner-dist` stage in apps/keel/Dockerfile building static musl
+- [X] T149 [US7] Image: a `runner-dist` stage in apps/keel/Dockerfile building static musl
   `keel-runner` and `keel-executor` for x86_64 and aarch64, plus `requirements.txt`,
   `keel_events.tar.gz` and `SHA256SUMS`, copied to `/usr/share/keel/runner/` in the server image.
   Tag `mbround18/keel:latest` until releases come from git tags.
@@ -751,7 +751,7 @@ schema with a conflict renamed; a tampered bundle is refused before anything is 
   (PostgreSQL 18), both `restart: ${RESTART_POLICY:-no}`; networks `edge` (keel only, web and
   runner ports) and `db` (internal); the master key mounted read-only; named volumes, never
   pruned by tooling.
-- [ ] T128 [P] Release build for `keel-runner` and `keel-executor` (static, amd64 and arm64) with
+- [X] T128 [P] Release build for `keel-runner` and `keel-executor` (static, amd64 and arm64) with
   SHA-256 sums, as a Makefile target `keel-runner-release`, so 058 can pin them in Ansible vars.
   Shares its build with T149; once releases come from git tags, publish the same files and the
   `mbround18/keel:<version>` image from the tag.
