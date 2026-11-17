@@ -3,7 +3,7 @@
 -- (`converge_hosts_one_holding`), advanced by the `converge_advance` trigger on `run_hosts`.
 -- Also: commit-status gates, profile suggestions and auto-converge on enrollment.
 --
--- Numbering: 0015 and 0017 are reserved by spec 067; if another branch lands 0018 first,
+-- Numbering: 0015, 0017 and 0018 (`join`) are spec 067's; if another branch lands 0019 first,
 -- renumber this file before any shared database applies it (data-model.md).
 
 -- ---- runs ----------------------------------------------------------------------------------

@@ -165,10 +165,10 @@ async fn run_approval_columns_and_insert_only_answers() {
 }
 
 /// Spec 068 T001: every migration has its own version, and the versions run 1, 2, 3, … except
-/// the numbers spec 067 reserved (0015 `join`, 0017 `relays`) while they are not on this branch.
+/// the numbers spec 067 reserved (0015, 0017 `relays`, 0018 `join`) while they are not on this branch.
 #[test]
 fn migration_versions_are_unique_and_contiguous() {
-    const RESERVED: &[u32] = &[15, 17];
+    const RESERVED: &[u32] = &[15, 17, 18];
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
     let mut versions: Vec<u32> = std::fs::read_dir(&dir)
         .expect("migrations dir")
