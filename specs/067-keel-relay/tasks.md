@@ -174,7 +174,7 @@ leaves the host disconnected, not failed.
     1 doc. The unit already carries T065's sandbox list;
     `systemd-analyze security --offline=true keel-relay.service` scores **1.1 OK** (remaining
     exposure: Internet sockets, host network, no IP allow list, host root, `char-rtc`).
-- [ ] T020 [US1] Implement `RelaySupervisor` in `server/src/relays.rs`:
+- [X] T020 [US1] Implement `RelaySupervisor` in `server/src/relays.rs`:
   - one task per non-revoked relay row;
   - dial `dial_address` with `link_client_config()` and `LinkClientPolicy`, pinned to
     `relays.host_key`;
@@ -184,7 +184,7 @@ leaves the host disconnected, not failed.
   - redial with exponential backoff capped at the health interval;
   - audit state changes as `relay.state`;
   - start the tasks from `server/src/serve.rs` when `KEEL_RELAYS` is on.
-- [ ] T021 [US1] On each accepted `forwarded-tcpip` channel in `server/src/relays.rs`, call
+- [X] T021 [US1] On each accepted `forwarded-tcpip` channel in `server/src/relays.rs`, call
   `runner_listener::serve_connection` with `RunnerPath::Relay { relay_id, advisory_peer }` over
   the channel stream. Keep a handle per stream, so revocation (T027) can close them.
 - [X] T022 [US1] Add the runner dial list in `runner/src/runner/mod.rs`:
@@ -193,7 +193,7 @@ leaves the host disconnected, not failed.
   - `connect()` tries each address in order, building `HostCertVerifier` from `--server`'s host
     every time;
   - the existing backoff loop (`mod.rs:533`) wraps a full pass.
-- [ ] T023 [US1] Add a minimal relay registration path (needed by T014 before US3's UI): a
+- [X] T023 [US1] Add a minimal relay registration path (needed by T014 before US3's UI): a
   server function `register_relay(tx, workspace, zone, name, dial_address, host_key, host)` in
   `server/src/relays.rs`. It validates `dial_address` (`host:port`, port 1–65535) and `host_key`
   (exactly one `ssh-ed25519` line), and audits `relay.register`. US3 wraps it in
