@@ -11,6 +11,8 @@ publish = false
 fake = []
 
 [dependencies]
+# Join tokens (contracts/join.md): a compact JWS signed with Ed25519, no JWT crate.
+ed25519-dalek = "2.2.0"
 # Binary frame fields (`Pack.chunk`, `Log.bytes`, `Krl.bytes`) travel as base64 inside JSON.
 base64 = "0.23.1"
 keel-trust = { path = "../keel-trust" }

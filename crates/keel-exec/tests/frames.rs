@@ -46,6 +46,22 @@ fn every_frame() -> Vec<Frame> {
             host_id: "h-1".into(),
             cert: "ssh-ed25519-cert-v01@openssh.com AAAA".into(),
         },
+        Frame::JoinRequest {
+            token: "eyJhbGciOiJFZERTQSJ9.e30.c2ln".into(),
+            inventory_name: "web-1".into(),
+            allowed_profiles: vec!["base".into()],
+            require_signed: false,
+            hostname: "web-1.example".into(),
+            os: "Debian GNU/Linux 13 (trixie)".into(),
+            arch: "x86_64".into(),
+            runner_version: "0.1.0".into(),
+        },
+        Frame::JoinPending {
+            request_id: "0190f0a0-0000-7000-8000-000000000001".into(),
+        },
+        Frame::JoinRejected {
+            reason: "rejected".into(),
+        },
         Frame::Hello {
             host_id: "h-1".into(),
             version: "0.1.0".into(),
@@ -211,17 +227,20 @@ fn every_frame_names_a_direction_and_a_subsystem() {
         let name = frame.name();
         match name {
             "Enroll" | "Enrolled" => assert_eq!(frame.subsystem(), Some(Subsystem::Enroll)),
+            "JoinRequest" | "JoinPending" | "JoinRejected" => {
+                assert_eq!(frame.subsystem(), Some(Subsystem::Join))
+            }
             "ReadLedger" | "Ledger" => assert_eq!(frame.subsystem(), None, "local socket only"),
             _ => assert_eq!(frame.subsystem(), Some(Subsystem::Runner), "{name}"),
         }
         let dir = frame.direction();
         match name {
             "Hello" | "Started" | "Refused" | "Event" | "Log" | "Finished" | "Enroll"
-            | "OutsideRuns" => {
+            | "JoinRequest" | "OutsideRuns" => {
                 assert_eq!(dir, Direction::RunnerToServer, "{name}")
             }
             "Assign" | "Pack" | "Secrets" | "Approvals" | "Cancel" | "Krl" | "Cert"
-            | "Enrolled" | "OutsideRunsAck" => {
+            | "Enrolled" | "JoinPending" | "JoinRejected" | "OutsideRunsAck" => {
                 assert_eq!(dir, Direction::ServerToRunner, "{name}")
             }
             "RenewCert" | "Ping" | "Pong" => assert_eq!(dir, Direction::Both, "{name}"),
@@ -391,6 +410,20 @@ fn secrets_and_enroll_tokens_never_reach_debug_output() {
     };
     let shown = format!("{enroll:?} {:#?}", enroll);
     assert!(!shown.contains("s3cr3t"), "{shown}");
+
+    let join = Frame::JoinRequest {
+        token: "eyJ.j0in-s3cr3t.sig".into(),
+        inventory_name: "web-1".into(),
+        allowed_profiles: vec![],
+        require_signed: false,
+        hostname: "web-1".into(),
+        os: "Debian".into(),
+        arch: "x86_64".into(),
+        runner_version: "0.1.0".into(),
+    };
+    let shown = format!("{join:?} {:#?}", join);
+    assert!(!shown.contains("j0in-s3cr3t"), "{shown}");
+    assert!(shown.contains("web-1"), "{shown}");
 
     let pack = Frame::Pack {
         run_id: "r".into(),

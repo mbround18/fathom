@@ -85,16 +85,29 @@ pub enum Access {
     /// The bare enrolled key of a host whose certificate expired within the allowed offline
     /// window: `keel-runner-v1`, but only `RenewCert`.
     RenewOnly { host_id: String },
-    /// An unknown key: `keel-enroll-v1` only.
+    /// An unknown key: `keel-enroll-v1`, or `keel-join-v1` (then [`Access::JoinOnly`]).
     EnrollOnly,
+    /// An unknown key on `keel-join-v1`: `JoinRequest` only (contracts/join.md).
+    JoinOnly,
 }
 
 impl Access {
-    /// The one subsystem this connection may open.
+    /// The subsystem this access is served on.
     pub const fn subsystem(&self) -> Subsystem {
         match self {
             Access::Runner(_) | Access::RenewOnly { .. } => Subsystem::Runner,
             Access::EnrollOnly => Subsystem::Enroll,
+            Access::JoinOnly => Subsystem::Join,
+        }
+    }
+
+    /// The access a request for subsystem `sub` gets on this connection, or `None` when the
+    /// connection may not open it. An unknown key may open the enroll or the join subsystem.
+    pub fn open(&self, sub: Subsystem) -> Option<Access> {
+        match (self, sub) {
+            (Access::EnrollOnly, Subsystem::Join) => Some(Access::JoinOnly),
+            _ if self.subsystem() == sub => Some(self.clone()),
+            _ => None,
         }
     }
 
@@ -108,6 +121,7 @@ impl Access {
             Access::Runner(_) => true,
             Access::RenewOnly { .. } => matches!(frame, Frame::RenewCert {}),
             Access::EnrollOnly => matches!(frame, Frame::Enroll { .. }),
+            Access::JoinOnly => matches!(frame, Frame::JoinRequest { .. }),
         }
     }
 }
@@ -447,14 +461,12 @@ impl<A: RunnerAuthority, S: SubsystemService> Handler for KeelSshHandler<A, S> {
         name: &str,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        let allowed = match (&self.access, Subsystem::from_name(name)) {
-            (Some(access), Some(sub)) => access.subsystem() == sub,
-            _ => false,
+        let access = match (&self.access, Subsystem::from_name(name)) {
+            (Some(access), Some(sub)) => access.open(sub),
+            _ => None,
         };
         let bound = self.pending.as_ref().is_some_and(|c| c.id() == channel);
-        let (true, true, Some(access), Some(key)) =
-            (allowed, bound, self.access.clone(), self.key.clone())
-        else {
+        let (true, Some(access), Some(key)) = (bound, access, self.key.clone()) else {
             return Self::refuse(channel, session);
         };
         let Some(chan) = self.pending.take() else {

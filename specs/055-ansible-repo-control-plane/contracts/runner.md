@@ -42,6 +42,22 @@ Keel and `keel-runner`, and the local socket between the two halves.
    key and replies `Enrolled { host_id, cert }`. The runner deletes the token file.
 - Any failure closes the connection, burns the token, and is audited.
 
+## Join (`keel-join-v1`)
+
+The second way in, with a join token (contracts/join.md). Frames, in `keel_exec::frames`:
+
+| Frame | Direction | Notes |
+|---|---|---|
+| `JoinRequest { token, inventory_name, allowed_profiles, require_signed, hostname, os, arch, runner_version }` | R → S | The only frame an unknown key may send on this subsystem. `token` is a `SecretString`. |
+| `JoinPending { request_id }` | S → R | The runner closes and retries with back-off. |
+| `Enrolled { host_id, cert }` | S → R | Same frame as enrollment; the runner deletes `join-token`. |
+| `JoinRejected { reason }` | S → R | The runner deletes `join-token` and exits 78. |
+
+An unknown key's connection may open either `keel-enroll-v1` or `keel-join-v1`
+(`Access::open`); on the join subsystem it is served as `Access::JoinOnly`. A host accepted by an
+operator but not yet certified still authenticates as an unknown key, and its next `JoinRequest`
+is answered `Enrolled`.
+
 ## Frames (`keel-runner-v1`)
 
 | Direction | Frame | Notes |

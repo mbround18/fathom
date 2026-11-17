@@ -690,4 +690,29 @@ fn access_permits_only_its_own_frames() {
     assert!(!enroll.permits(&Frame::Ping) && !enroll.permits(&Frame::RenewCert {}));
     assert_eq!(enroll.subsystem(), Subsystem::Enroll);
     assert_eq!(renew.subsystem(), Subsystem::Runner);
+
+    // An unknown key may open keel-join-v1 too, and there sends `JoinRequest` only.
+    let join_frame = Frame::JoinRequest {
+        token: SecretString::from("t"),
+        inventory_name: "web-1".into(),
+        allowed_profiles: vec![],
+        require_signed: false,
+        hostname: "web-1".into(),
+        os: "Debian".into(),
+        arch: "x86_64".into(),
+        runner_version: "0.1.0".into(),
+    };
+    assert_eq!(enroll.open(Subsystem::Join), Some(Access::JoinOnly));
+    assert_eq!(enroll.open(Subsystem::Enroll), Some(Access::EnrollOnly));
+    assert_eq!(enroll.open(Subsystem::Runner), None);
+    assert_eq!(renew.open(Subsystem::Join), None);
+    assert_eq!(runner.open(Subsystem::Join), None);
+    let join = Access::JoinOnly;
+    assert_eq!(join.subsystem(), Subsystem::Join);
+    assert!(join.permits(&join_frame));
+    assert!(!join.permits(&enroll_frame) && !enroll.permits(&join_frame));
+    assert!(!join.permits(&Frame::Ping) && !runner.permits(&join_frame));
+    assert!(!join.permits(&Frame::JoinPending {
+        request_id: "r".into()
+    }));
 }

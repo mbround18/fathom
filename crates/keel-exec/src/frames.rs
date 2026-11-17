@@ -20,6 +20,9 @@ use crate::events::HostStats;
 pub enum Subsystem {
     /// `keel-enroll-v1`: `Enroll` → `Enrolled`, for a key Keel does not know yet.
     Enroll,
+    /// `keel-join-v1`: `JoinRequest` → `JoinPending` | `Enrolled` | `JoinRejected`, for a key
+    /// Keel does not know yet that presents a join token (contracts/join.md).
+    Join,
     /// `keel-runner-v1`: every other channel frame.
     Runner,
 }
@@ -27,11 +30,13 @@ pub enum Subsystem {
 impl Subsystem {
     pub const ENROLL_NAME: &'static str = "keel-enroll-v1";
     pub const RUNNER_NAME: &'static str = "keel-runner-v1";
+    pub const JOIN_NAME: &'static str = "keel-join-v1";
 
     /// The subsystem name as requested over SSH.
     pub const fn name(self) -> &'static str {
         match self {
             Subsystem::Enroll => Self::ENROLL_NAME,
+            Subsystem::Join => Self::JOIN_NAME,
             Subsystem::Runner => Self::RUNNER_NAME,
         }
     }
@@ -40,6 +45,7 @@ impl Subsystem {
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             Self::ENROLL_NAME => Some(Subsystem::Enroll),
+            Self::JOIN_NAME => Some(Subsystem::Join),
             Self::RUNNER_NAME => Some(Subsystem::Runner),
             _ => None,
         }
@@ -236,10 +242,34 @@ pub enum Frame {
         allowed_profiles: Vec<String>,
         require_signed: bool,
     },
-    /// S → R. `cert` is the OpenSSH one-line certificate.
+    /// S → R. `cert` is the OpenSSH one-line certificate. Also the answer to an accepted
+    /// `JoinRequest` on `keel-join-v1`.
     Enrolled {
         host_id: String,
         cert: String,
+    },
+
+    // ---- keel-join-v1 (contracts/join.md) ----
+    /// R → S, the only frame an unknown key may send on `keel-join-v1`. Everything but `token`
+    /// and the key itself is the host's claim.
+    JoinRequest {
+        token: SecretString,
+        inventory_name: String,
+        allowed_profiles: Vec<String>,
+        require_signed: bool,
+        hostname: String,
+        os: String,
+        arch: String,
+        runner_version: String,
+    },
+    /// S → R: the request waits for an operator. Close, back off, ask again.
+    JoinPending {
+        request_id: String,
+    },
+    /// S → R: refused for good (`rejected`, `token_rotated`, `queue_full`, `known_key`, …).
+    /// The runner deletes its join token and exits 78.
+    JoinRejected {
+        reason: String,
     },
 
     // ---- keel-runner-v1 ----
@@ -380,6 +410,9 @@ impl Frame {
         match self {
             Frame::Enroll { .. } => "Enroll",
             Frame::Enrolled { .. } => "Enrolled",
+            Frame::JoinRequest { .. } => "JoinRequest",
+            Frame::JoinPending { .. } => "JoinPending",
+            Frame::JoinRejected { .. } => "JoinRejected",
             Frame::Hello { .. } => "Hello",
             Frame::RenewCert {} => "RenewCert",
             Frame::Cert { .. } => "Cert",
@@ -407,6 +440,9 @@ impl Frame {
     pub const fn subsystem(&self) -> Option<Subsystem> {
         match self {
             Frame::Enroll { .. } | Frame::Enrolled { .. } => Some(Subsystem::Enroll),
+            Frame::JoinRequest { .. } | Frame::JoinPending { .. } | Frame::JoinRejected { .. } => {
+                Some(Subsystem::Join)
+            }
             Frame::ReadLedger | Frame::Ledger { .. } => None,
             _ => Some(Subsystem::Runner),
         }
@@ -415,6 +451,7 @@ impl Frame {
     pub const fn direction(&self) -> Direction {
         match self {
             Frame::Enroll { .. }
+            | Frame::JoinRequest { .. }
             | Frame::Hello { .. }
             | Frame::Started { .. }
             | Frame::Refused { .. }
@@ -424,6 +461,8 @@ impl Frame {
             | Frame::OutsideRuns { .. }
             | Frame::ReadLedger => Direction::RunnerToServer,
             Frame::Enrolled { .. }
+            | Frame::JoinPending { .. }
+            | Frame::JoinRejected { .. }
             | Frame::Cert { .. }
             | Frame::Krl { .. }
             | Frame::Assign { .. }
@@ -487,6 +526,26 @@ impl fmt::Debug for Frame {
                 .field("allowed_profiles", allowed_profiles)
                 .field("require_signed", require_signed),
             Frame::Enrolled { host_id, cert } => d.field("host_id", host_id).field("cert", cert),
+            Frame::JoinRequest {
+                token,
+                inventory_name,
+                allowed_profiles,
+                require_signed,
+                hostname,
+                os,
+                arch,
+                runner_version,
+            } => d
+                .field("token", token)
+                .field("inventory_name", inventory_name)
+                .field("allowed_profiles", allowed_profiles)
+                .field("require_signed", require_signed)
+                .field("hostname", hostname)
+                .field("os", os)
+                .field("arch", arch)
+                .field("runner_version", runner_version),
+            Frame::JoinPending { request_id } => d.field("request_id", request_id),
+            Frame::JoinRejected { reason } => d.field("reason", reason),
             Frame::Hello {
                 host_id,
                 version,

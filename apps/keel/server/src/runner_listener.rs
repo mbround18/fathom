@@ -205,6 +205,8 @@ impl SubsystemService for Service {
     ) {
         match access {
             Access::EnrollOnly => enroll(&self.app, &key, stream).await,
+            // Served once the join subsystem lands (055 T145); until then the stream closes.
+            Access::JoinOnly => {}
             Access::RenewOnly { host_id } => {
                 if let Ok(host) = Uuid::parse_str(&host_id) {
                     renew_only(&self.app, host, stream).await;

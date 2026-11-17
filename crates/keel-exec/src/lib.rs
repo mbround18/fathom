@@ -9,6 +9,7 @@ pub mod events;
 #[cfg(feature = "fake")]
 pub mod fake;
 pub mod frames;
+pub mod join_token;
 pub mod krl;
 pub mod pack_builder;
 pub mod relay;
