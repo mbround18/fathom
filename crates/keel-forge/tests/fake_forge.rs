@@ -8,7 +8,10 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::{HeaderMap, Method, StatusCode, Uri};
 use axum::response::IntoResponse;
-use keel_forge::{ChangeRequest, FileEdit, Forge, ForgeClient, ForgeConfig, ForgeError, Provider};
+use keel_forge::{
+    ChangeRequest, CommitStatusState, FileEdit, Forge, ForgeClient, ForgeConfig, ForgeError,
+    ForgeStatus, Provider,
+};
 use serde_json::{Value, json};
 
 const TOKEN: &str = "fake-token-abc123";
@@ -314,4 +317,177 @@ async fn new_file_omits_sha() {
     let file = &log(&f)[0].body["files"][0];
     assert_eq!(file["operation"], "create");
     assert!(file.get("sha").is_none());
+}
+
+const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+fn status(context: &str, state: CommitStatusState, url: Option<&str>) -> ForgeStatus {
+    ForgeStatus {
+        context: context.into(),
+        state,
+        target_url: url.map(str::to_owned),
+    }
+}
+
+#[tokio::test]
+async fn forgejo_statuses_read_the_combined_status() {
+    let path = format!("/repos/ops/ansible/commits/{SHA}/status");
+    let (base, f) = fake(&[(
+        "GET",
+        path.as_str(),
+        200,
+        json!({
+            "state": "failure",
+            "sha": SHA,
+            "statuses": [
+                {"context": "ci/lint", "status": "success", "target_url": "https://ci.example.test/1"},
+                {"context": "ci/test", "status": "failure", "target_url": ""},
+                {"context": "ci/slow", "status": "pending"},
+                {"context": "ci/warn", "status": "warning"},
+                {"context": "ci/old", "state": "error"}
+            ]
+        }),
+    )])
+    .await;
+    let got = client(Provider::Forgejo, &base)
+        .commit_statuses(SHA)
+        .await
+        .unwrap();
+    assert_eq!(
+        got,
+        vec![
+            status(
+                "ci/lint",
+                CommitStatusState::Success,
+                Some("https://ci.example.test/1")
+            ),
+            status("ci/test", CommitStatusState::Failure, None),
+            status("ci/slow", CommitStatusState::Pending, None),
+            status("ci/warn", CommitStatusState::Error, None),
+            status("ci/old", CommitStatusState::Error, None),
+        ]
+    );
+    let reqs = log(&f);
+    assert_eq!(reqs.len(), 1);
+    assert_eq!(reqs[0].method, "GET");
+    assert_eq!(
+        reqs[0].auth.as_deref(),
+        Some(format!("token {TOKEN}").as_str())
+    );
+}
+
+#[tokio::test]
+async fn forgejo_statuses_with_none_reported_are_empty() {
+    let path = format!("/repos/ops/ansible/commits/{SHA}/status");
+    let (base, _f) = fake(&[(
+        "GET",
+        path.as_str(),
+        200,
+        json!({"state": "", "statuses": null}),
+    )])
+    .await;
+    let got = client(Provider::Gitea, &base)
+        .commit_statuses(SHA)
+        .await
+        .unwrap();
+    assert!(got.is_empty());
+}
+
+#[tokio::test]
+async fn github_statuses_add_check_runs() {
+    let status_path = format!("/repos/ops/ansible/commits/{SHA}/status");
+    let runs_path = format!("/repos/ops/ansible/commits/{SHA}/check-runs");
+    let (base, f) = fake(&[
+        (
+            "GET",
+            status_path.as_str(),
+            200,
+            json!({"state": "success", "statuses": [
+                {"context": "ci/legacy", "state": "success", "target_url": "https://ci.example.test/l"}
+            ]}),
+        ),
+        (
+            "GET",
+            runs_path.as_str(),
+            200,
+            json!({"total_count": 5, "check_runs": [
+                {"name": "build", "status": "completed", "conclusion": "success",
+                 "html_url": "https://github.example.test/r/1"},
+                {"name": "lint", "status": "completed", "conclusion": "skipped"},
+                {"name": "test", "status": "in_progress", "conclusion": null},
+                {"name": "deploy", "status": "completed", "conclusion": "timed_out"},
+                {"name": "flaky", "status": "completed", "conclusion": "cancelled"}
+            ]}),
+        ),
+    ])
+    .await;
+    let got = client(Provider::Github, &base)
+        .commit_statuses(SHA)
+        .await
+        .unwrap();
+    assert_eq!(
+        got,
+        vec![
+            status(
+                "ci/legacy",
+                CommitStatusState::Success,
+                Some("https://ci.example.test/l")
+            ),
+            status(
+                "build",
+                CommitStatusState::Success,
+                Some("https://github.example.test/r/1")
+            ),
+            status("lint", CommitStatusState::Success, None),
+            status("test", CommitStatusState::Pending, None),
+            status("deploy", CommitStatusState::Failure, None),
+            status("flaky", CommitStatusState::Error, None),
+        ]
+    );
+    let reqs = log(&f);
+    assert_eq!(reqs.len(), 2);
+    assert_eq!(
+        reqs[0].auth.as_deref(),
+        Some(format!("Bearer {TOKEN}").as_str())
+    );
+}
+
+#[tokio::test]
+async fn statuses_refuse_a_bad_sha_without_a_request_and_map_errors() {
+    let (base, f) = fake(&[]).await;
+    for p in [Provider::Forgejo, Provider::Github] {
+        let err = client(p, &base)
+            .commit_statuses("../../admin")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ForgeError::Url(_)), "{err:?}");
+    }
+    assert!(log(&f).is_empty(), "a request was sent");
+    // Unscripted: the forge says 404.
+    let err = client(Provider::Forgejo, &base)
+        .commit_statuses(SHA)
+        .await
+        .unwrap_err();
+    assert_eq!(err, ForgeError::NotFound);
+}
+
+/// A forge that does not implement `commit_statuses` says `Unsupported`.
+#[tokio::test]
+async fn statuses_default_to_unsupported() {
+    struct Bare;
+    impl Forge for Bare {
+        fn probe(&self) -> keel_forge::ForgeFuture<'_, keel_forge::ForgeAccess> {
+            Box::pin(async { Err(ForgeError::NotFound) })
+        }
+        fn open_change<'a>(
+            &'a self,
+            _change: &'a ChangeRequest,
+        ) -> keel_forge::ForgeFuture<'a, keel_forge::OpenedChange> {
+            Box::pin(async { Err(ForgeError::NotFound) })
+        }
+    }
+    assert_eq!(
+        Bare.commit_statuses(SHA).await.unwrap_err(),
+        ForgeError::Unsupported
+    );
 }

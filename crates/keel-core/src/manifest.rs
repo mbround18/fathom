@@ -34,6 +34,15 @@ pub enum PathKind {
 pub trait RepoTree {
     /// What `path` (relative, `/`-separated, no symlinks followed) is, or `None` when absent.
     fn kind(&self, path: &str) -> Option<PathKind>;
+
+    /// The names of the directories directly inside directory `path` (not symbolic links to
+    /// directories), in name order; `None` when `path` is absent or not a directory. Used by
+    /// `choice` params with `from:` (spec 068). The default cannot list, so a `from:` choice
+    /// fails closed on a tree that does not implement it.
+    fn list_dirs(&self, path: &str) -> Option<Vec<String>> {
+        let _ = path;
+        None
+    }
 }
 
 /// One validation problem: where it is and what is wrong. Never contains file contents.
@@ -176,6 +185,118 @@ pub const MAX_PARAMS: usize = 8;
 #[serde(deny_unknown_fields)]
 pub struct ParamSpec {
     pub kind: ParamKind,
+    /// `choice` only: the allowed values (1–[`MAX_CHOICE_VALUES`]). Exactly one of `values` and
+    /// `from`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub values: Option<Vec<String>>,
+    /// `choice` only: a repo-relative directory whose subdirectory names are the allowed values
+    /// at the commit (hidden and ill-formed names ignored; more than [`MAX_CHOICE_FROM`] is
+    /// refused).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    /// `choice` only: the value a form starts with. Must be one of the values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+}
+
+impl ParamSpec {
+    /// A param of `kind` with no `choice` fields.
+    #[must_use]
+    pub const fn of(kind: ParamKind) -> Self {
+        Self {
+            kind,
+            values: None,
+            from: None,
+            default: None,
+        }
+    }
+
+    /// A `choice` param's allowed values at `tree`: `values`, or the matching subdirectory names
+    /// of `from`, in order. `None` for other kinds.
+    ///
+    /// # Errors
+    ///
+    /// `from` is missing or not a directory at the tree, or lists more than [`MAX_CHOICE_FROM`]
+    /// entries; or the spec has neither or both of `values` and `from`.
+    pub fn choices(&self, tree: &dyn RepoTree) -> Option<Result<Vec<String>, ChoiceError>> {
+        if self.kind != ParamKind::Choice {
+            return None;
+        }
+        Some(match (&self.values, &self.from) {
+            (Some(values), None) => Ok(values.clone()),
+            (None, Some(from)) => choices_from(tree, from),
+            _ => Err(ChoiceError::Shape),
+        })
+    }
+
+    /// Whether `value` may be passed for this param at `tree`: of the right kind and, for a
+    /// `choice`, one of the choices there. The error names no value.
+    ///
+    /// # Errors
+    ///
+    /// Why the value doesn't fit.
+    pub fn check_value(&self, value: &str, tree: &dyn RepoTree) -> Result<(), String> {
+        self.kind.validate(value).map_err(str::to_owned)?;
+        match self.choices(tree) {
+            None => Ok(()),
+            Some(Err(e)) => Err(e.to_string()),
+            Some(Ok(c)) if c.iter().any(|v| v == value) => Ok(()),
+            Some(Ok(_)) => Err("not one of the choices at the commit".to_owned()),
+        }
+    }
+}
+
+/// The most `values` a `choice` param may list.
+pub const MAX_CHOICE_VALUES: usize = 64;
+
+/// The most entries a `choice` param's `from:` directory may hold, counting only matching names.
+pub const MAX_CHOICE_FROM: usize = 256;
+
+/// Why a `choice` param's values cannot be listed. `code` is the manifest validation code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ChoiceError {
+    #[error("a choice has exactly one of values (1-64 valid names) or from")]
+    Shape,
+    #[error("the choice's from directory is missing at the commit")]
+    FromMissing,
+    #[error("the choice's from directory has more than 256 entries")]
+    FromTooMany,
+}
+
+impl ChoiceError {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Shape => "choice_shape",
+            Self::FromMissing => "choice_from_missing",
+            Self::FromTooMany => "choice_from_too_many",
+        }
+    }
+}
+
+/// `^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`: a `choice` value.
+#[must_use]
+pub fn is_choice_value(v: &str) -> bool {
+    let mut bytes = v.bytes();
+    v.len() <= 63
+        && matches!(bytes.next(), Some(b) if b.is_ascii_alphanumeric())
+        && bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+fn choices_from(tree: &dyn RepoTree, from: &str) -> Result<Vec<String>, ChoiceError> {
+    if check_relative(from).is_err() || tree.kind(from.trim_end_matches('/')) != Some(PathKind::Dir)
+    {
+        return Err(ChoiceError::FromMissing);
+    }
+    let names = tree
+        .list_dirs(from.trim_end_matches('/'))
+        .ok_or(ChoiceError::FromMissing)?;
+    // Hidden names fail `is_choice_value` (they start with '.').
+    let names: Vec<String> = names.into_iter().filter(|n| is_choice_value(n)).collect();
+    if names.len() > MAX_CHOICE_FROM {
+        return Err(ChoiceError::FromTooMany);
+    }
+    Ok(names)
 }
 
 /// The kinds a parameter can be. Closed: anything else is refused at parse.
@@ -184,6 +305,10 @@ pub struct ParamSpec {
 pub enum ParamKind {
     /// `sha256:` and 64 lowercase hex characters.
     OciDigest,
+    /// One of a list of names (spec 068): `values`, or the directories under `from` at the
+    /// commit. [`ParamKind::validate`] checks only the name's shape; [`ParamSpec::check_value`]
+    /// checks it is one of the choices.
+    Choice,
 }
 
 impl ParamKind {
@@ -202,6 +327,13 @@ impl ParamKind {
                     Ok(())
                 } else {
                     Err("not an OCI digest (sha256: and 64 lowercase hex characters)")
+                }
+            }
+            Self::Choice => {
+                if is_choice_value(value) {
+                    Ok(())
+                } else {
+                    Err("not a choice value ([A-Za-z0-9][A-Za-z0-9._-]{0,62})")
                 }
             }
         }
@@ -431,11 +563,12 @@ fn validate_job(
             format!("a job declares at most {MAX_PARAMS} params"),
         ));
     }
-    for name in job.params.keys() {
+    for (name, spec) in &job.params {
         let pat = format!("{at}.params.{name}");
         if let Err(why) = check_param_name(name) {
             issues.push(ManifestIssue::new(&pat, why));
         }
+        validate_param(&pat, spec, tree, issues);
         if job.vars.contains_key(name) {
             issues.push(ManifestIssue::new(
                 &pat,
@@ -685,6 +818,66 @@ fn is_name(s: &str) -> bool {
         && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
         && b.iter()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-' || *c == b'_')
+}
+
+/// A param's `choice` fields (spec 068): only on kind `choice`; exactly one of `values` (1–64
+/// distinct valid names) or `from` (a directory at the commit, at most 256 matching entries); a
+/// `default` that is one of the values.
+fn validate_param(
+    at: &str,
+    spec: &ParamSpec,
+    tree: &dyn RepoTree,
+    issues: &mut Vec<ManifestIssue>,
+) {
+    if spec.kind != ParamKind::Choice {
+        if spec.values.is_some() || spec.from.is_some() || spec.default.is_some() {
+            issues.push(ManifestIssue::coded(
+                at,
+                ChoiceError::Shape.code(),
+                "values, from and default are only for kind choice",
+            ));
+        }
+        return;
+    }
+    if let Some(values) = &spec.values {
+        let distinct: BTreeSet<&String> = values.iter().collect();
+        if values.is_empty()
+            || values.len() > MAX_CHOICE_VALUES
+            || distinct.len() != values.len()
+            || !values.iter().all(|v| is_choice_value(v))
+        {
+            issues.push(ManifestIssue::coded(
+                format!("{at}.values"),
+                ChoiceError::Shape.code(),
+                format!(
+                    "1 to {MAX_CHOICE_VALUES} distinct values matching [A-Za-z0-9][A-Za-z0-9._-]{{0,62}}"
+                ),
+            ));
+            return;
+        }
+    }
+    let choices = match spec.choices(tree) {
+        Some(Ok(c)) => c,
+        Some(Err(e)) => {
+            let at = if e == ChoiceError::Shape {
+                at.to_owned()
+            } else {
+                format!("{at}.from")
+            };
+            issues.push(ManifestIssue::coded(at, e.code(), e.to_string()));
+            return;
+        }
+        None => return,
+    };
+    if let Some(d) = &spec.default
+        && !choices.contains(d)
+    {
+        issues.push(ManifestIssue::coded(
+            format!("{at}.default"),
+            "choice_default",
+            "the default is not one of the choices",
+        ));
+    }
 }
 
 /// A path relative to the repository root that cannot leave it lexically.

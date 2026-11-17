@@ -6,6 +6,9 @@
  * Spec 066 T053: Add host (into the repository inventory, then enroll), each host's inventory
  * status, its age key, and Propose sops recipient for a workspace admin when no `.sops.yaml` rule
  * names that key yet.
+ *
+ * Spec 068 T028: a Converge column, "Converge…" on a selection of hosts, and in a host's panel a
+ * Converge button and its last converge (features/converge/HostConverge.tsx).
  */
 import { KeyIcon, PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Checkbox } from '@companion/ui'
@@ -39,6 +42,8 @@ import { useCurrentWorkspace } from '@/app/workspace-store'
 import { keyInRules } from '@/features/repository/catalog'
 import { ChangeOutcomeView } from '@/features/repository/ChangeOutcomeView'
 import { useCatalog } from '@/features/repository/store'
+import { ConvergePreview } from '@/features/converge/ConvergePreview'
+import { ConvergeCell, ConvergeSelected, HostConverge } from '@/features/converge/HostConverge'
 import { useGovernance } from '@/features/teams/store'
 import type { ChangeOutcome, HostInfo, HostStatus } from '@/protocol/wire'
 
@@ -159,6 +164,7 @@ function HostDetailPanel() {
   const detail = useHosts((s) => s.detail)
   const show = useHosts((s) => s.show)
   const reveal = useReveal<HTMLElement>(open)
+  const binding = useCurrentWorkspace()?.primary_binding ?? null
   if (open === null) return null
   const name = detail?.host.inventory_name ?? '…'
   return (
@@ -183,6 +189,7 @@ function HostDetailPanel() {
       {detail && (
         <div className="flex min-w-0 flex-col gap-2 p-3">
           <AgeKey host={detail.host} />
+          <HostConverge host={detail.host} binding={binding} />
           <h3 className={LABEL}>Runs outside Keel</h3>
           <SectionIntro guide={{ guide: 'hosts', anchor: 'hosts-in-the-list' }}>
             These are the host&apos;s claims, which Keel cannot verify.
@@ -405,6 +412,7 @@ export default function HostsPage() {
         ),
       },
       { key: 'state', header: 'State', cell: (h) => <StateBadge state={h.state} /> },
+      { key: 'converge', header: 'Converge', cell: (h) => <ConvergeCell host={h} /> },
       { key: 'profiles', header: 'Profiles', tip: <TermTip term="profile" />, cell: (h) => <span className="font-mono">{h.profiles.join(', ')}</span> },
       { key: 'runner', header: 'Runner', cell: (h) => h.runner_version ?? '—' },
       { key: 'ansible', header: 'Ansible', cell: (h) => h.ansible_version ?? '—' },
@@ -423,6 +431,10 @@ export default function HostsPage() {
   const guided = !failed && loaded && hosts.length === 0 && variant !== 'no-match'
   // Revoking a host needs Administer (keel-server hosts.rs), more than enrolling one.
   const canRevoke = workspace !== null && canAdminister(me, workspace)
+  // Selecting hosts is for converging them: offered to whoever can operate here.
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
+  const canPick = workspace !== null && primary !== null && canOperate(me, workspace)
+  const selected = useMemo(() => hosts.filter((h) => picked.has(h.id)), [hosts, picked])
 
   return (
     <Page name="hosts" labelledBy="hosts-title">
@@ -455,7 +467,14 @@ export default function HostsPage() {
         <>
           <DataTable
             label="Hosts"
-            filter={<ChangedFilter />}
+            filter={
+              <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                <ChangedFilter />
+                {canPick && <ConvergeSelected hosts={selected} binding={primary} />}
+              </div>
+            }
+            {...(canPick ? { selection: { value: picked, onChange: setPicked } } : {})}
+            rowLabel={(h) => h.inventory_name}
             columns={columns}
             rows={hosts}
             rowKey={(h) => h.id}
@@ -501,6 +520,7 @@ export default function HostsPage() {
       <ConfirmDialog />
       <EnrollDialog suggestions={suggestions} />
       <AddHostDialog />
+      <ConvergePreview />
     </Page>
   )
 }

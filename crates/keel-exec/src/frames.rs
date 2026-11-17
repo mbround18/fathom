@@ -77,6 +77,12 @@ pub enum Refusal {
     /// The params Keel sent don't match what the job declares at the target commit (spec 061):
     /// an undeclared name, or a value that isn't of the declared kind.
     ParamsMismatch,
+    /// An `env_var` secret item whose name fails `keel_core::env_names`, or that the job's
+    /// `env:` map at the target does not name for that credential (spec 068).
+    EnvRefused,
+    /// A `choice` param value that is not one of the choices at the target, as this host's
+    /// checkout lists them (spec 068).
+    ChoiceMismatch,
 }
 
 impl Refusal {
@@ -91,6 +97,8 @@ impl Refusal {
             Refusal::LedgerCorrupt => "ledger_corrupt",
             Refusal::VersionTooOld => "version_too_old",
             Refusal::ParamsMismatch => "params_mismatch",
+            Refusal::EnvRefused => "env_refused",
+            Refusal::ChoiceMismatch => "choice_mismatch",
         }
     }
 }
@@ -276,6 +284,10 @@ pub enum Frame {
         /// (spec 066 R7). Omitted by old runners and when the box has none.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         age_recipient: Option<String>,
+        /// What this runner can answer beyond runs, e.g. `query.facts` (spec 067). Omitted by old
+        /// runners and when empty.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        capabilities: Vec<String>,
     },
     /// Either side may start a renewal; the server answers with `Cert`.
     RenewCert {},
@@ -516,6 +528,7 @@ impl fmt::Debug for Frame {
                 ledger_head,
                 bases,
                 age_recipient,
+                capabilities,
             } => d
                 .field("host_id", host_id)
                 .field("version", version)
@@ -526,7 +539,8 @@ impl fmt::Debug for Frame {
                 .field("override_quorum", override_quorum)
                 .field("ledger_head", ledger_head)
                 .field("bases", bases)
-                .field("age_recipient", age_recipient),
+                .field("age_recipient", age_recipient)
+                .field("capabilities", capabilities),
             Frame::RenewCert {} | Frame::Ping | Frame::Pong | Frame::ReadLedger => &mut d,
             Frame::Cert { cert } => d.field("cert", cert),
             Frame::Krl { bytes } => d.field("bytes", &Len(bytes.len())),

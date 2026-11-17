@@ -16,6 +16,7 @@ import type {
   JobSummary,
   ReceiverInfo,
 } from '../../src/protocol/wire'
+import { BINDING_068 } from './defaults'
 
 export const WORKSPACE = '01J00000000000000000000WS1'
 export const PROJECT = '01J00000000000000000000PR1'
@@ -114,6 +115,7 @@ export class FakeRepos {
             last_synced_at: NOW,
             last_sync_error: null,
             manifest_problems: [],
+            ...BINDING_068,
           }
           this.bindings.push(binding)
           this.jobs.set(binding.id, [

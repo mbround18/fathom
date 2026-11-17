@@ -8,7 +8,8 @@
 //! The [`Forge`] port and its types live in `keel-core`'s `ports.rs`; they are re-exported here.
 
 pub use keel_core::ports::{
-    ChangeRequest, FileEdit, Forge, ForgeAccess, ForgeError, ForgeFuture, OpenedChange,
+    ChangeRequest, CommitStatusState, FileEdit, Forge, ForgeAccess, ForgeError, ForgeFuture,
+    ForgeStatus, OpenedChange,
 };
 
 use secrecy::{ExposeSecret, SecretString};
@@ -83,6 +84,23 @@ impl Forge for ForgeClient {
             Self::Forgejo(f) => f.open_change(change),
             Self::Github(g) => g.open_change(change),
         }
+    }
+
+    fn commit_statuses<'a>(&'a self, sha: &'a str) -> ForgeFuture<'a, Vec<ForgeStatus>> {
+        match self {
+            Self::Forgejo(f) => f.commit_statuses(sha),
+            Self::Github(g) => g.commit_statuses(sha),
+        }
+    }
+}
+
+/// A commit id as `commit_statuses` takes it: 40 or 64 lowercase hex characters, so it can go in
+/// a URL path as is.
+pub(crate) fn check_sha(sha: &str) -> Result<(), ForgeError> {
+    if matches!(sha.len(), 40 | 64) && sha.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        Ok(())
+    } else {
+        Err(ForgeError::Url(format!("{sha:?} is not a commit id")))
     }
 }
 

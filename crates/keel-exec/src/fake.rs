@@ -153,6 +153,7 @@ impl FakeRunner {
                 ledger_head: None,
                 bases: Vec::new(),
                 age_recipient: None,
+                capabilities: Vec::new(),
             },
             scripts: HashMap::new(),
             default_script: Script::finish(0),

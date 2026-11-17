@@ -51,6 +51,18 @@ impl keel_core::manifest::RepoTree for TreeAt<'_> {
             EntryKind::Submodule => Some(PathKind::Other),
         }
     }
+
+    fn list_dirs(&self, path: &str) -> Option<Vec<String>> {
+        use crate::mirror::EntryKind;
+        let entries = self.mirror.list_entries(self.commit, path).ok()??;
+        Some(
+            entries
+                .into_iter()
+                .filter(|(_, k)| *k == EntryKind::Dir)
+                .map(|(n, _)| n)
+                .collect(),
+        )
+    }
 }
 
 impl Mirror {

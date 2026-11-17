@@ -231,6 +231,8 @@ struct Assignment {
     quorum: Option<u32>,
     /// Job params (spec 061), checked against the job's declared params at the target.
     params: BTreeMap<String, String>,
+    /// A check-mode run (spec 068): `--check --diff`, and a signed run ends `checked`.
+    check: bool,
 }
 
 async fn run(
@@ -255,15 +257,6 @@ async fn run(
     else {
         return;
     };
-    // Spec 068 check mode lands with T025; until then a check run is refused, never run for real.
-    if check {
-        let _ = out.send(Frame::Refused {
-            run_id,
-            reason: Refusal::VersionTooOld,
-            detail: "this runner does not support check runs yet".to_owned(),
-        });
-        return;
-    }
     if !valid_run_id(&run_id) {
         eprintln!("keel-executor: refused a run id with unexpected characters; closing");
         return;
@@ -279,6 +272,7 @@ async fn run(
         pack_size,
         quorum,
         params,
+        check,
     };
     let run_id = a.run_id.clone();
     match prepare_and_run(&a, cfg, out, incoming).await {
@@ -513,11 +507,13 @@ fn authorize(
 
 /// How a started signed run ended, for its `end` line. A run that never got to execute
 /// anything is `cancelled` and does not move the base; anything else that did not exit 0 is
-/// `failed`, which does, because the host may be partly applied.
-fn outcome(exit_code: i32, executed: bool) -> keel_trust::ledger::Outcome {
+/// `failed`, which does, because the host may be partly applied. A check run that executed is
+/// `checked` whatever its exit: it changed nothing, so it does not move the base either.
+fn outcome(exit_code: i32, executed: bool, check: bool) -> keel_trust::ledger::Outcome {
     use keel_trust::ledger::Outcome;
     match (executed, exit_code) {
         (false, _) => Outcome::Cancelled,
+        (true, _) if check => Outcome::Checked,
         (true, 0) => Outcome::Succeeded,
         (true, _) => Outcome::Failed,
     }
@@ -539,7 +535,7 @@ fn record_end(
         &cfg.ledger_path(),
         &a.run_id,
         &a.job,
-        outcome(exit_code, executed),
+        outcome(exit_code, executed, a.check),
         exit,
     ) {
         Ok(line) => line,
@@ -630,6 +626,10 @@ async fn prepare_and_run(
         &forced,
     ));
     args.extend(secrets.vault_args.iter().cloned());
+    if a.check {
+        args.push("--check".into());
+        args.push("--diff".into());
+    }
     args.push(def.playbook.clone().into());
 
     let mut path = OsString::from(cfg.venv.join("bin"));
@@ -762,6 +762,17 @@ fn read_job(
         ));
     }
     check_params(&def.params, &a.params).map_err(|e| Stop::Refuse(Refusal::ParamsMismatch, e))?;
+    check_choices(&def.params, &a.params, &tree)
+        .map_err(|e| Stop::Refuse(Refusal::ChoiceMismatch, e))?;
+    secrets::check_env_items(secrets, &def.env)
+        .map_err(|e| Stop::Refuse(Refusal::EnvRefused, e))?;
+    let missing_env = secrets::missing_env(secrets, &def.env);
+    if !missing_env.is_empty() {
+        return Err(fail(format!(
+            "env credentials not sent: {}",
+            missing_env.join(", ")
+        )));
+    }
     if !job.missing_credentials.is_empty() {
         return Err(fail(format!(
             "credentials not sent: {}",
@@ -801,6 +812,24 @@ fn check_params(
     Ok(())
 }
 
+/// Re-checks every `choice` param Keel sent against the choices at the runner's own checkout
+/// of the target (spec 068 FR-019): `values`, or the directories under `from` as they are in
+/// this commit, not as the server saw them. Runs after [`check_params`], so names are declared
+/// and values well-formed. The error names the param but never echoes its value.
+fn check_choices(
+    declared: &BTreeMap<String, manifest::ParamSpec>,
+    sent: &BTreeMap<String, String>,
+    tree: &dyn manifest::RepoTree,
+) -> Result<(), String> {
+    for (name, value) in sent {
+        if let Some(spec) = declared.get(name) {
+            spec.check_value(value, tree)
+                .map_err(|e| format!("param {name:?}: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
 /// The `-e` arguments, in precedence order: job vars, secret vars, params (when sent), and the
 /// forced vars last, so nothing before them can override them.
 fn extra_var_args(
@@ -832,9 +861,7 @@ mod tests {
     fn declared() -> BTreeMap<String, ParamSpec> {
         BTreeMap::from([(
             "keel_server_image_digest".to_owned(),
-            ParamSpec {
-                kind: ParamKind::OciDigest,
-            },
+            ParamSpec::of(ParamKind::OciDigest),
         )])
     }
 

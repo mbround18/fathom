@@ -197,6 +197,28 @@ impl RepoTree for GitTree {
             PathKind::Other
         })
     }
+
+    fn list_dirs(&self, path: &str) -> Option<Vec<String>> {
+        let path = path.trim_end_matches('/');
+        let tree = if path.is_empty() {
+            self.repo.find_object(self.root).ok()?.into_tree()
+        } else {
+            let (mode, oid) = self.entry(path)?;
+            if !mode.is_tree() {
+                return None;
+            }
+            self.repo.find_object(oid).ok()?.into_tree()
+        };
+        let mut names = Vec::new();
+        for e in tree.iter() {
+            let e = e.ok()?;
+            if e.mode().is_tree() {
+                names.push(e.filename().to_string());
+            }
+        }
+        names.sort();
+        Some(names)
+    }
 }
 
 impl Store {

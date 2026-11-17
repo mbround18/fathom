@@ -175,6 +175,25 @@ pub struct OpenedChange {
     pub number: u64,
 }
 
+/// A commit status or check's state, as a forge reports it (spec 068 FR-013). A required context
+/// the forge does not report at all is the caller's `missing`, not a state here.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CommitStatusState {
+    Pending,
+    Success,
+    Failure,
+    /// Errored, cancelled, or a state Keel does not know: never counts as passing.
+    Error,
+}
+
+/// One status context (or check run, on GitHub) on a commit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForgeStatus {
+    pub context: String,
+    pub state: CommitStatusState,
+    pub target_url: Option<String>,
+}
+
 /// What a [`Forge::probe`] found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ForgeAccess {
@@ -204,6 +223,9 @@ pub enum ForgeError {
     Unavailable(String),
     #[error("unexpected forge response: {0}")]
     Response(String),
+    /// The forge (or this adapter) cannot do what was asked, such as reading commit statuses.
+    #[error("the forge does not support this")]
+    Unsupported,
 }
 
 impl ForgeError {
@@ -221,4 +243,10 @@ pub trait Forge: Send + Sync {
     /// Creates `new_branch` from `base_branch`, writes the files with their `sha` preconditions,
     /// and opens a pull request.
     fn open_change<'a>(&'a self, change: &'a ChangeRequest) -> ForgeFuture<'a, OpenedChange>;
+    /// The latest status of every context on commit `sha` (spec 068 FR-013). A forge that cannot
+    /// say returns [`ForgeError::Unsupported`], the default.
+    fn commit_statuses<'a>(&'a self, sha: &'a str) -> ForgeFuture<'a, Vec<ForgeStatus>> {
+        let _ = sha;
+        Box::pin(async { Err(ForgeError::Unsupported) })
+    }
 }
