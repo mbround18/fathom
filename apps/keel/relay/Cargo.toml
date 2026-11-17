@@ -37,4 +37,6 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 
 [dev-dependencies]
+# Property tests over the strict parsers (spec 067 T064). Test-only.
+proptest = "1.11"
 tempfile = "3"
