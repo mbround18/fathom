@@ -324,6 +324,165 @@ pub fn combine_policies(steps: &[Policy]) -> ApprovalTerms {
     }
 }
 
+/// Whether a suggestion adds or removes a profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SuggestionAction {
+    Add,
+    Remove,
+}
+
+/// One profile change the manifest's `groups:` map suggests for a host (FR-009). Never applied
+/// on its own: an admin accepts it through the profile preview.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Suggestion {
+    pub profile: String,
+    pub action: SuggestionAction,
+    /// For `Add`, the host's groups that map to the profile; for `Remove`, every group that
+    /// could produce it (none of which the host is in). Sorted, so a stored suggestion can be
+    /// compared with a fresh one: a dismissed suggestion comes back only when these change
+    /// ([`still_dismissed`]).
+    pub groups: Vec<String>,
+}
+
+/// The profile changes `m.groups` suggests for a host in `groups` with `assigned` profiles:
+/// adds, then removes, each in profile name order.
+///
+/// - Add: a profile some group of the host maps to, not assigned yet.
+/// - Remove: an assigned profile that some `groups:` entry maps to, when none of the host's
+///   groups does. A profile no mapping could produce was assigned by hand and is never
+///   suggested for removal.
+///
+/// Profiles the manifest does not define are ignored (validation refuses them anyway).
+#[must_use]
+pub fn suggest(groups: &[String], assigned: &[String], m: &Manifest) -> Vec<Suggestion> {
+    let host_groups: BTreeSet<&str> = groups.iter().map(String::as_str).collect();
+    let assigned: BTreeSet<&str> = assigned.iter().map(String::as_str).collect();
+    // profile → (the host's groups mapping to it, every group mapping to it); `m.groups` is a
+    // BTreeMap, so both lists come out sorted.
+    let mut by_profile: BTreeMap<&str, (Vec<String>, Vec<String>)> = BTreeMap::new();
+    for (group, profiles) in &m.groups {
+        for p in profiles.iter().filter(|p| m.profiles.contains_key(*p)) {
+            let entry = by_profile.entry(p.as_str()).or_default();
+            if host_groups.contains(group.as_str()) && !entry.0.contains(group) {
+                entry.0.push(group.clone());
+            }
+            if !entry.1.contains(group) {
+                entry.1.push(group.clone());
+            }
+        }
+    }
+    let mut adds = Vec::new();
+    let mut removes = Vec::new();
+    for (profile, (mine, all)) in by_profile {
+        let is_assigned = assigned.contains(profile);
+        if !mine.is_empty() && !is_assigned {
+            adds.push(Suggestion {
+                profile: profile.to_owned(),
+                action: SuggestionAction::Add,
+                groups: mine,
+            });
+        } else if mine.is_empty() && is_assigned {
+            removes.push(Suggestion {
+                profile: profile.to_owned(),
+                action: SuggestionAction::Remove,
+                groups: all,
+            });
+        }
+    }
+    adds.extend(removes);
+    adds
+}
+
+/// Whether a suggestion dismissed as `dismissed` stays dismissed now that a sync suggests
+/// `now`: the same profile and action from the same groups. A change of groups brings it back.
+#[must_use]
+pub fn still_dismissed(dismissed: &Suggestion, now: &Suggestion) -> bool {
+    dismissed == now
+}
+
+/// What a changed path under `group_vars/` or `host_vars/` names.
+#[derive(Debug, PartialEq, Eq)]
+enum VarsTarget<'a> {
+    Group(&'a str),
+    Host(&'a str),
+}
+
+/// The group or host a vars file is for, from the last `group_vars`/`host_vars` component of
+/// `path`: `<dir>/<name>.yml`, `<dir>/<name>.yaml`, or anything under `<dir>/<name>/`. Any
+/// other file there (`group_vars/web.json`, `group_vars/README`) is not recognised, so the
+/// caller keeps the full target set.
+fn vars_target(path: &str) -> Option<VarsTarget<'_>> {
+    let parts: Vec<&str> = path.split('/').collect();
+    let at = parts
+        .iter()
+        .rposition(|p| *p == "group_vars" || *p == "host_vars")?;
+    let name = match &parts[at + 1..] {
+        [file] => file
+            .strip_suffix(".yml")
+            .or_else(|| file.strip_suffix(".yaml"))?,
+        [dir, rest @ ..] if !rest.is_empty() && rest.iter().all(|p| !p.is_empty()) => dir,
+        _ => return None,
+    };
+    if name.is_empty() {
+        return None;
+    }
+    Some(if parts[at] == "group_vars" {
+        VarsTarget::Group(name)
+    } else {
+        VarsTarget::Host(name)
+    })
+}
+
+/// FR-020: the hosts a path-triggered run narrows to when every changed path that matched the
+/// job's `paths` globs is a group or host vars file. `None` keeps the full target set: when a
+/// matched path is anything else, when one is `group_vars/all…`, or when nothing matched.
+///
+/// `inventory` is each host with its groups, transitively (as `inventory::HostGroups` holds
+/// them at the pinned revision), so a group's hosts include its child groups' hosts. A group
+/// or host the inventory does not know narrows to no hosts: no run.
+#[must_use]
+pub fn narrow_by_vars(
+    changed: &[String],
+    paths: &[String],
+    inventory: &[crate::inventory::HostGroups],
+) -> Option<BTreeSet<String>> {
+    let matchers: Vec<globset::GlobMatcher> = paths
+        .iter()
+        .filter_map(|g| globset::Glob::new(g).ok().map(|g| g.compile_matcher()))
+        .collect();
+    let mut groups = BTreeSet::new();
+    let mut hosts = BTreeSet::new();
+    let mut any = false;
+    for path in changed
+        .iter()
+        .filter(|p| matchers.iter().any(|m| m.is_match(p.as_str())))
+    {
+        any = true;
+        match vars_target(path)? {
+            VarsTarget::Group("all") => return None,
+            VarsTarget::Group(g) => {
+                groups.insert(g);
+            }
+            VarsTarget::Host(h) => {
+                hosts.insert(h);
+            }
+        }
+    }
+    if !any {
+        return None;
+    }
+    Some(
+        inventory
+            .iter()
+            .filter(|h| {
+                hosts.contains(h.host.as_str())
+                    || h.groups.iter().any(|g| groups.contains(g.as_str()))
+            })
+            .map(|h| h.host.clone())
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -730,5 +889,198 @@ mod tests {
                 );
             }
         }
+    }
+
+    // --- T036: suggest ---
+
+    fn with_groups(map: &[(&str, &[&str])]) -> Manifest {
+        let mut m = fleet();
+        for (g, ps) in map {
+            m.groups.insert((*g).to_owned(), s(ps));
+        }
+        m
+    }
+
+    fn sug(profile: &str, action: SuggestionAction, groups: &[&str]) -> Suggestion {
+        Suggestion {
+            profile: profile.into(),
+            action,
+            groups: s(groups),
+        }
+    }
+
+    #[test]
+    fn suggest_adds_from_the_hosts_groups() {
+        let m = with_groups(&[
+            ("k3s_masters", &["k3s-master"]),
+            ("keel_servers", &["keel-node", "debian"]),
+            ("linux", &["debian"]),
+        ]);
+        let got = suggest(&s(&["k3s_masters", "linux"]), &s(&[]), &m);
+        assert_eq!(
+            got,
+            vec![
+                sug("debian", SuggestionAction::Add, &["linux"]),
+                sug("k3s-master", SuggestionAction::Add, &["k3s_masters"]),
+            ]
+        );
+        // Already assigned: nothing to add.
+        let got = suggest(
+            &s(&["k3s_masters", "linux"]),
+            &s(&["debian", "k3s-master"]),
+            &m,
+        );
+        assert!(got.is_empty(), "{got:?}");
+        // Two of the host's groups map to one profile: one suggestion naming both.
+        let got = suggest(&s(&["keel_servers", "linux"]), &s(&["keel-node"]), &m);
+        assert_eq!(
+            got,
+            vec![sug(
+                "debian",
+                SuggestionAction::Add,
+                &["keel_servers", "linux"]
+            )]
+        );
+    }
+
+    #[test]
+    fn suggest_removes_only_what_a_mapping_could_produce() {
+        let m = with_groups(&[("k3s_masters", &["k3s-master"]), ("linux", &["debian"])]);
+        // The host left k3s_masters: k3s-master is suggested for removal. gameserver was
+        // assigned by hand (no group maps to it) and is left alone.
+        let got = suggest(
+            &s(&["linux"]),
+            &s(&["debian", "gameserver", "k3s-master"]),
+            &m,
+        );
+        assert_eq!(
+            got,
+            vec![sug(
+                "k3s-master",
+                SuggestionAction::Remove,
+                &["k3s_masters"]
+            )]
+        );
+        // Adds come before removes.
+        let got = suggest(&s(&["k3s_masters"]), &s(&["debian"]), &m);
+        assert_eq!(
+            got,
+            vec![
+                sug("k3s-master", SuggestionAction::Add, &["k3s_masters"]),
+                sug("debian", SuggestionAction::Remove, &["linux"]),
+            ]
+        );
+    }
+
+    #[test]
+    fn suggest_ignores_unknown_profiles_and_an_empty_map() {
+        let m = with_groups(&[("linux", &["no-such-profile"])]);
+        assert!(suggest(&s(&["linux"]), &s(&[]), &m).is_empty());
+        assert!(suggest(&s(&["linux"]), &s(&["debian"]), &fleet()).is_empty());
+    }
+
+    #[test]
+    fn a_dismissed_suggestion_returns_only_when_its_groups_change() {
+        let m = with_groups(&[("keel_servers", &["debian"]), ("linux", &["debian"])]);
+        let dismissed = suggest(&s(&["linux"]), &s(&[]), &m).remove(0);
+        // The next sync suggests the same thing: still dismissed.
+        let again = suggest(&s(&["linux", "other"]), &s(&[]), &m).remove(0);
+        assert!(still_dismissed(&dismissed, &again));
+        // The host joins another group mapping to it: the suggestion comes back.
+        let changed = suggest(&s(&["keel_servers", "linux"]), &s(&[]), &m).remove(0);
+        assert!(!still_dismissed(&dismissed, &changed));
+    }
+
+    // --- T072: narrow_by_vars (FR-020) ---
+
+    fn inventory() -> Vec<crate::inventory::HostGroups> {
+        let h = |host: &str, groups: &[&str]| crate::inventory::HostGroups {
+            host: host.into(),
+            groups: s(groups),
+        };
+        // `k3s` has the child groups `k3s_masters` and `k3s_agents`: membership is transitive.
+        vec![
+            h("db-1", &["databases"]),
+            h("k3s-a1", &["k3s", "k3s_agents"]),
+            h("k3s-m1", &["k3s", "k3s_masters"]),
+            h("keel-1", &["keel_servers"]),
+            h("lone", &["ungrouped"]),
+        ]
+    }
+
+    fn narrow(changed: &[&str]) -> Option<Vec<String>> {
+        narrow_by_vars(&s(changed), &s(&["inventory/**"]), &inventory())
+            .map(|set| set.into_iter().collect())
+    }
+
+    #[test]
+    fn a_group_vars_file_narrows_to_its_groups_hosts() {
+        assert_eq!(
+            narrow(&["inventory/group_vars/keel_servers.yml"]),
+            Some(s(&["keel-1"]))
+        );
+        assert_eq!(
+            narrow(&["inventory/group_vars/databases.yaml"]),
+            Some(s(&["db-1"]))
+        );
+        // Directory form.
+        assert_eq!(
+            narrow(&["inventory/group_vars/databases/main.yml"]),
+            Some(s(&["db-1"]))
+        );
+    }
+
+    #[test]
+    fn a_parent_group_includes_its_child_groups_hosts() {
+        assert_eq!(
+            narrow(&["inventory/group_vars/k3s.yml"]),
+            Some(s(&["k3s-a1", "k3s-m1"]))
+        );
+        assert_eq!(
+            narrow(&["inventory/group_vars/k3s_masters.yml"]),
+            Some(s(&["k3s-m1"]))
+        );
+    }
+
+    #[test]
+    fn host_vars_and_several_files_union() {
+        assert_eq!(
+            narrow(&[
+                "inventory/host_vars/lone.yml",
+                "inventory/group_vars/databases.yml",
+                "inventory/host_vars/keel-1/secrets.yaml",
+            ]),
+            Some(s(&["db-1", "keel-1", "lone"]))
+        );
+    }
+
+    #[test]
+    fn all_or_any_other_matched_path_keeps_every_host() {
+        assert_eq!(narrow(&["inventory/group_vars/all.yml"]), None);
+        assert_eq!(narrow(&["inventory/group_vars/all/vault.yml"]), None);
+        assert_eq!(
+            narrow(&["inventory/group_vars/databases.yml", "inventory/hosts.yml"]),
+            None
+        );
+        // Not a vars file Keel recognises.
+        assert_eq!(narrow(&["inventory/group_vars/databases.json"]), None);
+        assert_eq!(narrow(&["inventory/group_vars/README"]), None);
+        assert_eq!(narrow(&["inventory/group_vars/"]), None);
+    }
+
+    #[test]
+    fn unmatched_changes_do_not_count() {
+        // The playbook change does not match `inventory/**`, so only the vars file counts.
+        assert_eq!(
+            narrow(&["playbooks/site.yml", "inventory/group_vars/databases.yml"]),
+            Some(s(&["db-1"]))
+        );
+        // Nothing matched: nothing to narrow (the caller does not run anyway).
+        assert_eq!(narrow(&["playbooks/site.yml"]), None);
+    }
+
+    #[test]
+    fn an_unknown_group_narrows_to_no_hosts() {
+        assert_eq!(narrow(&["inventory/group_vars/retired.yml"]), Some(vec![]));
     }
 }
