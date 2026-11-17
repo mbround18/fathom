@@ -36,12 +36,12 @@ repository, outside this one. Do not start them until the owner says go.
 Migration numbers are fixed so that parallel branches don't collide: `0015_join.sql` (D3),
 `0016_run_host_lock.sql` (D2), `0017_relays.sql` (this spec).
 
-- [ ] T055 D2: the per-host run lock in `server/src/queue.rs` `dispatch_ready`. A host with a
+- [X] T055 D2: the per-host run lock in `server/src/queue.rs` `dispatch_ready`. A host with a
   `run_hosts` row in `sent` or `running` gets no new assignment; later runs stay queued and
   dispatch in `created_at` order. Backstop: a partial unique index on `run_hosts (host_id) where
   state in ('sent','running')` in `server/migrations/0016_run_host_lock.sql`. Test it in
   `server/tests/runs.rs`.
-- [ ] T056 D4: `server/tests/common/mod.rs` `TestDb::new` panics when `CI` is set and
+- [X] T056 D4: `server/tests/common/mod.rs` `TestDb::new` panics when `CI` is set and
   `KEEL_TEST_DATABASE_URL` is unset. `scripts/ci.sh` starts `scripts/keel-test-db.sh` and
   exports the URL for the keel-server tests. Fix any test this exposes.
 - [ ] T057 D1: spec 055 T128, T140, T147 and T149: the release build target, the

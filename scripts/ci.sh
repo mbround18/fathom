@@ -241,10 +241,21 @@ echo 'error: apps/depths/web/src/protocol/generated is stale. Run cargo test -p 
 }
 
 # Spec 055: Keel's crates (and the shared ones it builds on), its bindings, then its web app
-# against the fake backend. keel-server's database tests skip without KEEL_TEST_DATABASE_URL.
+# against the fake backend.
 KEEL_WEB=@companion/keel-web
 KEEL_CRATES="-p keel-core -p keel-exec -p keel-git -p keel-protocol -p keel-trust \
 -p keel-server -p keel-runner -p web-auth -p web-passkeys"
+# Spec 067 D4: keel-server's database tests run in CI, never skip. paws has no service
+# containers and each step is its own exec, so PostgreSQL 18 (from PGDG, as on the dev box) is
+# baked into the keel image and scripts/keel-test-db.sh starts it inside the test step; the
+# container is thrown away afterwards. initdb refuses root, so the cluster runs as `postgres`.
+# Under CI=true (rust_run) common::TestDb panics if KEEL_TEST_DATABASE_URL is missing.
+KEEL_PG_SETUP="apt-get update && apt-get install -y --no-install-recommends postgresql-common python3 \
+&& echo 'create_main_cluster = false' >> /etc/postgresql-common/createcluster.conf \
+&& /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+&& apt-get install -y --no-install-recommends postgresql-18 && rm -rf /var/lib/apt/lists/*"
+KEEL_TEST_DB="runuser -u postgres -- env KEEL_TEST_DB_DIR=/tmp/keel-test-db \
+PG_BIN=/usr/lib/postgresql/18/bin scripts/keel-test-db.sh"
 
 job_keel() {
   need_mem $((CI_MIN_FREE_GB / 2)) keel || return 1
@@ -254,8 +265,9 @@ job_keel() {
 && if ! diff -r /tmp/keel-generated-before apps/keel/web/src/protocol/generated; then \
 echo 'error: apps/keel/web/src/protocol/generated is stale. Run cargo test -p keel-protocol --test export_bindings and commit the result.' >&2; exit 1; fi"
   rust_run \
+    --setup "$KEEL_PG_SETUP" \
     --step "$N cargo clippy $KEEL_CRATES --all-targets -- -D warnings" \
-    --step "$N cargo test $KEEL_CRATES" \
+    --step "eval \"\$($KEEL_TEST_DB start)\" && $N cargo test $KEEL_CRATES" \
     --step "$keel_drift" || return 1
   e2e_step "$N pnpm --filter $KEEL_WEB e2e --workers=\"\$PLAYWRIGHT_WORKERS\""
   node_run apps/keel/web \

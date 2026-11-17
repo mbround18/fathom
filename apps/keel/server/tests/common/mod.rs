@@ -2,7 +2,8 @@
 //!
 //! Start the shared cluster with `eval "$(scripts/keel-test-db.sh start)"`. When
 //! `KEEL_TEST_DATABASE_URL` is unset, [`TestDb::new`] returns `None` and the test returns early
-//! with a note, so `cargo test` passes on a machine without the cluster.
+//! with a note, so `cargo test` passes on a machine without the cluster. Under `CI` (set and
+//! non-empty) it panics instead, so CI never mistakes a skip for a pass.
 
 #![allow(dead_code)]
 
@@ -25,6 +26,13 @@ impl TestDb {
     /// Creates a fresh schema, migrates it and opens both pools.
     pub async fn new(test: &str) -> Option<Self> {
         let Ok(url) = std::env::var("KEEL_TEST_DATABASE_URL") else {
+            // Under CI a skip would read as a pass (spec 067 D4): fail instead.
+            if std::env::var("CI").is_ok_and(|v| !v.is_empty()) {
+                panic!(
+                    "{test}: KEEL_TEST_DATABASE_URL is unset and CI is set; CI must run the \
+                     database tests (eval \"$(scripts/keel-test-db.sh start)\")"
+                );
+            }
             eprintln!(
                 "skipping {test}: KEEL_TEST_DATABASE_URL is unset (scripts/keel-test-db.sh start)"
             );
