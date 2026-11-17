@@ -5,8 +5,8 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::{
-    ChangeRequest, Forge, ForgeAccess, ForgeError, ForgeFuture, Http, OpenedChange, RepoRef, b64,
-    encode_path,
+    ChangeRequest, CommitStatusState, Forge, ForgeAccess, ForgeError, ForgeFuture, ForgeStatus,
+    Http, OpenedChange, RepoRef, b64, check_sha, encode_path,
 };
 
 #[derive(Debug, Clone)]
@@ -26,6 +26,39 @@ struct Repo {
 pub(crate) struct Permissions {
     #[serde(default)]
     pub(crate) push: bool,
+}
+
+/// `GET /repos/{o}/{r}/commits/{sha}/status`: the latest status per context.
+#[derive(Deserialize)]
+struct Combined {
+    #[serde(default)]
+    statuses: Option<Vec<Status>>,
+}
+
+#[derive(Deserialize)]
+struct Status {
+    context: String,
+    /// Forgejo and Gitea call the state `status`; older Gitea also sends `state`.
+    #[serde(alias = "state")]
+    status: String,
+    #[serde(default)]
+    target_url: Option<String>,
+}
+
+/// Forgejo/Gitea and GitHub status states. `warning` (Gitea) and anything unknown are
+/// [`CommitStatusState::Error`], which never passes a gate.
+pub(crate) fn status_state(s: &str) -> CommitStatusState {
+    match s {
+        "pending" => CommitStatusState::Pending,
+        "success" => CommitStatusState::Success,
+        "failure" => CommitStatusState::Failure,
+        _ => CommitStatusState::Error,
+    }
+}
+
+/// An empty `target_url` is none.
+pub(crate) fn link(url: Option<String>) -> Option<String> {
+    url.filter(|u| !u.is_empty())
 }
 
 #[derive(Deserialize)]
@@ -62,6 +95,10 @@ impl Forge for Forgejo {
     fn open_change<'a>(&'a self, change: &'a ChangeRequest) -> ForgeFuture<'a, OpenedChange> {
         Box::pin(self.open_change_inner(change))
     }
+
+    fn commit_statuses<'a>(&'a self, sha: &'a str) -> ForgeFuture<'a, Vec<ForgeStatus>> {
+        Box::pin(self.commit_statuses_inner(sha))
+    }
 }
 
 impl Forgejo {
@@ -75,6 +112,27 @@ impl Forgejo {
             can_push: repo.permissions.is_some_and(|p| p.push),
             default_branch: repo.default_branch,
         })
+    }
+
+    async fn commit_statuses_inner(&self, sha: &str) -> Result<Vec<ForgeStatus>, ForgeError> {
+        check_sha(sha)?;
+        let url = self
+            .http
+            .url(&format!("{}/commits/{sha}/status", self.repo_path()));
+        let combined: Combined = self
+            .http
+            .send(self.auth(self.http.client().get(url)))
+            .await?;
+        Ok(combined
+            .statuses
+            .unwrap_or_default()
+            .into_iter()
+            .map(|s| ForgeStatus {
+                state: status_state(&s.status),
+                context: s.context,
+                target_url: link(s.target_url),
+            })
+            .collect())
     }
 
     async fn open_change_inner(&self, change: &ChangeRequest) -> Result<OpenedChange, ForgeError> {
