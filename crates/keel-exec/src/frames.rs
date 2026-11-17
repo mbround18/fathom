@@ -77,6 +77,12 @@ pub enum Refusal {
     /// The params Keel sent don't match what the job declares at the target commit (spec 061):
     /// an undeclared name, or a value that isn't of the declared kind.
     ParamsMismatch,
+    /// An `env_var` secret item whose name fails `keel_core::env_names`, or that the job's
+    /// `env:` map at the target does not name for that credential (spec 068).
+    EnvRefused,
+    /// A `choice` param value that is not one of the choices at the target, as this host's
+    /// checkout lists them (spec 068).
+    ChoiceMismatch,
 }
 
 impl Refusal {
@@ -91,6 +97,8 @@ impl Refusal {
             Refusal::LedgerCorrupt => "ledger_corrupt",
             Refusal::VersionTooOld => "version_too_old",
             Refusal::ParamsMismatch => "params_mismatch",
+            Refusal::EnvRefused => "env_refused",
+            Refusal::ChoiceMismatch => "choice_mismatch",
         }
     }
 }

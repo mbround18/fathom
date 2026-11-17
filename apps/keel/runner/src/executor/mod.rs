@@ -762,6 +762,15 @@ fn read_job(
         ));
     }
     check_params(&def.params, &a.params).map_err(|e| Stop::Refuse(Refusal::ParamsMismatch, e))?;
+    secrets::check_env_items(secrets, &def.env)
+        .map_err(|e| Stop::Refuse(Refusal::EnvRefused, e))?;
+    let missing_env = secrets::missing_env(secrets, &def.env);
+    if !missing_env.is_empty() {
+        return Err(fail(format!(
+            "env credentials not sent: {}",
+            missing_env.join(", ")
+        )));
+    }
     if !job.missing_credentials.is_empty() {
         return Err(fail(format!(
             "credentials not sent: {}",
