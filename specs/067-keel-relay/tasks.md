@@ -397,10 +397,10 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
   - queries and `queries.toml`.
 
   Also add an architecture note to `CONTRIBUTING.md`.
-- [ ] T050 **(../ansible, delegated to the fluxified session)** Add `keel_runner_dial`,
+- [X] T050 **(../ansible 48cb22d, fluxified session)** Add `keel_runner_dial`,
   `keel_runner_download_origin` and `keel_runner_queries` to `roles/keel_runner`, with the
   validation in contracts/ansible.md. The unit gets one `--dial` per entry.
-- [ ] T051 **(../ansible, delegated to the fluxified session)** Add a new `roles/keel_relay` and a `keel-relay`
+- [X] T051 **(../ansible aadf5d5, fluxified session)** Add a new `roles/keel_relay` and a `keel-relay`
   profile per contracts/ansible.md, including the checksum fail-closed install and printing the
   relay key.
 - [ ] T052 Main session only: run `scripts/hygiene.sh`, then the full gate once on the combined
