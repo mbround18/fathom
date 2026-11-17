@@ -20,7 +20,8 @@ dialled from the relay to Keel, or from Keel to a runner.
   Ed25519 only, `curve25519-sha256`, AEAD ciphers, strict KEX, no compression.
 - **Relay host key**: a plain Ed25519 key (no certificate). Keel accepts exactly the key pasted
   for that relay (`relays.host_key`); any other key ends the handshake, is audited as
-  `relay.refused { reason: "host_key_mismatch", fingerprint }` and the relay shows `unreachable`.
+  `relay.refused { reason: "host_key_mismatch", fingerprint }`, and the relay is **quarantined**
+  (see "Keel never trusts the relay" below).
 - **Keel auth**: user `keel`, public-key auth with the active relay-link key. The relay accepts
   only keys in its `hub_keys` file; any other user name or key is refused after the usual
   rejection delay. Password, keyboard-interactive and host-based auth are not offered.
@@ -135,7 +136,36 @@ reconnect loop still running:
 | reorder or drop chunks | inner session fails integrity, closes |
 | inject bytes before the runner's version banner | inner handshake fails |
 | open a `forwarded-tcpip` channel with no runner behind it and attempt auth | gets `EnrollOnly` at best, enroll without a valid token is refused and audited |
-| open `direct-tcpip`, `session`, `x11`; send `tcpip-forward`; send `exec` | refused, `relay.refused` audited |
-| present a host key other than the pinned one | handshake refused, relay `unreachable`, audited |
-| send an unknown control frame, an oversized frame, `CacheGet` outside the manifest | link closed / `CacheMiss`, audited |
+| open `direct-tcpip`, `session`, `x11`; send `tcpip-forward`; send `exec` | refused, link dropped, relay quarantined, audited |
+| present a host key other than the pinned one | handshake refused, relay quarantined, audited |
+| send an unknown control frame or an oversized frame | link and every carried stream closed, relay quarantined, audited |
+| `CacheGet` outside the manifest | `CacheMiss`, audited (not a violation: Keel sends `CacheGet`, the relay never does) |
+| open 10 000 channels, or hold channels open without authenticating | refused beyond Keel's caps, idle ones closed after 10 s; Keel memory bounded; audit rows coalesced; direct runners unaffected |
+| relay answers the runner with its own SSH server | runner refuses: host certificate does not verify for `--server`; no token or ledger bytes sent |
 | serve a tampered release file over HTTP | host-side checksum fails (Ansible role), nothing installed |
+
+## Keel never trusts the relay
+
+Owner decisions of 2026-11-17 (tasks T059–T066). The relay host is treated as compromised.
+
+- **Quarantine**: anything an honest relay never does takes it out of service, and only an owner
+  can put it back. Keel drops the link and every carried stream, records `relays.quarantined_at`
+  and its reason, and audits `relay.quarantine`. The supervisor stops dialling the relay until
+  `PreviewRelayRelease` (workspace admin, step-up). Quarantine triggers:
+  - a wrong host key;
+  - a forbidden channel;
+  - a global or channel request;
+  - an unknown, oversized or out-of-order frame;
+  - a second control channel.
+- **Limits are enforced on Keel's side** whatever the relay claims:
+  - at most 256 streams;
+  - at most 20 new streams per second (burst 50);
+  - 10 s from channel open to runner auth;
+  - bounded russh windows and packets;
+  - 1 MiB frames;
+  - at most 4 unanswered pings.
+
+  Hitting a limit refuses or closes a stream; it does not quarantine the relay.
+- **Audit rows are coalesced** per relay and reason per minute, with a `count`.
+- **The advisory peer** a relay reports is used for display and audit only, never for any
+  security decision.

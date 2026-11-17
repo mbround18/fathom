@@ -6,7 +6,7 @@ touch. New pages and dialogs are lazy-loaded (`React.lazy`), like the other feat
 ## Hosts page (`features/hosts/HostsPage.tsx`)
 
 - Hosts are grouped by zone (`direct` first, then by name). Each group header shows the zone's
-  relays as chips: name, state (connected / unreachable / revoked, with an icon as well as
+  relays as chips: name, state (connected / unreachable / quarantined / revoked, with an icon as well as
   colour), RTT and stream count at ≥ 768 px; name and state only below.
 - Each host row gains a **Path** column: `direct`, `via <relay>`, or the reach text from
   data-model.md (`disconnected (relay unreachable)`, `no path`, …). Column priority: below

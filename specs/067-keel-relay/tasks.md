@@ -217,9 +217,10 @@ attempt fails closed, no job runs, and each attempt leaves an audit row.
   - sends an unknown control frame, then an oversized one.
 
   Assert a `relay.refused` audit row for each, and no run.
-- [ ] T026 [US2] Wire the refusal callbacks from T008 into `server/src/relays.rs`, so every
-  refusal writes `relay.refused { reason, detail }`. A host-key mismatch also sets the relay
-  `unreachable` with `last_error = "host_key_mismatch"`.
+- [ ] T026 [US2] Wire the refusal callbacks from T008 into `server/src/relays.rs`. Every refusal
+  writes `relay.refused { reason, detail }` (coalesced per T061). A **protocol violation**
+  quarantines the relay (T059); a refused runner auth on a carried stream does not, because that
+  is a runner's failure, not the relay's.
 - [ ] T027 [US2] Implement revocation in `server/src/relays.rs`, US2 acceptance 6 and FR-006:
   - `revoke_relay` sets `revoked_at` and audits `relay.revoke` in one transaction;
   - it sends `Close`, drops the link, and closes every carried runner stream at once;
@@ -227,6 +228,76 @@ attempt fails closed, no job runs, and each attempt leaves an audit row.
   - the supervisor never dials a revoked row.
 
   Test it in `server/tests/relays.rs`.
+
+### Hardening: Keel never trusts the relay (owner request, 2026-11-17)
+
+The relay host is assumed compromised. Every limit the relay enforces is enforced again on Keel's
+side, and anything an honest relay never does takes the relay out of service.
+
+- [ ] T059 [US2] **Quarantine** (owner decision). These are protocol violations an honest relay
+  never commits:
+  - a host key other than the pinned one;
+  - a channel other than `forwarded-tcpip` to `keel-runner:0`;
+  - any global or channel request (`tcpip-forward`, `exec`, `shell`, `pty`, `env`, agent, x11);
+  - an unknown, oversized or out-of-order control frame;
+  - a second control channel.
+
+  On any of them, Keel at once drops the link and closes every stream the relay carries. In the
+  same transaction it sets `relays.quarantined_at` and `quarantine_reason`, and audits
+  `relay.quarantine`. The supervisor never dials a quarantined relay. `PreviewRelayRelease`
+  (workspace admin, step-up) clears it; its preview shows the reason, the time and the refusals
+  since. Before a carried stream is served, Keel re-reads the relay row, so a stream that races a
+  revoke or quarantine is refused. Test it in `server/tests/hostile_relay.rs`, checking every
+  violation above.
+- [ ] T060 [US2] **Keel-side limits, independent of the relay's own**, in `server/src/relays.rs`
+  and `exec/relay.rs`. A server config value sets each:
+  - at most 256 concurrent carried streams per relay, beyond which channel opens are refused;
+  - at most 20 new streams per second per relay (token bucket, burst 50);
+  - a 10 s limit from channel open to the runner's SSH authentication, after which the stream
+    closes;
+  - russh client `Config` with a bounded `window_size` and `maximum_packet_size`, an
+    `inactivity_timeout`, and keepalives;
+  - control frames capped at 1 MiB, with at most 4 unanswered `Ping`s.
+
+  Exceeding a limit refuses the stream or closes it and is audited (coalesced). It does not
+  quarantine the relay, since a busy honest zone can hit these limits. Test with a flooding
+  relay: Keel stays within a fixed memory bound, and direct runners and other relays stay
+  served.
+- [ ] T061 [US2] **Audit and log flood control**: `relay.refused` and limit hits are coalesced
+  per `(relay, reason)` per minute into one row with a `count`. `tracing` output on relay paths
+  is rate-limited the same way. A relay can never grow the audit table faster than this. Test
+  that 10 000 refusals in a minute give one row with `count = 10000`.
+- [ ] T062 [US2] **The advisory peer is never trusted**. A relay's claimed `advisory_peer` is used
+  only for display and audit. No authentication, rate-limit key, allow list or host identity is
+  derived from it. Enrollment and join attempts through a relay are rate-limited per relay id.
+  Add a test, and a grep-style unit test that `advisory_peer` is read only by the
+  display/audit functions.
+- [ ] T063 [US2] **Runner fails closed through a relay**, in `runner/tests/hostile_relay.rs`. A
+  relay that answers with its own SSH server, or replays Keel's host certificate with a
+  different key, gets nothing:
+  - no enrollment token, join token or ledger bytes leave the runner before Keel's host
+    certificate verifies for `--server`'s name;
+  - an algorithm downgrade (anything outside keel-exec `server_preferred()`) is refused.
+- [ ] T064 [P] [US2] **Property tests** with `proptest`, a dev-dependency only (owner decision;
+  check with `cargo deny`). Arbitrary bytes into the control-frame decoder, `Hello` and the
+  query frames, `relay.toml`, `hub_keys` and `queries.toml` parsing. None may panic,
+  allocate more than the frame cap, or accept anything the strict parser would refuse. Put them
+  in `exec/relay.rs` tests, `relay/tests/` and `runner/tests/queries.rs`.
+- [ ] T065 [US2] **Relay sandbox** in `relay/systemd/keel-relay.service`:
+  - the runner unit's hardening, plus `CapabilityBoundingSet=` and `AmbientCapabilities=`
+    (empty);
+  - `SystemCallFilter=@system-service ~@privileged ~@resources`,
+    `RestrictAddressFamilies=AF_INET AF_INET6`, `MemoryDenyWriteExecute=yes`;
+  - `MemoryMax=256M`, `TasksMax=64` and `LimitNOFILE=1024`, with `ReadOnlyPaths=/etc/keel-relay`
+    and `StateDirectory=keel-relay`.
+
+  Record the `systemd-analyze security keel-relay.service` score (target ≤ 2.0 "OK") in this file.
+  Tell the fluxified session when the unit changes, because ../ansible byte-copies it.
+- [ ] T066 [US2] **Independent adversarial review**, before US3 merges. A fresh agent gets only
+  the code, `contracts/relay.md` and this hardening list, with none of the implementers'
+  conclusions, and is told to break it, either as a hostile relay or as an attacker on the
+  link. Every finding is fixed or recorded with the owner's sign-off. Then run the
+  `security-review` skill over the branch diff.
 
 ## Phase 5: User Story 3, see zones, relays and how each host is reached (P1)
 

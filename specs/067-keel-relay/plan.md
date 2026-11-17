@@ -32,7 +32,8 @@ Markdown for `docs/guides/keel`.
 - keel-exec's `server_config`, `client_config`, `codec`, `ca`.
 - Release cache HTTP: `axum` (already the server's) or a minimal `hyper` service. Pick whichever
   keeps the relay binary smaller (measure; the relay must stay small).
-- No D-Bus crate (R8). **No new third-party crates.**
+- No D-Bus crate (R8). No new runtime crates. One new dev-dependency, `proptest`, for the
+  property tests in tasks T064 (owner decision, 2026-11-17).
 
 **Storage**: PostgreSQL migration `0017_relays.sql` ([data-model.md](data-model.md)). The relay
 keeps only its host key and release cache on disk.

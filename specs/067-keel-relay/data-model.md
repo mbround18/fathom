@@ -55,6 +55,8 @@ Unique partial index: one `active` row. Created on first start when none exists.
 | `host_id` | `uuid` null → `hosts(id)` | The Keel host the relay runs on, if any (R10 warning). |
 | `created_at`, `updated_at` | `timestamptz` | |
 | `revoked_at` | `timestamptz` null | Set once, never cleared. A revoked relay is shown, never dialled. |
+| `quarantined_at` | `timestamptz` null | Set when the relay commits a protocol violation (tasks T059). It is not dialled until an owner releases it (step-up), which clears this and the reason. |
+| `quarantine_reason` | `text` null | Code of the violation, e.g. `host_key_mismatch`, `forbidden_channel`, `forbidden_request`, `bad_frame`. |
 
 Live state (`connecting`, `connected`, `unreachable`, last RTT, version, stream count, last
 error, `since`) is **in memory** in the relay supervisor, not in the table: it changes every
@@ -99,6 +101,7 @@ Relay (live):
               ▲   │                          │
               │   └──fail──► unreachable ◄───┘ missed Pong / link drop
               └──backoff────────┘
+ any ──protocol violation──► quarantined ──owner release (step-up)──► connecting
  any ──revoke──► revoked (terminal; link and streams closed)
 ```
 
@@ -124,8 +127,9 @@ Host (display, derived; `hosts.state` itself is unchanged):
 ## Audit events (`audit::Entry` actions)
 
 `zone.create`, `zone.update`, `zone.remove`, `host.zone_set`, `relay.register`, `relay.update`,
-`relay.revoke`, `relay.state` (connected / unreachable, with reason), `relay.refused`
-(handshake with a wrong host key, a refused channel or control frame: what and why),
+`relay.revoke`, `relay.quarantine`, `relay.release`, `relay.state` (connected / unreachable, with reason), `relay.refused`
+(a refused channel, request, control frame or limit hit: what, why and a `count`, coalesced per
+relay and reason per minute),
 `relay_link_key.create`, `relay_link_key.activate`, `relay_link_key.retire`, `host.query`
 (kind, params, outcome; never the answer body), and on runner sessions the existing connect /
 disconnect entries gain `path`.

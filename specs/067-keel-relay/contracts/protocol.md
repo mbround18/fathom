@@ -10,7 +10,7 @@ serde round-trip test (Principle III).
 pub struct ZoneInfo { id: Uuid, workspace: Uuid, name: ZoneName, description: String,
                       hosts: u32, relays: u32 }
 
-pub enum RelayState { Connecting, Connected, Unreachable, Revoked }
+pub enum RelayState { Connecting, Connected, Unreachable, Quarantined, Revoked }
 
 pub struct RelayInfo {
     id: Uuid, workspace: Uuid, zone: Uuid, name: ZoneName /* same rule */,
@@ -50,6 +50,7 @@ pub struct HostQuery { id: Uuid, host: Uuid, kind: QueryKind, params: serde_json
 | `PreviewRelayRegister { workspace, zone, name, dial_address, host_key, host: Option<Uuid> }` | `Preview` → `Relays` | workspace admin, step-up | Preview shows the fingerprint, and Keel's relay-link key line to pin. |
 | `PreviewRelayUpdate { relay, zone, name, dial_address, host_key, host }` | `Preview` → `Relays` | workspace admin, step-up | Changing `host_key` restarts the link. |
 | `PreviewRelayRevoke { relay }` | `Preview` → `Relays` | workspace admin | Preview lists hosts currently connected through it. |
+| `PreviewRelayRelease { relay }` | `Preview` → `Relays` | workspace admin, step-up | Clears a quarantine. Preview shows the reason, the time and the refusals since. |
 | `GetRelayLinkKeys` | `RelayLinkKeys` | instance admin | Public lines only. |
 | `PreviewRelayLinkKeyRotate` / `PreviewRelayLinkKeyActivate { fingerprint }` / `PreviewRelayLinkKeyRetire { fingerprint }` | `Preview` → `RelayLinkKeys` | instance admin, step-up | Mirrors `PreviewSshCaRotate`. |
 | `AskHost { host, kind, params }` | `HostQuery` (pending), then event | workspace operator | Refused early when the host is offline or lacks `query-v1`. |
