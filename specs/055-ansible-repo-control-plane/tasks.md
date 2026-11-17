@@ -502,18 +502,18 @@ two-process runner, revocation.
 Added after US7 shipped, from the first VM trial. Independent of US8; the migration takes the next
 free number when it lands (0007 is US8's `0007_signed.sql`, so T122 moves too).
 
-- [ ] T137 [P] [US7] Join token tests in crates/keel-exec/src/join_token.rs: issue and verify
+- [X] T137 [P] [US7] Join token tests in crates/keel-exec/src/join_token.rs: issue and verify
   round trip; refused: `alg: none`, `HS256`, extra header fields (`jku`, `jwk`, `x5u`, `crit`),
   wrong `typ`, missing or unknown `kid`, bad signature, wrong `iss`/`aud`, expired; claims decode
   without the key (what the role and runner read).
-- [ ] T138 [P] [US7] Server join tests in apps/keel/server/tests/join.rs: no active token refused;
+- [X] T138 [P] [US7] Server join tests in apps/keel/server/tests/join.rs: no active token refused;
   retired `jti` refused; a retry with the same host key updates the request and creates no second
   one; accept (step-up) creates the host and the next attempt gets `Enrolled`; reject answers
   `JoinRejected` and keeps answering it for that fingerprint; rotate and disable reject pending
   requests made with the old token; signing-key rotation invalidates every token; a known or
   revoked key gets `known_key`; `--join-pending-max` and `--join-rate` hold, the latter before any
   database write; the token never appears in `audit_event` or logs.
-- [ ] T139 [P] [US7] Runner join tests in apps/keel/runner/tests/join.rs: expired token or a
+- [X] T139 [P] [US7] Runner join tests in apps/keel/runner/tests/join.rs: expired token or a
   `keel.host_ca` that differs from `host_ca.pub` refuses before connecting; `JoinPending` backs off
   30 s doubling to 10 min with jitter (fake clock); `Enrolled` deletes `join-token`;
   `JoinRejected` deletes it and exits 78; an enrollment token beside a join token wins;
@@ -521,26 +521,26 @@ free number when it lands (0007 is US8's `0007_signed.sql`, so T122 moves too).
 - [X] T140 [P] [US7] Download tests in apps/keel/server/tests/runner_dist.rs: each file under
   `/runner/latest/` served with its SHA-256 as `ETag`; unknown arch, `..` and encoded traversal are
   `404`; a missing `--runner-dist-dir` gives `404` and the server still starts; `/runner/version`.
-- [ ] T141 [P] [US7] Round-trip tests for the join commands and events in
+- [X] T141 [P] [US7] Round-trip tests for the join commands and events in
   crates/keel-protocol/tests/roundtrip_us7.rs; regenerate bindings.
-- [ ] T142 [P] [US7] Playwright apps/keel/web/tests/e2e/us7/join.spec.ts: a request appears live,
+- [X] T142 [P] [US7] Playwright apps/keel/web/tests/e2e/us7/join.spec.ts: a request appears live,
   accept with step-up (inventory name and profiles prefilled), reject; Settings → Hosts: issue
   (token shown once, claims decoded), rotate (preview lists the requests it rejects), disable.
-- [ ] T143 [US7] Join token sign/verify in crates/keel-exec/src/join_token.rs (strict compact JWS
+- [X] T143 [US7] Join token sign/verify in crates/keel-exec/src/join_token.rs (strict compact JWS
   with `ed25519-dalek` and `base64`, no JWT crate). Frames `JoinRequest`, `JoinPending`,
   `JoinRejected` in crates/keel-exec/src/frames.rs; contracts/runner.md updated. Pass T137.
-- [ ] T144 [US7] Migration `000N_join.sql`: `join_signing_key`, `join_tokens` (partial unique
+- [X] T144 [US7] Migration `000N_join.sql`: `join_signing_key`, `join_tokens` (partial unique
   index: one unretired row per workspace), `join_requests` (unique per workspace and
   `ssh_key_fingerprint`), grants to `keel_app` as in data-model.md. The signing key is generated at
   first start and sealed with the master key, like the SSH CAs.
-- [ ] T145 [US7] Server: the `keel-join-v1` subsystem in apps/keel/server/src/runner_listener.rs,
+- [X] T145 [US7] Server: the `keel-join-v1` subsystem in apps/keel/server/src/runner_listener.rs,
   the join commands and `JoinRequested` in apps/keel/server/src/join.rs, expiry of pending
   requests (lazily on read, no timer, T131), the bounds and flags in config.rs. Pass T138, T141.
-- [ ] T146 [US7] Runner: join flow and `fingerprint` subcommand in apps/keel/runner/src/runner/;
+- [X] T146 [US7] Runner: join flow and `fingerprint` subcommand in apps/keel/runner/src/runner/;
   `RestartPreventExitStatus=78` in apps/keel/runner/systemd/keel-runner.service. Pass T139.
 - [X] T147 [US7] `/runner/…` routes in apps/keel/server/src/runner_dist.rs serving
   `--runner-dist-dir` from disk. Pass T140.
-- [ ] T148 [P] [US7] Web: Join requests tab in apps/keel/web/src/features/hosts/ and Settings →
+- [X] T148 [P] [US7] Web: Join requests tab in apps/keel/web/src/features/hosts/ and Settings →
   Hosts in apps/keel/web/src/features/settings/ (lazy-loaded route). Pass T142.
 - [X] T149 [US7] Image: a `runner-dist` stage in apps/keel/Dockerfile building static musl
   `keel-runner` and `keel-executor` for x86_64 and aarch64, plus `requirements.txt`,
