@@ -31,6 +31,23 @@ requires them. Write the tests in each story first, and see them fail before you
 **External work**: tasks marked **(../ansible, owner go-ahead)** change the operator's
 repository, outside this one. Do not start them until the owner says go.
 
+## Phase 0: Blockers (plan D1–D4; the owner gave the go-ahead on 2026-11-17)
+
+Migration numbers are fixed so that parallel branches don't collide: `0015_join.sql` (D3),
+`0016_run_host_lock.sql` (D2), `0017_relays.sql` (this spec).
+
+- [ ] T055 D2: the per-host run lock in `server/src/queue.rs` `dispatch_ready`. A host with a
+  `run_hosts` row in `sent` or `running` gets no new assignment; later runs stay queued and
+  dispatch in `created_at` order. Backstop: a partial unique index on `run_hosts (host_id) where
+  state in ('sent','running')` in `server/migrations/0016_run_host_lock.sql`. Test it in
+  `server/tests/runs.rs`.
+- [ ] T056 D4: `server/tests/common/mod.rs` `TestDb::new` panics when `CI` is set and
+  `KEEL_TEST_DATABASE_URL` is unset. `scripts/ci.sh` starts `scripts/keel-test-db.sh` and
+  exports the URL for the keel-server tests. Fix any test this exposes.
+- [ ] T057 D1: spec 055 T128, T140, T147 and T149: the release build target, the
+  `/runner/…` routes from `--runner-dist-dir`, and the image's `runner-dist` stage.
+- [ ] T058 D3: spec 055 T137–T146 and T148: join tokens end to end.
+
 ## Phase 1: Setup
 
 - [ ] T001 Create crate `relay/` (lib + bin `keel-relay`) with `Cargo.toml` on the workspace's
@@ -47,7 +64,7 @@ repository, outside this one. Do not start them until the owner says go.
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T004 Write `server/migrations/0015_relays.sql` per data-model.md:
+- [ ] T004 Write `server/migrations/0017_relays.sql` per data-model.md:
   - tables `zones`, `relay_link_keys`, `relays`, `host_queries`;
   - `hosts.zone_id` and `hosts.last_path jsonb`;
   - zone/relay name check `^[a-z0-9][a-z0-9-]{0,62}$`, with `direct` reserved;
@@ -348,7 +365,7 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
 
 ## Phase 8: Release-file cache (FR-010, MAY), blocked on plan D1
 
-**Do not start until spec 055's `/runner/<release>/…` route exists (055 T128/T147/T149).**
+**Do not start until T057 (D1) has merged.**
 
 - [ ] T044 [US1] Server side, in `server/src/relays.rs`, answer `CacheGet` from the files behind
   the `/runner` route only. Paths must be under `runner/<release>/` and named in the release
@@ -380,10 +397,10 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
   - queries and `queries.toml`.
 
   Also add an architecture note to `CONTRIBUTING.md`.
-- [ ] T050 **(../ansible, owner go-ahead)** Add `keel_runner_dial`,
+- [ ] T050 **(../ansible, delegated to the fluxified session)** Add `keel_runner_dial`,
   `keel_runner_download_origin` and `keel_runner_queries` to `roles/keel_runner`, with the
   validation in contracts/ansible.md. The unit gets one `--dial` per entry.
-- [ ] T051 **(../ansible, owner go-ahead)** Add a new `roles/keel_relay` and a `keel-relay`
+- [ ] T051 **(../ansible, delegated to the fluxified session)** Add a new `roles/keel_relay` and a `keel-relay`
   profile per contracts/ansible.md, including the checksum fail-closed install and printing the
   relay key.
 - [ ] T052 Main session only: run `scripts/hygiene.sh`, then the full gate once on the combined
@@ -401,7 +418,7 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
 - US3 needs T023 and T027, and can start after Phase 2 in parallel with the US1 implementation,
   apart from T030/T031, which need the supervisor (T020).
 - US4 needs US1. US5 needs Phase 2 only for the frames, but its relayed test needs US1.
-- Phase 8 is blocked on plan D1. T050/T051 are blocked on the owner. T054 is blocked on D1–D3.
+- Phase 8 waits for T057 (D1). T050/T051 are with the fluxified session. T054 is blocked on D1–D3.
 
 ## Parallel opportunities
 

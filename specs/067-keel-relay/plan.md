@@ -34,7 +34,7 @@ Markdown for `docs/guides/keel`.
   keeps the relay binary smaller (measure; the relay must stay small).
 - No D-Bus crate (R8). **No new third-party crates.**
 
-**Storage**: PostgreSQL migration `0015_relays.sql` ([data-model.md](data-model.md)). The relay
+**Storage**: PostgreSQL migration `0017_relays.sql` ([data-model.md](data-model.md)). The relay
 keeps only its host key and release cache on disk.
 
 **Testing**:
@@ -89,8 +89,9 @@ Debian with systemd, x86_64 and aarch64.
 
 ## Dependencies (outside this spec; they gate real-host testing)
 
-Found by the 2026-11-17 readiness audit. They are **not** fixed here (spec "Out of Scope"), but
-SC-001 cannot be checked on `ns534168`/`ns5004891` until D1–D3 land.
+Found by the 2026-11-17 readiness audit. SC-001 cannot be checked on `ns534168`/`ns5004891`
+until D1–D3 land. On 2026-11-17 the owner brought all four into this branch (tasks.md Phase 0):
+D2 is one run per host, and D4 makes CI start the test database and run every keel-server test.
 
 | # | Gap | Where | Owner spec |
 |---|---|---|---|
@@ -99,12 +100,12 @@ SC-001 cannot be checked on `ns534168`/`ns5004891` until D1–D3 land.
 | D3 | Join tokens are unimplemented (`keel-join-v1`, `keel_join_token`). Enrollment through a relay works with single-use enroll tokens, but fleet onboarding of both OVH hosts expects join tokens. | runner listener, runner, role | 055 T137–T149 |
 | D4 | 19 of the 27 keel-server test files skip silently without `KEEL_TEST_DATABASE_URL`, so a green `cargo test` can mean "nothing ran". This plan's new server tests must refuse to skip quietly: under `CI=1` they fail when the variable is unset, and otherwise they print one loud skip line. The fix for the existing 19 files belongs to 055/058. | `apps/keel/server/tests/common` | 055 / 058 |
 
-Also: the `keel_relay` role and the `keel_runner` variables are written in `../ansible` with the
-owner's go-ahead (R11, contracts/ansible.md).
+Also: the fluxified Claude session writes the `keel_relay` role and the `keel_runner` variables
+in `../ansible` (R11, contracts/ansible.md), as the owner asked.
 
 ## Phasing (story order for tasks.md)
 
-1. **Foundation**: migration `0015`, link policy and frames in keel-exec, a `RunnerPath`
+1. **Foundation**: migration `0017`, link policy and frames in keel-exec, a `RunnerPath`
    threaded through `runner_listener` and `queue::attach`, Keel's relay-link key, the
    `keel-relay` crate skeleton and config.
 2. **US1** (P1): the relay binary (link server, runner listener, forwarding), Keel's
@@ -153,7 +154,7 @@ crates/keel-protocol/src/{cmd,event,host,lib}.rs
 apps/keel/relay/                              (new crate: lib + bin keel-relay)
   Cargo.toml, src/{lib,config,link,forward,cache,key}.rs, src/bin/keel-relay.rs,
   tests/{link,limits}.rs, packaging/keel-relay.service
-apps/keel/server/migrations/0015_relays.sql
+apps/keel/server/migrations/0017_relays.sql
 apps/keel/server/src/relays.rs                (new: supervisor, link client, registration, zones)
 apps/keel/server/src/host_queries.rs          (new)
 apps/keel/server/src/runner_listener.rs       (RunnerPath; serve over any stream)

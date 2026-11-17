@@ -1,6 +1,6 @@
 # Data model: Keel relays (spec 067)
 
-Migration `apps/keel/server/migrations/0015_relays.sql`. Grants follow the existing pattern:
+Migration `apps/keel/server/migrations/0017_relays.sql`. Grants follow the existing pattern:
 `keel_app` gets `select, insert, update`; no `delete` or `truncate` on keys and relays (revoke
 instead of delete, like `ssh_cas`).
 
