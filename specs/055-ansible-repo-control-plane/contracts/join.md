@@ -65,8 +65,10 @@ able to widen what a host accepts.
 If a var and the token both give a connection setting (for example `keel_runner_host_ca` is set
 and differs from `keel.host_ca`), the role fails rather than picking one.
 
-On hosts the token is an Ansible var, `keel_join_token`, kept in the repository's encrypted vars.
-It is multi-use and expires, so unlike `keel_enroll_token` it may live there.
+On hosts the token comes only from the `KEEL_TOKEN` environment variable on the first run, as an
+enrollment token does. The role refuses `keel_join_token` and `keel_enroll_token` as vars. A
+token in SOPS-encrypted vars could not help a new host anyway: the repository decrypts SOPS with
+each box's own age key, which is only added to `.sops.yaml` after that box's first run.
 
 ## Runner side (`keel-join-v1` subsystem)
 

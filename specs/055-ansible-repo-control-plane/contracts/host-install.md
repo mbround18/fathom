@@ -61,11 +61,16 @@ list is empty, because such a host could never run anything.
      because `become` needs sudo.
 6. **Host key:** generated on first start by `keel-runner` (`ssh-keygen`-compatible Ed25519) in
    its state directory. It never leaves the host.
-7. **Enrollment:** if `keel_enroll_token` is set and the host is not yet enrolled, write it to
-   `/var/lib/keel-runner/enroll-token` (`0400`) with `no_log: true`, then start the service.
-   Otherwise, if `keel_join_token` is set and the host is not yet enrolled, write it to
-   `/var/lib/keel-runner/join-token` (`0400`) with `no_log: true`, start the service, and print
-   `keel-runner fingerprint` so the operator can match it against the join request in Keel.
+7. **Enrollment:** if the host has no certificate, read `KEEL_TOKEN` (`tasks/token.yml`). A
+   `keel-enroll-v1.<secret>.SHA256:<fp>` token is written to `/var/lib/keel-runner/enroll-token`;
+   a three-segment JWS whose header is `alg: EdDSA`, `typ: keel-join+jwt` (with `aud` containing
+   `keel-runner`, an unexpired `exp`, and `server`, `host_ca`, `origin` present) is written to
+   `/var/lib/keel-runner/join-token`. Either file is `0400`, owner `keel-runner`, written with
+   `no_log: true`, then the service restarts. Anything else in `KEEL_TOKEN` is refused, not
+   guessed at. For a join, once the service is up the role prints the host key's SHA-256
+   fingerprint (`ssh-keygen -l -E sha256`, the same form `keel-runner fingerprint` prints) so the
+   operator can match it in Keel → Hosts → Join requests. After enrolment the role checks that
+   neither token file is left.
 8. **Idempotence:** re-running the role changes trust files and versions only. It never deletes
    `/var/lib/keel-executor/ledger.jsonl` or the executor's Git store.
 

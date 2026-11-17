@@ -547,7 +547,7 @@ free number when it lands (0007 is US8's `0007_signed.sql`, so T122 moves too).
   `keel_events.tar.gz` and `SHA256SUMS`, copied to `/usr/share/keel/runner/` in the server image.
   Tag `mbround18/keel:latest` until releases come from git tags.
 
-**Checkpoint**: a host joins with only `keel_join_token`, `keel_runner_sha256` and its trust vars;
+**Checkpoint**: a host joins with only a join token in `KEEL_TOKEN`, `keel_runner_sha256` and its trust vars;
 the operator accepts it in the UI; rotation locks out the old token.
 
 ---
