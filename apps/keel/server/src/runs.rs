@@ -1169,7 +1169,8 @@ const RUN_COLUMNS: &str = "r.id, r.workspace_id, r.binding_id, r.job_id, r.job_n
        where cur.id = r.inventory_revision_id) as newer, \
      r.run_limit, r.resolved_hosts, r.policy_id, r.state, r.state_reason, r.created_at, \
      r.started_at, r.ended_at, r.summary, r.params, \
-     r.approvals_needed, r.four_eyes, r.approval_expires_at, \
+     r.approvals_needed, r.four_eyes, r.approval_expires_at, r.kind, r.check_mode, \
+     r.parent_run_id, \
      (select coalesce(jsonb_agg(jsonb_build_object( \
          'user', a.approver_user_id, \
          'name', case when u.id is null or u.disabled_at is not null then 'Deleted user' \
@@ -1262,6 +1263,9 @@ struct RunRow {
     approvals_needed: Option<i32>,
     four_eyes: Option<bool>,
     approval_expires_at: Option<OffsetDateTime>,
+    kind: String,
+    check_mode: bool,
+    parent_run_id: Option<Uuid>,
     answers: Value,
 }
 
@@ -1295,10 +1299,9 @@ impl RunRow {
                 self.approval_expires_at,
                 self.answers,
             ),
-            // Spec 068 columns arrive with the server lane's migration.
-            kind: keel_protocol::RunKind::Normal,
-            check: false,
-            parent_run: None,
+            kind: enum_from(&self.kind).unwrap_or_default(),
+            check: self.check_mode,
+            parent_run: self.parent_run_id,
         }
     }
 }
@@ -1346,13 +1349,15 @@ pub(crate) async fn get_run(app: &AppState, run: Uuid) -> Result<Option<Event>, 
         Option<OffsetDateTime>,
         Option<Value>,
         Option<Value>,
+        Option<Uuid>,
+        Option<String>,
     );
     let hosts: Vec<HostRow> = sqlx::query_as(
         "select rh.host_id, rh.host_name, rh.state, rh.refusal, rh.started_at, rh.ended_at, \
          case when rr.run_id is null then null else json_build_object( \
            'ok', rr.ok, 'changed', rr.changed, 'failed', rr.failed, \
            'unreachable', rr.unreachable, 'skipped', rr.skipped, 'rescued', rr.rescued, \
-           'ignored', rr.ignored)::jsonb end, rr.first_failure \
+           'ignored', rr.ignored)::jsonb end, rr.first_failure, rh.covered_by, rh.skip_reason \
          from run_hosts rh left join run_host_results rr \
            on rr.run_id = rh.run_id and rr.host_id = rh.host_id \
          where rh.run_id = $1 order by rh.host_name",
@@ -1363,17 +1368,19 @@ pub(crate) async fn get_run(app: &AppState, run: Uuid) -> Result<Option<Event>, 
     let hosts = hosts
         .into_iter()
         .map(
-            |(host, name, state, refusal, started, ended, stats, ff)| RunHostInfo {
-                host,
-                name,
-                state: enum_from(&state).unwrap_or(keel_protocol::HostPhase::Failed),
-                refusal,
-                started_at: started.map(ts),
-                ended_at: ended.map(ts),
-                stats: stats.and_then(|s| serde_json::from_value::<HostStats>(s).ok()),
-                first_failure: ff.and_then(|f| serde_json::from_value::<FirstFailure>(f).ok()),
-                covered_by: None,
-                skip_reason: None,
+            |(host, name, state, refusal, started, ended, stats, ff, covered_by, skip_reason)| {
+                RunHostInfo {
+                    host,
+                    name,
+                    state: enum_from(&state).unwrap_or(keel_protocol::HostPhase::Failed),
+                    refusal,
+                    started_at: started.map(ts),
+                    ended_at: ended.map(ts),
+                    stats: stats.and_then(|s| serde_json::from_value::<HostStats>(s).ok()),
+                    first_failure: ff.and_then(|f| serde_json::from_value::<FirstFailure>(f).ok()),
+                    covered_by,
+                    skip_reason,
+                }
             },
         )
         .collect();
@@ -1381,6 +1388,21 @@ pub(crate) async fn get_run(app: &AppState, run: Uuid) -> Result<Option<Event>, 
         run: row.info(),
         hosts,
     }))
+}
+
+/// The run's `RunInfo`, without its hosts (spec 068: a converge's view carries it).
+///
+/// # Errors
+///
+/// The database failed.
+pub(crate) async fn run_info(app: &AppState, run: Uuid) -> Result<Option<RunInfo>, sqlx::Error> {
+    let row: Option<RunRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "select {RUN_COLUMNS} from runs r where r.id = $1"
+    )))
+    .bind(run)
+    .fetch_optional(&app.db)
+    .await?;
+    Ok(row.map(RunRow::info))
 }
 
 async fn list_jobs(app: &AppState, binding: Uuid) -> Result<Vec<JobInfo>, sqlx::Error> {
@@ -1437,7 +1459,7 @@ fn policy_of((id, priority, m, requires, needed, four_eyes, ttl): PolicyRow) -> 
     }
 }
 
-async fn load_policies<'e, E>(db: E, workspace: Uuid) -> Result<Vec<Policy>, sqlx::Error>
+pub(crate) async fn load_policies<'e, E>(db: E, workspace: Uuid) -> Result<Vec<Policy>, sqlx::Error>
 where
     E: sqlx::PgExecutor<'e>,
 {
