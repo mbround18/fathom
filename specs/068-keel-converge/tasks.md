@@ -55,29 +55,29 @@ Nothing in `../ansible` is edited from this repo.
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T005 [P] [core] Tests first in `core/converge.rs` (`#[cfg(test)]`): `expand` order
+- [X] T005 [P] [core] Tests first in `core/converge.rs` (`#[cfg(test)]`): `expand` order
   (includes depth-first, then jobs), first position wins, cycle error names the cycle, unknown
   include, > 32 steps; proptest: every job in the output is reachable and appears once.
-- [ ] T006 [core] `Profile` gains `includes: Vec<String>`, `jobs: Vec<String>` (`#[serde(default)]`)
+- [X] T006 [core] `Profile` gains `includes: Vec<String>`, `jobs: Vec<String>` (`#[serde(default)]`)
   in `core/manifest.rs`; implement `converge::expand` (pure) and the "no recipe ⇒ jobs naming the
   profile, by name" fallback.
-- [ ] T007 [P] [core] Tests first: `coverage` closure (transitive, self-cover and cycle refused),
+- [X] T007 [P] [core] Tests first: `coverage` closure (transitive, self-cover and cycle refused),
   `host_plan` drops covered steps (k3s-master + k3s-audit ⇒ k3s-master), `covers()`.
-- [ ] T008 [core] `Job` gains `covers: Vec<String>`; implement `converge::coverage`, `host_plan`,
+- [X] T008 [core] `Job` gains `covers: Vec<String>`; implement `converge::coverage`, `host_plan`,
   `covers`.
-- [ ] T009 [P] [core] `PolicyMatch.check: Option<bool>` in `core/policy.rs` and
+- [X] T009 [P] [core] `PolicyMatch.check: Option<bool>` in `core/policy.rs` and
   `converge::combine_policies` (any approval, max count, any four-eyes, min TTL), with tests.
-- [ ] T010 [core] `manifest::validate` runs `expand` on every profile, `coverage`, validates
+- [X] T010 [core] `manifest::validate` runs `expand` on every profile, `coverage`, validates
   `groups:` targets, and returns the new error codes (contracts/manifest.md). Test: every
   manifest under `server/tests/repos/` and the current `../ansible` manifest copied as a fixture
   validate exactly as before (SC-006).
-- [ ] T011 [P] [core] Move the reserved-name rule from `runner/src/executor/secrets.rs:71` to
+- [X] T011 [P] [core] Move the reserved-name rule from `runner/src/executor/secrets.rs:71` to
   `core/env_names.rs` (runner uses it from there); parse and validate `jobs.<j>.env` with tests.
-- [ ] T012 [P] [core] `proto/converge.rs` and the changed types in contracts/protocol.md
+- [X] T012 [P] [core] `proto/converge.rs` and the changed types in contracts/protocol.md
   (`RunKind::Converge`, new run/host states and reasons, `CredentialKind::EnvValue`,
   `PreviewRunStart.params/check`, `BindingView`, `HostView` additions), serde round-trip tests,
   regenerate ts-rs bindings.
-- [ ] T013 [P] [core] `exec/frames.rs`: `Assign.check` (skipped when false), `SecretItem` kind
+- [X] T013 [P] [core] `exec/frames.rs`: `Assign.check` (skipped when false), `SecretItem` kind
   `env_var { name }`, capability constant `manifest-v068`; round-trip tests and a test that a
   frame with `check: true` fails to parse under the old struct shape (fail closed).
 - [ ] T014 [server] Fill `0018_converge.sql` per data-model.md: `runs` and `run_hosts` column
