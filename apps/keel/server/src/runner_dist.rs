@@ -226,7 +226,8 @@ async fn download(State(dist): State<RunnerDist>, req: Request) -> Response {
         return resp;
     }
     match ServeFile::new(&file.path).try_call(req).await {
-        Ok(resp) if resp.status().is_success() => {
+        // 200, 206 for a range, or 304 from If-Modified-Since: all carry the tag.
+        Ok(resp) if resp.status().is_success() || resp.status() == StatusCode::NOT_MODIFIED => {
             let mut resp = resp.map(Body::new);
             set_cache_headers(resp.headers_mut(), etag_value);
             resp
