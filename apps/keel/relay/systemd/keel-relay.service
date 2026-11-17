@@ -1,0 +1,67 @@
+# Keel relay (spec 067 contracts/relay.md, tasks T019 and T065).
+# Reference unit: the keel_relay Ansible role byte-copies it. Keel treats the relay host as
+# compromised; this unit treats the relay process as a target on that host. It holds only its own
+# host key, copies ciphertext between runners and Keel, and runs nothing.
+[Unit]
+Description=Keel relay (carries runner connections to Keel)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=exec
+User=keel-relay
+Group=keel-relay
+ExecStart=/usr/local/bin/keel-relay serve
+# Server hosts are managed by Ansible, not compose services on the dev box (host-install.md).
+Restart=on-failure
+RestartSec=10s
+# Exit 78 (EX_CONFIG) is an invalid relay.toml or hub_keys: restarting would only fail again.
+RestartPreventExitStatus=78
+
+# The host key lives here (`serve` and `keel-relay key` generate it on first start).
+StateDirectory=keel-relay
+StateDirectoryMode=0700
+UMask=0077
+
+# Resource caps: 256 streams fit easily; a flood is refused, not absorbed.
+MemoryMax=256M
+TasksMax=64
+LimitNOFILE=1024
+
+# Hardening (research R2, T065): the runner unit's, tightened.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateUsers=yes
+PrivateIPC=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+KeyringMode=private
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+DevicePolicy=closed
+# Reads its config and hub_keys; writes only its state directory.
+ReadOnlyPaths=/etc/keel-relay
+ReadWritePaths=/var/lib/keel-relay
+
+[Install]
+WantedBy=multi-user.target

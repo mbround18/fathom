@@ -76,3 +76,54 @@ fn a_valid_config_checks_ok() {
     assert!(out.status.success(), "{out:?}");
     assert!(out.stdout.is_empty());
 }
+
+#[test]
+fn serve_runs_until_sigterm_and_exits_0() {
+    use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
+
+    let dir = tempfile::tempdir().unwrap();
+    let key = dir.path().join("host_ed25519");
+    let out = relay(&["key", "--key", s(&key)]);
+    let public = String::from_utf8(out.stdout).unwrap();
+    let hub_keys = dir.path().join("hub_keys");
+    std::fs::write(&hub_keys, public.lines().next().unwrap()).unwrap();
+    let config = dir.path().join("relay.toml");
+    std::fs::write(
+        &config,
+        format!(
+            "link_listen = \"127.0.0.1:0\"\nrunner_listen = \"127.0.0.2:0\"\nhub_keys = \"{}\"\n",
+            s(&hub_keys)
+        ),
+    )
+    .unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_keel-relay"))
+        .args(["serve", "--config", s(&config), "--key", s(&key)])
+        .env("RUST_LOG", "info")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let mut line = String::new();
+    loop {
+        line.clear();
+        assert!(
+            stderr.read_line(&mut line).unwrap() > 0,
+            "exited before serving"
+        );
+        if line.contains("keel-relay serving") {
+            break;
+        }
+    }
+    let killed = Command::new("kill")
+        .args(["-TERM", &child.id().to_string()])
+        .status()
+        .unwrap();
+    assert!(killed.success());
+    let status = child.wait().unwrap();
+    assert!(status.success(), "{status:?}");
+    let mut stdout = String::new();
+    std::io::Read::read_to_string(&mut child.stdout.take().unwrap(), &mut stdout).unwrap();
+    assert!(stdout.is_empty(), "logs go to stderr");
+}

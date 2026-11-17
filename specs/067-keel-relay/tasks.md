@@ -149,7 +149,7 @@ leaves the host disconnected, not failed.
   - skips a dialled address whose host cert does not verify for `--server`'s name;
   - with no `--dial`, dials `--server` as before;
   - backoff applies per full pass and is capped at 60 s.
-- [ ] T016 [P] [US1] `relay/tests/link.rs`:
+- [X] T016 [P] [US1] `relay/tests/link.rs`:
   - with no link, a runner TCP connection is accepted and closed at once;
   - with a link, bytes are copied both ways unchanged;
   - a channel Keel does not accept within 20 s closes the TCP side;
@@ -157,19 +157,23 @@ leaves the host disconnected, not failed.
 
 ### Implementation
 
-- [ ] T017 [US1] Implement `relay/src/link.rs`. It is an SSH server on `link_listen` using
+- [X] T017 [US1] Implement `relay/src/link.rs`. It is an SSH server on `link_listen` using
   `RelayServerPolicy`, and allows one link at a time: a new authenticated link replaces the old
   one and closes its streams. It serves the `keel-relay-v1` control channel: `Hello` first, then
   `Pong` for each `Ping` with `streams` and `uptime_s`. `CacheGet` is not sent yet.
-- [ ] T018 [US1] Implement `relay/src/forward.rs`, the runner TCP listener on `runner_listen`.
+- [X] T018 [US1] Implement `relay/src/forward.rs`, the runner TCP listener on `runner_listen`.
   For each connection it opens a `forwarded-tcpip` channel `keel-runner:0`, with the runner's
   peer as originator, and runs `copy_bidirectional`. It enforces `max_streams` (256) and
   `max_pending_accepts` (64). It logs open and close with peer and byte counts, and never logs
   contents.
-- [ ] T019 [US1] Implement `relay/src/bin/keel-relay.rs` with the subcommands `serve`, `key` and
+- [X] T019 [US1] Implement `relay/src/bin/keel-relay.rs` with the subcommands `serve`, `key` and
   `check-config`, and `relay/systemd/keel-relay.service` (matching `runner/systemd/`; ../ansible byte-copies it) with `RestartPreventExitStatus=78`, `ReadOnlyPaths=/etc/keel-relay`, the runner unit's hardening, and runs as an unprivileged `keel-relay` user
   with `NoNewPrivileges`, `ProtectSystem=strict`, `StateDirectory=keel-relay` and no
   capabilities.
+  - Done 2026-11-17: `keel-relay` tests 12 in `tests/link.rs`, 4 in `tests/cli.rs`, 11 unit,
+    1 doc. The unit already carries T065's sandbox list;
+    `systemd-analyze security --offline=true keel-relay.service` scores **1.1 OK** (remaining
+    exposure: Internet sockets, host network, no IP allow list, host root, `char-rtc`).
 - [ ] T020 [US1] Implement `RelaySupervisor` in `server/src/relays.rs`:
   - one task per non-revoked relay row;
   - dial `dial_address` with `link_client_config()` and `LinkClientPolicy`, pinned to
