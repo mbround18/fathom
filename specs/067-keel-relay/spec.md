@@ -309,12 +309,17 @@ confirm the runner refuses.
 
 ## Open Questions
 
-- **Link transport**: an SSH connection from Keel to the relay, with each runner stream as a
-  channel (the same library and key handling as the runner listener), or a TLS connection with
-  stream multiplexing. Research for the plan; SSH is the default because Keel already pins and
-  rotates SSH CAs. [NEEDS CLARIFICATION: confirm at plan time]
-- **Relay registration**: paste the relay's public key into Settings (proposed), or a one-time
-  token flow like runner enrollment. [NEEDS CLARIFICATION: confirm at plan time]
+Both resolved with the owner on 2026-11-17 (research.md R1, R2):
+
+- **Link transport**: SSH over russh. Keel is the client and the relay the server; each runner
+  stream is a `forwarded-tcpip` channel the relay opens to Keel; health and cache share the
+  `keel-relay-v1` subsystem.
+- **Relay registration**: paste keys both ways. The relay's generated Ed25519 key is pasted into
+  Settings → Relays; Keel's relay-link key goes into the trust file as `keel_relay_hub_keys`.
+
+Narrowed at plan time (research.md R7): FR-010's git-object caching is not built, because
+repository content travels inside the runner session as `Pack` frames, where the relay cannot see
+it. Release-file caching stays, and is blocked on spec 055's `/runner` route.
 
 ## Out of Scope
 
