@@ -277,7 +277,7 @@ that host's rest; retry resumes.
   T014 can start with T005.
 - US1 (Phase 3) needs Phase 2. US2, US3 and US4 need US1's server tasks T018–T022. US5–US8 need
   only Phase 2 and can run in parallel with US1.
-- T034 waits for 067 D3. T045/T068 wait for runners on 068 (research R4) and owner question Q1.
+- T034 waits for 067 D3. T045/T068 wait for runners on 068 (research R4) and the ansible delta adding `debian` to the ceilings (Q1, decided 2026-11-17).
 - T070 after every agent branch is merged; T071 after T069.
 
 ## Parallel opportunities

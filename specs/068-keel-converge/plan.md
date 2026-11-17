@@ -218,14 +218,16 @@ the lock invariant (unique index) and the chain advance (trigger).
 
 | Violation | Why needed | Simpler alternative rejected because |
 |---|---|---|
-| A PL/pgSQL trigger (`converge_advance`), the first trigger in Keel's schema | Step outcomes are written from five code paths (`finished`, `disconnected`, `recover_in_flight`, `fail_host`, `cancel_hosts`). A missed path leaves a host holding forever. | Calling `converge::advance` from each path works today but a sixth writer can forget it. Kept as owner question Q5; switching is local to tasks T020 and T021. |
+| A PL/pgSQL trigger (`converge_advance`), the first trigger in Keel's schema | Step outcomes are written from five code paths (`finished`, `disconnected`, `recover_in_flight`, `fail_host`, `cancel_hosts`). A missed path leaves a host holding forever. | Calling `converge::advance` from each path works today but a sixth writer can forget it. Owner chose the trigger (Q5, 2026-11-17). |
 
-## Open questions for the owner
+## Owner decisions (2026-11-17)
 
-| # | Question | Recommendation | Where it matters |
+The owner took the recommendation on Q1, Q2, Q3 and Q5. Q4 was not put to the owner, and the plan keeps its recommended default; it is a reversible choice confined to T015.
+
+| # | Question | Decision | Where it matters |
 |---|---|---|---|
-| Q1 | A recipe step's job (e.g. `debian` under `keel-node`) is refused by every current ceiling. Add `debian` to the ansible ceilings, or have Keel derive "effective profiles" from recipes? | Ceilings (the host stays the authority; FR-017). | research R5, contracts/ansible.md §5, T045/T068 |
-| Q2 | Signed-mode override/baseline assertions bind one run id and job. Keep one assertion per step (presented together), or change keel-trust to sign a plan digest? | Per step for 068; plan digest as a follow-up spec. | research R3, T018 |
-| Q3 | Does Retry of a converge go through approval again? | Yes, same policy (a retry runs again on the host). | T023 |
-| Q4 | Keep manifest `version: 1` with a runner floor, or bump to `version: 2` so old runners fail with a clear message? | Keep 1 + floor (`runner_too_old`, binding banner). | research R4, T015 |
-| Q5 | Advance the chain with a Postgres trigger (first in Keel) or a Rust call from the five writer paths? | Trigger. | Complexity Tracking, T020 |
+| Q1 | A recipe step's job (e.g. `debian` under `keel-node`) is refused by every current ceiling. Add `debian` to the ansible ceilings, or have Keel derive "effective profiles" from recipes? | **Decided: ceilings.** The ansible session adds `debian` to every group's `keel_runner_allowed_profiles`. | research R5, contracts/ansible.md §5, T045/T068 |
+| Q2 | Signed-mode override/baseline assertions bind one run id and job. Keep one assertion per step (presented together), or change keel-trust to sign a plan digest? | **Decided: per step**, shown on one review page. Signing a whole plan is a follow-up spec. | research R3, T018 |
+| Q3 | Does Retry of a converge go through approval again? | **Decided: yes**, under the same policy. | T023 |
+| Q4 | Keep manifest `version: 1` with a runner floor, or bump to `version: 2` so old runners fail with a clear message? | **Default: keep 1** with a runner floor (`runner_too_old`, binding banner). | research R4, T015 |
+| Q5 | Advance the chain with a Postgres trigger (first in Keel) or a Rust call from the five writer paths? | **Decided: trigger** (`converge_advance`). | Complexity Tracking, T020 |
