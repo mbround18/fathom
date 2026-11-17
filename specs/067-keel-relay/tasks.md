@@ -50,14 +50,14 @@ Migration numbers are fixed so that parallel branches don't collide: `0015_join.
 
 ## Phase 1: Setup
 
-- [ ] T001 Create crate `relay/` (lib + bin `keel-relay`) with `Cargo.toml` on the workspace's
+- [X] T001 Create crate `relay/` (lib + bin `keel-relay`) with `Cargo.toml` on the workspace's
   `russh = "0.65.0"`, tokio, serde, toml, clap and tracing, and empty modules
   `src/{lib,config,link,forward,cache,key}.rs` and `src/bin/keel-relay.rs`. Add it to the
   workspace `members` in `Cargo.toml`, and check `cargo build -p keel-relay`.
-- [ ] T002 [P] Add Playwright project `s067` (`testDir: './tests/e2e/s067'`) to
+- [X] T002 [P] Add Playwright project `s067` (`testDir: './tests/e2e/s067'`) to
   `web/playwright.config.ts`, update its header comment list, and create
   `web/tests/e2e/s067/` and an empty `web/tests/support/fake-relays.ts`.
-- [ ] T003 [P] Add `server/tests/common` helper `require_db()`. Under `CI=1` it panics when
+- [X] T003 [P] **Superseded by T056** (`TestDb::new` panics under CI). Was: add `server/tests/common` helper `require_db()`. Under `CI=1` it panics when
   `KEEL_TEST_DATABASE_URL` is unset; otherwise it prints one `SKIPPED: KEEL_TEST_DATABASE_URL
   unset` line to stderr. Use it in every new server test in this spec (plan D4). Do not change
   the 19 existing files.

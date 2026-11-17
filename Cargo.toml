@@ -11,6 +11,7 @@ members = [
     "apps/depths/volume-helper",
     "apps/keel/server",
     "apps/keel/runner",
+    "apps/keel/relay",
 ]
 resolver = "3"
 

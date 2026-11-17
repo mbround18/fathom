@@ -1,0 +1,40 @@
+[package]
+name = "keel-relay"
+version = "0.1.0"
+description = "Keel relay: carries runner SSH sessions from a spoke network to Keel over one SSH link"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "keel-relay"
+path = "src/bin/keel-relay.rs"
+
+[dependencies]
+clap = { version = "4.6", features = ["derive", "env"] }
+# Link policy, control frames and the SSH algorithm lists, shared with the Keel server.
+keel-exec = { path = "../../../crates/keel-exec" }
+# The same rand_core as russh's ssh-key, for the relay's Ed25519 host key.
+rand = "0.10.3"
+russh = "0.65.0"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2"
+tokio = { version = "1.54.1", features = [
+    "macros",
+    "rt-multi-thread",
+    "net",
+    "io-util",
+    "sync",
+    "time",
+    "signal",
+] }
+toml = "1.1"
+tracing = "0.1.44"
+# Logs go to stderr; `keel-relay key` keeps stdout for its two lines.
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[dev-dependencies]
+tempfile = "3"
