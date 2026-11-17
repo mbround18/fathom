@@ -52,6 +52,10 @@ pub enum Outcome {
     Failed,
     /// Stopped before running anything that changes the host. Does not move the base.
     Cancelled,
+    /// A check-mode run (`--check --diff`, spec 068) that ran to the end, whatever it found.
+    /// Changes nothing on the host, so it does not move the base; its start line still
+    /// consumes the run id, so a replay is refused like any other.
+    Checked,
 }
 
 impl Outcome {
@@ -532,6 +536,29 @@ mod tests {
         assert_eq!(l.head(), head);
         l.append(end("r4", "db", Outcome::Succeeded)).unwrap();
         assert_eq!(l.base("db"), Some(id('4')));
+    }
+
+    #[test]
+    fn a_checked_run_does_not_move_the_base_and_cannot_be_replayed() {
+        let mut l = Ledger::parse(&sample()).unwrap();
+        let mut text = sample();
+        text.push_str(&l.append(start("r5", "web", Some('2'), '5')).unwrap());
+        let end_line = l.append(end("r5", "web", Outcome::Checked)).unwrap();
+        assert!(end_line.contains(r#""outcome":"checked""#), "{end_line}");
+        text.push_str(&end_line);
+        // The base stays at r2's target, after a parse round trip too.
+        assert_eq!(l.base("web"), Some(id('2')));
+        let parsed = Ledger::parse(&text).unwrap();
+        assert_eq!(parsed.base("web"), Some(id('2')));
+        assert_eq!(parsed.head(), l.head());
+        // The run id is spent.
+        let head = l.head();
+        assert_eq!(
+            l.append(start("r5", "web", Some('2'), '5')),
+            Err(LedgerError::Replay)
+        );
+        assert_eq!(l.head(), head);
+        assert!(!Outcome::Checked.moves_base());
     }
 
     fn corrupt(text: &str) -> bool {
