@@ -280,10 +280,17 @@ async fn serve(cfg: Config, tls: Option<tokio_rustls::TlsAcceptor>, exporting: b
     if let Err(e) = keel_server::queue::recover_in_flight(&app).await {
         return refuse(&format!("recovering in-flight runs: {e}"));
     }
-    let runners = match runner_listener::spawn(app.clone(), runner_listener) {
-        Ok(t) => t,
+    // One runner-facing host identity for the TCP listener and every relay link.
+    let runner_host = match runner_listener::RunnerHost::new() {
+        Ok(h) => h,
         Err(e) => return refuse(&format!("runner listener: {e}")),
     };
+    let runners = runner_listener::spawn_with(app.clone(), runner_host.clone(), runner_listener);
+    // Dial every registered relay and carry the runner streams it forwards (spec 067).
+    let relays = app.cfg.relays.then(|| {
+        let opts = keel_server::relays::SupervisorOptions::from_config(&app.cfg);
+        keel_server::relays::RelaySupervisor::spawn(app.clone(), runner_host.clone(), opts)
+    });
     let sweeper = app.auth.sessions.spawn_sweeper(SESSION_SWEEP);
     // Held runs whose approval window closed expire within a period, and on start-up (spec 064).
     let approvals = keel_server::approvals::spawn_approval_sweeper(app.clone(), APPROVAL_SWEEP);
@@ -302,6 +309,13 @@ async fn serve(cfg: Config, tls: Option<tokio_rustls::TlsAcceptor>, exporting: b
     sweeper.abort();
     approvals.abort();
     runners.abort();
+    if let Some((supervisor, task)) = relays {
+        task.abort();
+        // Each link sends `Close { "shutdown" }`; give them a moment before the pool closes.
+        supervisor.shutdown();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        supervisor.flush_refusals(true).await;
+    }
     app.db.close().await;
     match result {
         Ok(()) => ExitCode::SUCCESS,

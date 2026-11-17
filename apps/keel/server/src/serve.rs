@@ -152,6 +152,9 @@ pub struct AppState {
     pub forges: crate::proposals::Forges,
     /// Keel's relay-link key (spec 067), once [`crate::relays::bootstrap`] loaded it.
     pub relay_link: crate::relays::LinkKey,
+    /// Each relay link's live state (spec 067), kept by [`crate::relays::RelaySupervisor`]: read
+    /// it, subscribe to its changes, or ask the supervisor to re-read the relay rows.
+    pub relay_live: crate::relays::LiveRelays,
 }
 
 impl FromRef<AppState> for AuthState {
@@ -205,6 +208,7 @@ impl AppState {
             updates,
             forges: crate::proposals::Forges::default(),
             relay_link: crate::relays::LinkKey::default(),
+            relay_live: crate::relays::LiveRelays::default(),
         }
     }
 
