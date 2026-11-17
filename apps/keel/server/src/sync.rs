@@ -347,6 +347,42 @@ fn read_manifest(
     manifest::validate(&bytes, &tree, ctx)
 }
 
+/// The binding's validated manifest at `commit`, read from its mirror (spec 068: converge plans
+/// against the recipes at the commit it pins). `Ok(Err(..))` when it is missing or invalid.
+///
+/// # Errors
+///
+/// The database failed reading the binding's granted credentials.
+pub(crate) async fn manifest_at(
+    app: &AppState,
+    binding: Uuid,
+    commit: &str,
+    signed_mode: bool,
+) -> Result<Result<Manifest, Vec<ManifestIssue>>, sqlx::Error> {
+    let ctx = Context {
+        signed_mode,
+        granted_credentials: granted_names(app, binding).await?,
+    };
+    let dir = data_dir(app);
+    let commit = CommitId(commit.to_owned());
+    let read = tokio::task::spawn_blocking(move || match Mirror::open(&dir, binding) {
+        Ok(mirror) => read_manifest(&mirror, &commit, &ctx),
+        Err(_) => Err(vec![ManifestIssue {
+            at: manifest::MANIFEST_PATH.to_owned(),
+            message: "the binding's mirror could not be opened".to_owned(),
+            code: None,
+        }]),
+    })
+    .await;
+    Ok(read.unwrap_or_else(|_| {
+        Err(vec![ManifestIssue {
+            at: manifest::MANIFEST_PATH.to_owned(),
+            message: "the manifest could not be read".to_owned(),
+            code: None,
+        }])
+    }))
+}
+
 /// Whether `m` uses a key only a spec 068 runner reads (recipes, groups, `covers`, `env`), so a
 /// runner without `manifest-v068` is not sent its jobs (contracts/protocol.md).
 pub(crate) fn uses_v068_keys(m: &Manifest) -> bool {

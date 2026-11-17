@@ -223,6 +223,8 @@ async fn cancel_hosts(tx: &mut PgConnection, run: Uuid) -> Result<(), sqlx::Erro
     .bind(run)
     .execute(&mut *tx)
     .await?;
+    // A converge's steps are child runs (spec 068): its hosts end with it.
+    crate::converge::abandon(tx, run).await?;
     Ok(())
 }
 
@@ -383,6 +385,10 @@ async fn approve(app: &AppState, caller: &Caller, run: Uuid) -> Result<Outcome, 
                 .bind(next.reason.map(|r| r.as_str()))
                 .execute(&mut *tx)
                 .await?;
+                if next.state == RunState::Queued {
+                    // One approval covers a converge's whole plan (spec 068).
+                    crate::converge::release(&mut tx, run).await?;
+                }
                 Some(next)
             }
             Err(_) => None,

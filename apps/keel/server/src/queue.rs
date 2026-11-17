@@ -1446,29 +1446,68 @@ pub async fn recover_in_flight(app: &AppState) -> Result<usize, sqlx::Error> {
 
 /// Ends `run` once every host is terminal: its state, summary, log tail, audit and push.
 pub(crate) async fn maybe_finish(app: &AppState, run: Uuid) {
-    if let Err(e) = try_finish(app, run).await {
-        tracing::error!(error = %e, run = %run, "finishing a run failed");
+    match try_finish(app, run).await {
+        Ok(Some(parent)) => settle_converge(app, parent).await,
+        Ok(None) => {}
+        Err(e) => tracing::error!(error = %e, run = %run, "finishing a run failed"),
     }
 }
 
-/// A run's state, reason, workspace, whether it ended, and its update digest param.
-type FinishRow = (String, Option<String>, Uuid, bool, Option<String>);
+/// After a converge step's host ended (spec 068): the `converge_advance` trigger may have
+/// skipped later steps, so each open step run is finished if it can be, then the converge
+/// itself, and its hosts' states are pushed.
+async fn settle_converge(app: &AppState, parent: Uuid) {
+    let open: Result<Vec<Uuid>, sqlx::Error> = sqlx::query_scalar(
+        "select id from runs where parent_run_id = $1 and ended_at is null order by id",
+    )
+    .bind(parent)
+    .fetch_all(&app.db)
+    .await;
+    for child in open.unwrap_or_default() {
+        if let Err(e) = try_finish(app, child).await {
+            tracing::error!(error = %e, run = %child, "finishing a converge step failed");
+        }
+    }
+    if let Err(e) = try_finish(app, parent).await {
+        tracing::error!(error = %e, run = %parent, "finishing a converge failed");
+    }
+    crate::converge::push_hosts(app, parent).await;
+}
 
-async fn try_finish(app: &AppState, run: Uuid) -> Result<(), sqlx::Error> {
+/// A run's state, reason, workspace, whether it ended, its update digest param, kind and
+/// converge parent.
+type FinishRow = (
+    String,
+    Option<String>,
+    Uuid,
+    bool,
+    Option<String>,
+    String,
+    Option<Uuid>,
+);
+
+/// Ends `run` if every host is terminal. Returns the run's converge parent, if it has one, for
+/// [`settle_converge`].
+async fn try_finish(app: &AppState, run: Uuid) -> Result<Option<Uuid>, sqlx::Error> {
     let mut tx = app.db.begin().await?;
     let row: Option<FinishRow> = sqlx::query_as(
         "select state, state_reason, workspace_id, ended_at is not null, \
-                params ->> 'keel_server_image_digest' from runs \
+                params ->> 'keel_server_image_digest', kind, parent_run_id from runs \
          where id = $1 for no key update",
     )
     .bind(run)
     .fetch_optional(&mut *tx)
     .await?;
-    let Some((state, reason, workspace, ended, update_digest)) = row else {
-        return Ok(());
+    let Some((state, reason, workspace, ended, update_digest, kind, parent)) = row else {
+        return Ok(None);
     };
     if ended {
-        return Ok(());
+        return Ok(parent);
+    }
+    if kind == "converge" {
+        finish_converge(app, &mut tx, run, workspace, &state).await?;
+        tx.commit().await?;
+        return Ok(None);
     }
     let hosts: Vec<(String,)> = sqlx::query_as("select state from run_hosts where run_id = $1")
         .bind(run)
@@ -1476,7 +1515,7 @@ async fn try_finish(app: &AppState, run: Uuid) -> Result<(), sqlx::Error> {
         .await?;
     let hosts: Vec<HostState> = hosts.iter().filter_map(|h| h.0.parse().ok()).collect();
     if hosts.iter().any(|h| !h.is_terminal()) {
-        return Ok(());
+        return Ok(parent);
     }
     let from: RunState = state.parse().unwrap_or(RunState::Failed);
     let next = if from.is_terminal() {
@@ -1487,13 +1526,13 @@ async fn try_finish(app: &AppState, run: Uuid) -> Result<(), sqlx::Error> {
     } else if from == RunState::Running {
         match core_run::transition(from, &RunEvent::HostsFinished(hosts.clone())) {
             Ok(s) => s,
-            Err(_) => return Ok(()),
+            Err(_) => return Ok(parent),
         }
     } else {
         // Hosts finished before the run was dispatched: only a cancel or a failure gets here.
         match core_run::summarize(&hosts) {
             Some(s) => s,
-            None => return Ok(()),
+            None => return Ok(parent),
         }
     };
     // The tail goes in before the run reads as ended.
@@ -1526,6 +1565,48 @@ async fn try_finish(app: &AppState, run: Uuid) -> Result<(), sqlx::Error> {
         update_result(app, &mut tx, run, workspace, next, &new_digest).await?;
     }
     tx.commit().await?;
+    push_state(app, workspace, run, next);
+    Ok(parent)
+}
+
+/// Ends a converge parent once none of its hosts is waiting or holding (spec 068).
+async fn finish_converge(
+    app: &AppState,
+    tx: &mut PgConnection,
+    run: Uuid,
+    workspace: Uuid,
+    state: &str,
+) -> Result<(), sqlx::Error> {
+    let from: RunState = state.parse().unwrap_or(RunState::Failed);
+    if !matches!(from, RunState::Queued | RunState::Running) {
+        return Ok(());
+    }
+    let Some((next, summary)) = crate::converge::outcome(tx, run).await? else {
+        return Ok(());
+    };
+    sqlx::query(
+        "update runs set state = $2, state_reason = $3, ended_at = now(), summary = $4 \
+         where id = $1",
+    )
+    .bind(run)
+    .bind(next.state.as_str())
+    .bind(next.reason.map(|r| r.as_str()))
+    .bind(json!(summary))
+    .execute(&mut *tx)
+    .await?;
+    audit::record(
+        tx,
+        Entry {
+            actor: &Actor::System,
+            action: "run_finished",
+            workspace: Some(WorkspaceId(workspace)),
+            target: json!({ "run": run }),
+            decision: Decision::Allowed,
+            reason: None,
+            context: json!({ "state": next.state.as_str(), "hosts": summary.hosts }),
+        },
+    )
+    .await?;
     push_state(app, workspace, run, next);
     Ok(())
 }
@@ -1668,6 +1749,9 @@ async fn dispatch_ready(app: &AppState) -> Result<(), sqlx::Error> {
                 and r.state in ('queued', 'running') \
                 and not exists (select 1 from run_hosts b \
                                  where b.host_id = q.host_id and b.state in ('sent', 'running')) \
+                and not exists (select 1 from converge_hosts ch \
+                                 where ch.host_id = q.host_id and ch.state = 'holding' \
+                                   and ch.run_id is distinct from r.parent_run_id) \
               order by q.host_id, r.created_at, r.id) \
          for update of rh skip locked",
     )
@@ -1686,14 +1770,44 @@ async fn dispatch_ready(app: &AppState) -> Result<(), sqlx::Error> {
     .bind(&hosts)
     .execute(&mut *tx)
     .await?;
-    let started: Vec<(Uuid, Uuid)> = sqlx::query_as(
+    let mut started: Vec<(Uuid, Uuid)> = sqlx::query_as(
         "update runs set state = 'running', started_at = now() \
          where id = any($1) and state = 'queued' returning id, workspace_id",
     )
     .bind(&runs)
     .fetch_all(&mut *tx)
     .await?;
+    // A converge step going out holds its host until the host's converge ends (spec 068), and
+    // the converge itself is running from its first step.
+    let held: Vec<Uuid> = sqlx::query_scalar(
+        "update converge_hosts ch set state = 'holding', started_at = now() \
+         from converge_steps s, unnest($1::uuid[], $2::uuid[]) c(run, host) \
+         where s.step_run_id = c.run and s.host_id = c.host \
+           and ch.run_id = s.run_id and ch.host_id = s.host_id and ch.state = 'waiting' \
+         returning ch.run_id",
+    )
+    .bind(&runs)
+    .bind(&hosts)
+    .fetch_all(&mut *tx)
+    .await?;
+    if !held.is_empty() {
+        let parents: Vec<(Uuid, Uuid)> = sqlx::query_as(
+            "update runs set state = 'running', started_at = coalesce(started_at, now()) \
+             where id = any($1) and kind = 'converge' and state = 'queued' \
+             returning id, workspace_id",
+        )
+        .bind(&held)
+        .fetch_all(&mut *tx)
+        .await?;
+        started.extend(parents);
+    }
     tx.commit().await?;
+    let mut pushed = std::collections::BTreeSet::new();
+    for parent in held {
+        if pushed.insert(parent) {
+            crate::converge::push_hosts(app, parent).await;
+        }
+    }
     for (run, ws) in started {
         if let Ok(s) = core_run::transition(RunState::Queued, &RunEvent::Dispatched) {
             push_state(app, ws, run, s);

@@ -333,7 +333,10 @@ fn converge_commands_and_events_round_trip_in_the_web_lanes_shape() {
         }
     );
     let v = round_trip(&Event::ConvergeStarted { run_id: id(1) });
-    assert_eq!(v, json!({ "type": "ConvergeStarted", "data": { "run_id": id(1) } }));
+    assert_eq!(
+        v,
+        json!({ "type": "ConvergeStarted", "data": { "run_id": id(1) } })
+    );
     let v = round_trip(&Event::ConvergeChanged {
         run_id: id(1),
         host_id: id(5),

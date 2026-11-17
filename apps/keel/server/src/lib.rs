@@ -6,6 +6,7 @@ pub mod approvals;
 pub mod audit;
 pub mod bindings;
 pub mod config;
+pub mod converge;
 pub mod credentials;
 pub mod db;
 pub mod dispatch;
