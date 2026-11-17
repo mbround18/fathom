@@ -93,7 +93,7 @@ Migration numbers are fixed so that parallel branches don't collide: `0015_join.
 - [ ] T008 Implement `RelayServerPolicy` and `LinkClientPolicy` (russh `server::Handler` and
   `client::Handler`) in `exec/relay.rs`. Each refusal is reported through a callback, so the
   server can audit it.
-- [ ] T009 [P] Add `Hello.capabilities: Vec<String>` to `exec/frames.rs`
+- [X] T009 [P] Add `Hello.capabilities: Vec<String>` to `exec/frames.rs`
   (`#[serde(default, skip_serializing_if = "Vec::is_empty")]`). Add a round-trip test, and a test
   that an old `Hello` without the field still parses.
 - [ ] T010 Thread a `RunnerPath { Direct { peer }, Relay { relay_id, advisory_peer } }` through
