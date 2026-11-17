@@ -64,7 +64,7 @@ Migration numbers are fixed so that parallel branches don't collide: `0015_join.
 
 ## Phase 2: Foundational (blocks every story)
 
-- [ ] T004 Write `server/migrations/0017_relays.sql` per data-model.md:
+- [X] T004 Write `server/migrations/0017_relays.sql` per data-model.md:
   - tables `zones`, `relay_link_keys`, `relays`, `host_queries`;
   - `hosts.zone_id` and `hosts.last_path jsonb`;
   - zone/relay name check `^[a-z0-9][a-z0-9-]{0,62}$`, with `direct` reserved;

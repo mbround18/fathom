@@ -163,3 +163,150 @@ async fn run_approval_columns_and_insert_only_answers() {
     assert_eq!((role_col, upd, del, ins), (1, false, false, true));
     t.drop().await;
 }
+
+/// Spec 067 T004: zones, relays, the relay-link key and host queries.
+#[tokio::test]
+async fn relay_tables_constraints_and_grants() {
+    let Some(t) = TestDb::new("relay_tables").await else {
+        return;
+    };
+    let exec = |sql: &'static str| {
+        let app = t.app.clone();
+        async move { sqlx::query(sql).execute(&app).await }
+    };
+    sqlx::raw_sql(
+        "insert into workspaces (id, slug, name) values \
+           ('00000000-0000-0000-0000-0000000000a1', 'one', 'One'), \
+           ('00000000-0000-0000-0000-0000000000a2', 'two', 'Two'); \
+         insert into users (id, issuer, subject, display_name, instance_role) values \
+           ('00000000-0000-0000-0000-0000000000b1', 'i', 's', 'Ada', 'owner'); \
+         insert into hosts (id, workspace_id, inventory_name) values \
+           ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000a1', 'web1')",
+    )
+    .execute(&t.owner)
+    .await
+    .expect("fixtures");
+
+    // Zone names: the slug rule, `direct` reserved, unique per workspace.
+    exec(
+        "insert into zones (id, workspace_id, name) values \
+         ('00000000-0000-0000-0000-0000000000d1', '00000000-0000-0000-0000-0000000000a1', 'dmz')",
+    )
+    .await
+    .expect("zone");
+    for bad in [
+        "insert into zones (id, workspace_id, name) values \
+         (gen_random_uuid(), '00000000-0000-0000-0000-0000000000a1', 'direct')",
+        "insert into zones (id, workspace_id, name) values \
+         (gen_random_uuid(), '00000000-0000-0000-0000-0000000000a1', 'Bad_Name')",
+        "insert into zones (id, workspace_id, name) values \
+         (gen_random_uuid(), '00000000-0000-0000-0000-0000000000a1', 'dmz')",
+    ] {
+        assert!(exec(bad).await.is_err(), "{bad}");
+    }
+
+    // A host's zone and a relay's zone must be in the same workspace.
+    exec(
+        "update hosts set zone_id = '00000000-0000-0000-0000-0000000000d1', \
+          last_path = '{\"kind\":\"direct\",\"peer\":\"203.0.113.4:51234\"}'",
+    )
+    .await
+    .expect("host zone");
+    let relay = "insert into relays (id, workspace_id, zone_id, name, dial_address, host_key, \
+                 host_key_fingerprint) values (gen_random_uuid(), $1, \
+                 '00000000-0000-0000-0000-0000000000d1', $2, 'relay.dmz:7832', \
+                 'ssh-ed25519 AAAA', $3)";
+    let add_relay = |ws: &'static str, name: &'static str, fp: &'static str| {
+        let app = t.app.clone();
+        async move {
+            sqlx::query(relay)
+                .bind(uuid::Uuid::parse_str(ws).unwrap())
+                .bind(name)
+                .bind(fp)
+                .execute(&app)
+                .await
+        }
+    };
+    add_relay("00000000-0000-0000-0000-0000000000a1", "r1", "SHA256:one")
+        .await
+        .expect("relay");
+    assert!(
+        add_relay("00000000-0000-0000-0000-0000000000a2", "r2", "SHA256:two")
+            .await
+            .is_err(),
+        "zone of another workspace"
+    );
+    assert!(
+        add_relay("00000000-0000-0000-0000-0000000000a1", "r3", "SHA256:one")
+            .await
+            .is_err(),
+        "two relays never share a host key"
+    );
+    assert!(
+        add_relay(
+            "00000000-0000-0000-0000-0000000000a1",
+            "direct",
+            "SHA256:three"
+        )
+        .await
+        .is_err(),
+        "direct is reserved"
+    );
+    // A quarantine always says why.
+    assert!(
+        exec("update relays set quarantined_at = now()")
+            .await
+            .is_err()
+    );
+    exec("update relays set quarantined_at = now(), quarantine_reason = 'forbidden_channel'")
+        .await
+        .expect("quarantine");
+
+    // One active relay-link key.
+    for (id, fp) in [("e1", "SHA256:k1"), ("e2", "SHA256:k2")] {
+        let r = sqlx::query(
+            "insert into relay_link_keys (id, public_key, fingerprint, sealed_private_key, state) \
+             values ($1, 'ssh-ed25519 AAAA', $2, '\\x00', 'active')",
+        )
+        .bind(uuid::Uuid::parse_str(&format!("00000000-0000-0000-0000-0000000000{id}")).unwrap())
+        .bind(fp)
+        .execute(&t.app)
+        .await;
+        assert_eq!(r.is_ok(), id == "e1", "{id}: {r:?}");
+    }
+
+    // Host queries: keel_app may delete (pruning), and only there.
+    exec(
+        "insert into host_queries (id, workspace_id, host_id, kind, asked_by) values \
+         (gen_random_uuid(), '00000000-0000-0000-0000-0000000000a1', \
+          '00000000-0000-0000-0000-0000000000c1', 'facts', \
+          '00000000-0000-0000-0000-0000000000b1')",
+    )
+    .await
+    .expect("query");
+    assert!(
+        exec(
+            "insert into host_queries (id, workspace_id, host_id, kind, asked_by) values \
+              (gen_random_uuid(), '00000000-0000-0000-0000-0000000000a1', \
+               '00000000-0000-0000-0000-0000000000c1', 'shell', \
+               '00000000-0000-0000-0000-0000000000b1')"
+        )
+        .await
+        .is_err(),
+        "unknown kind"
+    );
+    exec("delete from host_queries").await.expect("prune");
+    for sql in [
+        "delete from zones",
+        "delete from relays",
+        "delete from relay_link_keys",
+        "truncate host_queries",
+    ] {
+        let err = exec(sql).await.unwrap_err();
+        assert!(
+            err.to_string().contains("permission denied"),
+            "{sql}: {err}"
+        );
+    }
+    t.drop().await;
+}
