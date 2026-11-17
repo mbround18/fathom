@@ -10,7 +10,7 @@
 //! dialled.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::{Duration, Instant};
 
 use keel_core::WorkspaceId;
@@ -34,7 +34,7 @@ use tokio::task::{JoinHandle, JoinSet};
 use uuid::Uuid;
 
 use crate::audit::{self, Actor, Decision, Entry};
-use crate::runner_listener::{RunnerHost, RunnerPath, serve_connection};
+use crate::runner_listener::{RunnerHost, RunnerPath, StreamEnd, serve_relayed};
 use crate::serve::AppState;
 
 /// The audit action for a new relay-link key.
@@ -261,6 +261,10 @@ pub const ACTION_STATE: &str = "relay.state";
 pub const ACTION_QUARANTINE: &str = "relay.quarantine";
 /// The audit action for refused streams and limit hits, coalesced per window (T061).
 pub const ACTION_REFUSED: &str = "relay.refused";
+/// The audit action for revoking a relay (T027).
+pub const ACTION_REVOKE: &str = "relay.revoke";
+/// The audit action for releasing a quarantined relay (T027, T059).
+pub const ACTION_RELEASE: &str = "relay.release";
 
 /// The longest `dial_address` accepted (the column's check).
 const MAX_DIAL_ADDRESS: usize = 300;
@@ -502,6 +506,150 @@ pub async fn register_relay(
     Ok(RegisteredRelay { id, fingerprint })
 }
 
+// ---- revoke and release (T027) ---------------------------------------------------------------
+
+/// Why a revoke or release changed nothing.
+#[derive(Debug)]
+pub enum RelayActionError {
+    /// No such relay in the workspace.
+    NotFound,
+    /// Revoked already: revocation is final, and a revoked relay cannot be released.
+    Revoked,
+    /// Release only: the relay is not quarantined.
+    NotQuarantined,
+    Db(sqlx::Error),
+}
+
+impl std::fmt::Display for RelayActionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotFound => f.write_str("no such relay"),
+            Self::Revoked => f.write_str("the relay is revoked"),
+            Self::NotQuarantined => f.write_str("the relay is not quarantined"),
+            Self::Db(e) => write!(f, "database: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for RelayActionError {}
+
+impl From<sqlx::Error> for RelayActionError {
+    fn from(e: sqlx::Error) -> Self {
+        Self::Db(e)
+    }
+}
+
+/// A relay row's revocation and quarantine, locked for an update.
+async fn lock_relay(
+    conn: &mut PgConnection,
+    workspace: Uuid,
+    relay: Uuid,
+) -> Result<(bool, Option<String>), RelayActionError> {
+    let row: Option<(bool, Option<String>)> = sqlx::query_as(
+        "select revoked_at is not null, quarantine_reason from relays \
+         where id = $1 and workspace_id = $2 for update",
+    )
+    .bind(relay)
+    .bind(workspace)
+    .fetch_optional(&mut *conn)
+    .await?;
+    row.ok_or(RelayActionError::NotFound)
+}
+
+/// Revokes a relay (T027): sets `revoked_at` and audits `relay.revoke` in one transaction,
+/// then stops its link at once. The link sends `Close { "revoked" }` and drops every runner
+/// stream it carries, so runners on it lose their sessions and their in-flight runs follow
+/// the lost-runner path (`lost`). The relay is never dialled again.
+///
+/// The caller has authorised `actor` (an owner, after preview and step-up: spec 067 US3).
+///
+/// # Errors
+///
+/// [`RelayActionError::NotFound`], [`RelayActionError::Revoked`], or the database.
+pub async fn revoke_relay(
+    app: &AppState,
+    actor: &Actor,
+    workspace: Uuid,
+    relay: Uuid,
+) -> Result<(), RelayActionError> {
+    let mut tx = app.db.begin().await?;
+    let (revoked, quarantine) = lock_relay(&mut tx, workspace, relay).await?;
+    if revoked {
+        return Err(RelayActionError::Revoked);
+    }
+    sqlx::query("update relays set revoked_at = now(), updated_at = now() where id = $1")
+        .bind(relay)
+        .execute(&mut *tx)
+        .await?;
+    audit::record(
+        &mut tx,
+        Entry {
+            actor,
+            action: ACTION_REVOKE,
+            workspace: Some(WorkspaceId(workspace)),
+            target: json!({ "relay": relay }),
+            decision: Decision::Allowed,
+            reason: None,
+            context: json!({ "quarantine_reason": quarantine }),
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    app.relay_live.stop(relay, "revoked");
+    app.relay_live.resync();
+    Ok(())
+}
+
+/// Releases a quarantined relay (T027, T059): clears `quarantined_at` and the reason and audits
+/// `relay.release` (with the reason it was quarantined for) in one transaction; the supervisor
+/// then dials it again.
+///
+/// TODO(spec 067 US3): the `ReleaseRelay` protocol command, its preview (what tripped the
+/// quarantine, from the `relay.quarantine` row) and the step-up gate call this.
+///
+/// # Errors
+///
+/// [`RelayActionError::NotFound`], [`RelayActionError::Revoked`],
+/// [`RelayActionError::NotQuarantined`], or the database.
+pub async fn release_relay(
+    app: &AppState,
+    actor: &Actor,
+    workspace: Uuid,
+    relay: Uuid,
+) -> Result<(), RelayActionError> {
+    let mut tx = app.db.begin().await?;
+    let (revoked, quarantine) = lock_relay(&mut tx, workspace, relay).await?;
+    if revoked {
+        return Err(RelayActionError::Revoked);
+    }
+    let Some(reason) = quarantine else {
+        return Err(RelayActionError::NotQuarantined);
+    };
+    sqlx::query(
+        "update relays set quarantined_at = null, quarantine_reason = null, \
+         updated_at = now() where id = $1",
+    )
+    .bind(relay)
+    .execute(&mut *tx)
+    .await?;
+    audit::record(
+        &mut tx,
+        Entry {
+            actor,
+            action: ACTION_RELEASE,
+            workspace: Some(WorkspaceId(workspace)),
+            target: json!({ "relay": relay }),
+            decision: Decision::Allowed,
+            reason: None,
+            context: json!({ "quarantine_reason": reason }),
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    app.relay_live.resync();
+    Ok(())
+}
+
 // ---- live state (T020) ----------------------------------------------------------------------
 
 /// A relay link's state as the supervisor sees it (data-model.md "State transitions").
@@ -573,6 +721,9 @@ struct LiveInner {
     map: RwLock<HashMap<Uuid, (Uuid, RelayLive)>>,
     changes: broadcast::Sender<RelayChange>,
     resync: Notify,
+    /// The supervisor keeping this state, so code holding only [`AppState`] can stop a link,
+    /// note a refusal or rate-limit an attempt. Weak: the supervisor owns the app state.
+    supervisor: RwLock<Weak<Supervisor>>,
 }
 
 /// Every supervised relay's [`RelayLive`], shared through [`AppState::relay_live`]. Readers
@@ -591,6 +742,7 @@ impl Default for LiveRelays {
                 map: RwLock::new(HashMap::new()),
                 changes,
                 resync: Notify::new(),
+                supervisor: RwLock::new(Weak::new()),
             }),
         }
     }
@@ -636,6 +788,60 @@ impl LiveRelays {
 
     async fn resynced(&self) {
         self.inner.resync.notified().await;
+    }
+
+    fn supervisor(&self) -> Option<Arc<Supervisor>> {
+        self.inner.supervisor.read().ok().and_then(|w| w.upgrade())
+    }
+
+    /// Stops one relay's link now, if it is supervised: sends `Close { reason }` and drops the
+    /// link and every runner stream it carries ([`RelaySupervisor::stop`]).
+    pub fn stop(&self, relay: Uuid, reason: &str) {
+        if let Some(sup) = self.supervisor() {
+            sup.stop(relay, reason);
+        }
+    }
+
+    /// Notes a refusal on `path`'s relay: coalesced into one `relay.refused` row per relay and
+    /// reason per window, and logged only once per window (T061). A direct path is ignored.
+    pub fn refused(&self, path: &RunnerPath, reason: &'static str, detail: &str) {
+        let Some(relay) = path.relay() else {
+            return;
+        };
+        let workspace = self
+            .inner
+            .map
+            .read()
+            .ok()
+            .and_then(|m| m.get(&relay).map(|(ws, _)| *ws));
+        if let (Some(sup), Some(workspace)) = (self.supervisor(), workspace) {
+            sup.shared.refusals.note(relay, workspace, reason, detail);
+        }
+    }
+
+    /// Whether one more `attempt` (enrollment, join) may come through `path` (T062): a token
+    /// bucket per relay, shared by every kind of attempt. A refused attempt is noted as
+    /// `relay.refused` with [`RelayAttempt::reason`]. A direct path is always allowed: the
+    /// limit exists because one relay concentrates many peers behind one link.
+    #[must_use]
+    pub fn attempt(&self, path: &RunnerPath, attempt: RelayAttempt) -> bool {
+        let Some(relay) = path.relay() else {
+            return true;
+        };
+        let Some(sup) = self.supervisor() else {
+            return true;
+        };
+        let opts = &sup.shared.opts;
+        let allowed = sup.shared.attempts.lock().is_ok_and(|mut buckets| {
+            buckets
+                .entry(relay)
+                .or_insert_with(|| Bucket::per_minute(opts.enroll_per_minute, opts.enroll_burst))
+                .take_at(Instant::now())
+        });
+        if !allowed {
+            self.refused(path, attempt.reason(), attempt.as_str());
+        }
+        allowed
     }
 
     /// Applies `f` to a relay's state (creating it as `connecting`); a state change resets
@@ -689,6 +895,34 @@ impl LiveRelays {
     }
 }
 
+/// An attempt rate-limited per relay ([`LiveRelays::attempt`], T062).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelayAttempt {
+    /// A runner enrolling (`keel-enroll-v1`).
+    Enroll,
+    /// A relay-assisted join (spec 067 US4; not built yet).
+    Join,
+}
+
+impl RelayAttempt {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Enroll => "enroll",
+            Self::Join => "join",
+        }
+    }
+
+    /// The `relay.refused` reason when the rate is exceeded.
+    #[must_use]
+    pub const fn reason(self) -> &'static str {
+        match self {
+            Self::Enroll => "enroll_rate",
+            Self::Join => "join_rate",
+        }
+    }
+}
+
 // ---- the supervisor (T020, T021) ------------------------------------------------------------
 
 /// Tunables of [`RelaySupervisor`]. [`Self::from_config`] gives the production values.
@@ -709,28 +943,70 @@ pub struct SupervisorOptions {
     pub max_unanswered_pings: usize,
     /// `relay.refused` rows are coalesced per relay and reason over this window.
     pub refusal_window: Duration,
+    /// From a carried stream's open to the runner's SSH authentication and subsystem.
+    pub auth_deadline: Duration,
+    /// The SSH channel window granted on a relay link.
+    pub window_size: u32,
+    /// The largest SSH packet accepted on a relay link.
+    pub maximum_packet_size: u32,
+    /// A relay link with no traffic for this long is dropped.
+    pub inactivity_timeout: Duration,
+    /// Enrollment (and join) attempts per minute per relay …
+    pub enroll_per_minute: u32,
+    /// … and their burst.
+    pub enroll_burst: u32,
 }
 
 impl SupervisorOptions {
     #[must_use]
     pub fn from_config(cfg: &crate::config::Config) -> Self {
+        let l = &cfg.relay_limits;
         Self {
             health_interval: cfg.relay_health_interval,
+            max_streams: usize::try_from(l.max_streams).unwrap_or(usize::MAX),
+            stream_rate: l.stream_rate,
+            stream_burst: l.stream_burst,
+            max_unanswered_pings: usize::try_from(l.max_unanswered_pings).unwrap_or(usize::MAX),
+            auth_deadline: l.auth_deadline,
+            window_size: l.window_size,
+            maximum_packet_size: l.maximum_packet_size,
+            inactivity_timeout: l.inactivity_timeout,
+            enroll_per_minute: l.enroll_per_minute,
+            enroll_burst: l.enroll_burst,
             ..Self::default()
+        }
+    }
+
+    /// The SSH client config for one dial: [`link_client_config`] with these limits.
+    #[must_use]
+    pub fn client_config(&self) -> russh::client::Config {
+        russh::client::Config {
+            window_size: self.window_size,
+            maximum_packet_size: self.maximum_packet_size,
+            inactivity_timeout: Some(self.inactivity_timeout),
+            ..link_client_config()
         }
     }
 }
 
 impl Default for SupervisorOptions {
     fn default() -> Self {
+        let limits = crate::config::RelayLimits::default();
         Self {
             health_interval: Duration::from_secs(30),
             hello_timeout: relay::HELLO_TIMEOUT,
-            max_streams: 256,
-            stream_rate: 20,
-            stream_burst: 50,
-            max_unanswered_pings: 4,
+            max_streams: usize::try_from(limits.max_streams).unwrap_or(usize::MAX),
+            stream_rate: limits.stream_rate,
+            stream_burst: limits.stream_burst,
+            max_unanswered_pings: usize::try_from(limits.max_unanswered_pings)
+                .unwrap_or(usize::MAX),
             refusal_window: Duration::from_secs(60),
+            auth_deadline: limits.auth_deadline,
+            window_size: limits.window_size,
+            maximum_packet_size: limits.maximum_packet_size,
+            inactivity_timeout: limits.inactivity_timeout,
+            enroll_per_minute: limits.enroll_per_minute,
+            enroll_burst: limits.enroll_burst,
         }
     }
 }
@@ -845,6 +1121,13 @@ impl Bucket {
         }
     }
 
+    fn per_minute(rate: u32, burst: u32) -> Self {
+        Self {
+            rate: f64::from(rate) / 60.0,
+            ..Self::new(rate, burst)
+        }
+    }
+
     fn take_at(&mut self, now: Instant) -> bool {
         let elapsed = now.saturating_duration_since(self.last).as_secs_f64();
         self.tokens = elapsed.mul_add(self.rate, self.tokens).min(self.burst);
@@ -864,6 +1147,8 @@ struct Shared {
     host: RunnerHost,
     opts: SupervisorOptions,
     refusals: Refusals,
+    /// Enrollment and join attempts per relay ([`LiveRelays::attempt`]).
+    attempts: Mutex<HashMap<Uuid, Bucket>>,
 }
 
 struct Link {
@@ -875,6 +1160,16 @@ struct Link {
 struct Supervisor {
     shared: Arc<Shared>,
     links: Mutex<HashMap<Uuid, Link>>,
+}
+
+impl Supervisor {
+    fn stop(&self, relay: Uuid, reason: &str) {
+        if let Ok(mut links) = self.links.lock()
+            && let Some(link) = links.remove(&relay)
+        {
+            let _ = link.stop.send(Some(reason.to_owned()));
+        }
+    }
 }
 
 impl Drop for Supervisor {
@@ -910,17 +1205,21 @@ impl RelaySupervisor {
             window: opts.refusal_window,
             pending: Mutex::new(HashMap::new()),
         };
-        Self {
-            inner: Arc::new(Supervisor {
-                shared: Arc::new(Shared {
-                    app,
-                    host,
-                    opts,
-                    refusals,
-                }),
-                links: Mutex::new(HashMap::new()),
+        let live = app.relay_live.clone();
+        let inner = Arc::new(Supervisor {
+            shared: Arc::new(Shared {
+                app,
+                host,
+                opts,
+                refusals,
+                attempts: Mutex::new(HashMap::new()),
             }),
+            links: Mutex::new(HashMap::new()),
+        });
+        if let Ok(mut sup) = live.inner.supervisor.write() {
+            *sup = Arc::downgrade(&inner);
         }
+        Self { inner }
     }
 
     /// Starts a supervisor: re-reads the relay rows now, then every health interval and on
@@ -1033,11 +1332,7 @@ impl RelaySupervisor {
     /// Stops one relay's link: sends `Close { reason }`, drops the link and every runner
     /// stream it carries. The next [`Self::sync`] redials it unless its row says otherwise.
     pub fn stop(&self, relay: Uuid, reason: &str) {
-        if let Ok(mut links) = self.inner.links.lock()
-            && let Some(link) = links.remove(&relay)
-        {
-            let _ = link.stop.send(Some(reason.to_owned()));
-        }
+        self.inner.stop(relay, reason);
     }
 
     /// Stops every link (Keel is shutting down): each sends `Close { "shutdown" }`.
@@ -1353,7 +1648,7 @@ impl LinkRun {
         let policy = LinkClientPolicy::new(pinned, sink, runners_tx);
         let connected = tokio::time::timeout(
             wait,
-            russh::client::connect_stream(Arc::new(link_client_config()), tcp, policy),
+            russh::client::connect_stream(Arc::new(self.shared.opts.client_config()), tcp, policy),
         )
         .await;
         let mut handle = match connected {
@@ -1525,8 +1820,10 @@ impl LinkRun {
                             up = true;
                         }
                     }
-                    Ok(Frame::CacheGet { req, .. }) => {
-                        // Keel does not serve runner releases yet (spec 067 US5).
+                    Ok(Frame::CacheGet { req, release, path }) => {
+                        // Keel does not serve runner releases yet (spec 067 US5). Not a
+                        // violation, but audited (coalesced), as the hostile matrix asks.
+                        self.refuse("cache_get", &format!("{release}/{path}"));
                         let miss = Frame::CacheMiss { req, reason: CacheMissReason::Unavailable };
                         if let Err(e) = write(&mut wr, &miss, opts.health_interval).await {
                             return LinkEnd::Lost { error: e, up };
@@ -1613,9 +1910,23 @@ impl LinkRun {
             };
             let path = RunnerPath::Relay {
                 relay_id: relay,
-                advisory_peer: Some(peer),
+                advisory_peer: Some(peer.clone()),
             };
-            serve_connection(shared.app.clone(), config, ch.channel.into_stream(), path).await;
+            let stream = ch.channel.into_stream();
+            let deadline = shared.opts.auth_deadline;
+            // A runner that fails to authenticate is the runner's problem, not the relay's:
+            // refused and audited, never a quarantine (T026).
+            match serve_relayed(shared.app.clone(), config, stream, path, deadline).await {
+                StreamEnd::Served => {}
+                StreamEnd::Unauthenticated => {
+                    shared
+                        .refusals
+                        .note(relay, workspace, "runner_unauthenticated", &peer);
+                }
+                StreamEnd::AuthDeadline => {
+                    shared.refusals.note(relay, workspace, "auth_deadline", &peer);
+                }
+            }
         });
     }
 }
@@ -1716,6 +2027,67 @@ mod tests {
         assert!(
             !b.take_at(t0 + Duration::from_secs(10)),
             "capped at the burst"
+        );
+    }
+
+    #[test]
+    fn the_attempt_bucket_counts_per_minute() {
+        let mut b = Bucket::per_minute(30, 2);
+        let t0 = b.last;
+        assert!(b.take_at(t0) && b.take_at(t0));
+        assert!(!b.take_at(t0), "burst spent");
+        assert!(!b.take_at(t0 + Duration::from_secs(1)), "half a token");
+        assert!(b.take_at(t0 + Duration::from_secs(2)), "30 a minute: one per 2 s");
+    }
+
+    /// T061: ten thousand refusals of one kind are one pending row with `count = 10000`.
+    #[test]
+    fn refusals_coalesce_per_relay_and_reason() {
+        let r = Refusals {
+            window: Duration::from_secs(60),
+            pending: Mutex::new(HashMap::new()),
+        };
+        let (relay, other, ws) = (Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7());
+        for i in 0..10_000 {
+            r.note(relay, ws, "stream_rate", &format!("10.0.0.{}:1", i % 250));
+        }
+        r.note(relay, ws, "max_streams", "x");
+        r.note(other, ws, "stream_rate", "y");
+        let pending = r.pending.lock().unwrap();
+        assert_eq!(pending.len(), 3);
+        let p = &pending[&(relay, "stream_rate")];
+        assert_eq!(p.count, 10_000);
+        assert_eq!(p.detail, "10.0.0.0:1", "the first detail is kept");
+        assert_eq!(pending[&(relay, "max_streams")].count, 1);
+    }
+
+    #[test]
+    fn options_follow_the_relay_limits() {
+        let opts = SupervisorOptions::default();
+        let limits = crate::config::RelayLimits::default();
+        assert_eq!(opts.auth_deadline, Duration::from_secs(10));
+        assert_eq!(opts.max_streams, 256);
+        assert_eq!(opts.window_size, limits.window_size);
+        let cfg = opts.client_config();
+        assert_eq!(cfg.window_size, 256 << 10);
+        assert_eq!(cfg.maximum_packet_size, 32 << 10);
+        assert_eq!(cfg.inactivity_timeout, Some(Duration::from_secs(120)));
+        assert_eq!(cfg.keepalive_interval, Some(relay::LINK_KEEPALIVE));
+        assert!(cfg.channel_buffer_size <= 32);
+        let tight = SupervisorOptions {
+            window_size: 64 << 10,
+            maximum_packet_size: 8 << 10,
+            inactivity_timeout: Duration::from_secs(45),
+            ..SupervisorOptions::default()
+        }
+        .client_config();
+        assert_eq!(
+            (
+                tight.window_size,
+                tight.maximum_packet_size,
+                tight.inactivity_timeout
+            ),
+            (64 << 10, 8 << 10, Some(Duration::from_secs(45)))
         );
     }
 

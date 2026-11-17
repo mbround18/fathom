@@ -41,10 +41,12 @@ use serde_json::json;
 use time::OffsetDateTime;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
+use tokio::sync::Notify;
 use uuid::Uuid;
 
 use crate::audit::{self, Actor, Decision, Entry};
 use crate::hosts::{self, HOST_CERT_TTL, token_fingerprint, token_hash};
+use crate::relays::RelayAttempt;
 use crate::serve::AppState;
 
 /// How long a fresh connection has to send its first frame.
@@ -198,6 +200,21 @@ impl std::fmt::Display for RunnerPath {
 pub struct Service {
     app: AppState,
     path: RunnerPath,
+    /// Signalled once the connection authenticated and asked for its subsystem
+    /// ([`serve_relayed`]'s deadline).
+    started: Option<Arc<Notify>>,
+}
+
+impl Service {
+    /// Logs a refusal: once per window and as a coalesced `relay.refused` row on a relay path
+    /// (a relay can repeat one as fast as it likes, T061), as a log line on a direct one.
+    fn refused(&self, reason: &'static str, detail: &str) {
+        if self.path.relay().is_some() {
+            self.app.relay_live.refused(&self.path, reason, detail);
+        } else {
+            tracing::info!(path = %self.path, reason, detail, "runner connection refused");
+        }
+    }
 }
 
 impl SubsystemService for Service {
@@ -211,9 +228,21 @@ impl SubsystemService for Service {
         key: KeyData,
         stream: russh::ChannelStream<Msg>,
     ) {
+        if let Some(started) = &self.started {
+            started.notify_one();
+        }
         match access {
-            Access::EnrollOnly => enroll(&self.app, &key, stream).await,
             Access::JoinOnly => crate::join::serve(&self.app, &key, &self.path, stream).await,
+            Access::EnrollOnly => {
+                // One relay can front any number of peers: its enrollments are rate-limited
+                // (T062). A refused one closes the stream before a frame is read.
+                if !self.app.relay_live.attempt(&self.path, RelayAttempt::Enroll) {
+                    return;
+                }
+                if let Err(reason) = enroll(&self.app, &key, stream).await {
+                    self.refused("enroll_refused", reason.as_str());
+                }
+            }
             Access::RenewOnly { host_id } => {
                 if let Ok(host) = Uuid::parse_str(&host_id) {
                     renew_only(&self.app, host, stream).await;
@@ -227,7 +256,11 @@ impl SubsystemService for Service {
                 if let Err(e) =
                     crate::queue::attach_on(self.app.clone(), host, stream, path.clone()).await
                 {
-                    tracing::warn!(host = %host, %path, error = %e, "runner session refused");
+                    if path.relay().is_some() {
+                        self.refused("runner_session_refused", &format!("{host}: {e}"));
+                    } else {
+                        tracing::warn!(host = %host, %path, error = %e, "runner session refused");
+                    }
                 }
             }
         }
@@ -311,19 +344,45 @@ pub struct EnrollRequest<'a> {
     pub require_signed: bool,
 }
 
+/// Why an enrollment stream ended without a host: no `Enroll` frame, or it was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnrollEnd {
+    /// No valid `Enroll` frame arrived in time.
+    NoFrame,
+    /// Refused (audited as `host_enroll_refused`).
+    Refused(EnrollRefusal),
+    /// Keel failed (logged).
+    Failed,
+}
+
+impl EnrollEnd {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NoFrame => "no_enroll_frame",
+            Self::Refused(r) => r.as_str(),
+            Self::Failed => "failed",
+        }
+    }
+}
+
 /// An unknown key's `keel-enroll-v1` stream: one `Enroll`, answered `Enrolled` or closed.
+///
+/// # Errors
+///
+/// Why no host was enrolled; the caller logs it.
 pub async fn enroll<S: AsyncRead + AsyncWrite + Unpin>(
     app: &AppState,
     key: &KeyData,
     mut stream: S,
-) {
+) -> Result<(), EnrollEnd> {
     let frame =
         match tokio::time::timeout(FIRST_FRAME_TIMEOUT, codec::read_frame(&mut stream)).await {
             Ok(Ok(Some(f))) => f,
-            _ => return,
+            _ => return Err(EnrollEnd::NoFrame),
         };
     if !Access::EnrollOnly.permits(&frame) {
-        return;
+        return Err(EnrollEnd::NoFrame);
     }
     let Frame::Enroll {
         token,
@@ -332,7 +391,7 @@ pub async fn enroll<S: AsyncRead + AsyncWrite + Unpin>(
         require_signed,
     } = frame
     else {
-        return;
+        return Err(EnrollEnd::NoFrame);
     };
     let req = EnrollRequest {
         token: token.expose(),
@@ -350,11 +409,13 @@ pub async fn enroll<S: AsyncRead + AsyncWrite + Unpin>(
                 },
             )
             .await;
+            Ok(())
         }
-        Err(Ok(reason)) => {
-            tracing::info!(reason = reason.as_str(), "enrollment refused");
+        Err(Ok(reason)) => Err(EnrollEnd::Refused(reason)),
+        Err(Err(e)) => {
+            tracing::error!(error = %e, "enrollment failed");
+            Err(EnrollEnd::Failed)
         }
-        Err(Err(e)) => tracing::error!(error = %e, "enrollment failed"),
     }
 }
 
@@ -710,10 +771,77 @@ pub async fn serve_connection<S>(
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let authority = Arc::new(Authority { app: app.clone() });
-    let service = Arc::new(Service { app, path });
+    let service = Arc::new(Service {
+        app,
+        path,
+        started: None,
+    });
     let handler = KeelSshHandler::new(authority, service);
     if let Ok(session) = russh::server::run_stream(config, stream, handler).await {
         let _ = session.await;
+    }
+}
+
+/// How a relayed runner stream ended ([`serve_relayed`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamEnd {
+    /// The runner authenticated and was served.
+    Served,
+    /// The stream ended before the runner authenticated: a refused key or certificate, a
+    /// failed handshake, or a hang-up.
+    Unauthenticated,
+    /// The runner had not authenticated by the deadline; the stream was closed.
+    AuthDeadline,
+}
+
+/// [`serve_connection`] for a stream a relay carries (spec 067 T060): the runner must complete
+/// the SSH handshake, authenticate and ask for its subsystem within `deadline` of the stream
+/// opening, or the stream is closed. A stream that opens and idles costs Keel a bounded time.
+pub async fn serve_relayed<S>(
+    app: AppState,
+    config: Arc<russh::server::Config>,
+    stream: S,
+    path: RunnerPath,
+    deadline: Duration,
+) -> StreamEnd
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let by = tokio::time::Instant::now() + deadline;
+    let started = Arc::new(Notify::new());
+    let authority = Arc::new(Authority { app: app.clone() });
+    let service = Arc::new(Service {
+        app,
+        path,
+        started: Some(Arc::clone(&started)),
+    });
+    let handler = KeelSshHandler::new(authority, service);
+    // `run_stream` waits for the peer's SSH id; dropping it on the deadline drops the stream.
+    let mut session =
+        match tokio::time::timeout_at(by, russh::server::run_stream(config, stream, handler)).await
+        {
+            Ok(Ok(s)) => s,
+            Ok(Err(_)) => return StreamEnd::Unauthenticated,
+            Err(_) => return StreamEnd::AuthDeadline,
+        };
+    tokio::select! {
+        biased;
+        () = started.notified() => {
+            let _ = session.await;
+            StreamEnd::Served
+        }
+        _ = &mut session => StreamEnd::Unauthenticated,
+        () = tokio::time::sleep_until(by) => {
+            let _ = session
+                .handle()
+                .disconnect(
+                    russh::Disconnect::ByApplication,
+                    "authentication deadline".into(),
+                    String::new(),
+                )
+                .await;
+            StreamEnd::AuthDeadline
+        }
     }
 }
 
@@ -789,5 +917,77 @@ mod tests {
         }
         .to_string();
         assert!(!shown.contains('\n'), "{shown}");
+    }
+
+    /// The item (`fn`, `enum`, `struct`) a line belongs to: the last one declared above it.
+    fn item_name(line: &str) -> Option<String> {
+        let mut t = line.trim_start();
+        for prefix in ["pub(crate) ", "pub ", "const ", "async "] {
+            t = t.strip_prefix(prefix).unwrap_or(t);
+        }
+        let rest = ["fn ", "enum ", "struct "]
+            .iter()
+            .find_map(|kw| t.strip_prefix(kw))?;
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        (!name.is_empty()).then_some(name)
+    }
+
+    /// Spec 067 T062: the relay-claimed `advisory_peer` is display and audit only. A grep over
+    /// the crate's source: outside tests it appears only where it is made (the relay link),
+    /// kept (`RunnerPath`) or shown (`to_json`, `Display`). Anything deciding access must use
+    /// the authenticated identity instead; a new use has to be added here on purpose.
+    #[test]
+    fn advisory_peer_is_read_only_for_display_and_audit() {
+        let allowed: &[(&str, &str)] = &[
+            ("relays.rs", "advisory_peer"),
+            ("relays.rs", "serve"),
+            ("relays.rs", "carry"),
+            ("runner_listener.rs", "RunnerPath"),
+            ("runner_listener.rs", "to_json"),
+            ("runner_listener.rs", "fmt"),
+        ];
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut dirs = vec![src];
+        let mut uses = Vec::new();
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    dirs.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|e| e != "rs") {
+                    continue;
+                }
+                let file = path.file_name().unwrap().to_string_lossy().into_owned();
+                let text = std::fs::read_to_string(&path).unwrap();
+                let mut item = String::new();
+                for line in text.lines() {
+                    if line.trim_start().starts_with("mod tests") {
+                        break;
+                    }
+                    if let Some(name) = item_name(line) {
+                        item = name;
+                    }
+                    let code = line.split("//").next().unwrap_or("");
+                    if code.contains("advisory_peer") {
+                        uses.push((file.clone(), item.clone()));
+                    }
+                }
+            }
+        }
+        assert!(
+            uses.iter().any(|(f, i)| f == "relays.rs" && i == "carry"),
+            "the scan found nothing: {uses:?}"
+        );
+        for (file, item) in &uses {
+            assert!(
+                allowed.iter().any(|(f, i)| f == file && i == item),
+                "advisory_peer used in {file} `{item}`: it is relay-claimed, display only"
+            );
+        }
     }
 }
