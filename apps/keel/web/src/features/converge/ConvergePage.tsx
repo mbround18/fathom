@@ -8,21 +8,7 @@
  *
  * RunPage renders this in place of the plain run view when the run's kind is `converge`.
  */
-import {
-  ArrowClockwiseIcon,
-  ArrowLeftIcon,
-  CheckCircleIcon,
-  CircleDashedIcon,
-  CircleNotchIcon,
-  ClockIcon,
-  LinkSimpleIcon,
-  MinusCircleIcon,
-  ProhibitIcon,
-  StopIcon,
-  WarningCircleIcon,
-  XCircleIcon,
-  type Icon,
-} from '@phosphor-icons/react'
+import { ArrowClockwiseIcon, ArrowLeftIcon, StopIcon } from '@phosphor-icons/react'
 import { Badge, Button, Checkbox } from '@companion/ui'
 import { H2, LABEL, Link, LINK, LoadState, Page, PageHeader } from '@companion/ui/kit'
 import { useEffect, useId, useState } from 'react'
@@ -32,36 +18,14 @@ import { canOperate } from '@/features/hosts/workspaces'
 import { ApprovalPanel, DecisionDialog } from '@/features/runs/ApprovalPanel'
 import { ErrorLine, StateBadge } from '@/features/runs/parts'
 import { active, short } from '@/features/runs/store'
-import type { ConvergeStepView, ConvergeView, RunInfo, StepState } from '@/protocol/wire'
+import type { ConvergeStepView, ConvergeView, RunInfo } from '@/protocol/wire'
 
 import { ConvergePreview } from './ConvergePreview'
-import { finished, retryableSteps, stepLabel, stepTone, viewMatrix, type Tone } from './derive'
+import { finished, retryableSteps, stepLabel, toneClass, viewMatrix } from './derive'
+import { StepIcon } from './StepIcon'
 import { useConverge } from './store'
 
-const ICON: Record<StepState, Icon> = {
-  blocked: CircleDashedIcon,
-  queued: ClockIcon,
-  sent: CircleNotchIcon,
-  running: CircleNotchIcon,
-  succeeded: CheckCircleIcon,
-  failed: XCircleIcon,
-  refused: ProhibitIcon,
-  lost: WarningCircleIcon,
-  cancelled: StopIcon,
-  skipped: MinusCircleIcon,
-  covered: LinkSimpleIcon,
-}
-
-const TONE: Record<Tone, string> = {
-  ok: 'text-status-ok',
-  err: 'text-status-err',
-  live: 'text-accent-neon',
-  muted: 'text-muted-foreground',
-}
-
 function Cell({ step, host }: { step: ConvergeStepView; host: string }) {
-  const Glyph = ICON[step.state]
-  const spin = step.state === 'running' || step.state === 'sent'
   const label = stepLabel(step.state)
   return (
     <Link
@@ -71,16 +35,12 @@ function Cell({ step, host }: { step: ConvergeStepView; host: string }) {
       aria-label={`${step.job} on ${host}: ${label}`}
       className={`${LINK} flex min-w-0 items-center gap-1.5 no-underline`}
     >
-      <Glyph
-        aria-hidden
-        weight={step.state === 'succeeded' || step.state === 'failed' ? 'fill' : 'regular'}
-        className={`size-4 shrink-0 ${TONE[stepTone(step.state)]} ${spin ? 'animate-spin motion-reduce:animate-none' : ''}`}
-      />
+      <StepIcon state={step.state} />
       <span className="flex min-w-0 flex-col">
         <span className={`font-mono break-all text-foreground ${step.state === 'skipped' ? 'line-through' : ''}`}>
           {step.job}
         </span>
-        <span aria-hidden className={`hidden text-[11px] lg:inline ${TONE[stepTone(step.state)]}`}>
+        <span aria-hidden className={`hidden text-[11px] lg:inline ${toneClass(step.state)}`}>
           {label}
         </span>
       </span>

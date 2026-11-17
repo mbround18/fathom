@@ -2,8 +2,11 @@
  * Runs (spec 055 US2, T072): the workspace's runs, newest first. Each opens its own page
  * (./RunPage.tsx) with its live output and per-host results. "Waiting for approval" (spec 064 US4)
  * narrows the list to held runs, oldest first, and is kept in `?state=pending_approval`.
+ *
+ * Spec 068: a converge lists once, as its parent run; its steps' child runs show only with "Show
+ * steps" (`?steps=1`). Check runs carry a `check` badge.
  */
-import { Button } from '@companion/ui'
+import { Badge, Button, Checkbox } from '@companion/ui'
 import {
   DataTable,
   EmptyState,
@@ -18,7 +21,7 @@ import {
   PageHeader,
   useSearchParam,
 } from '@companion/ui/kit'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useId, useMemo } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { CurrentWorkspace } from '@/app/WorkspacePicker'
@@ -83,6 +86,24 @@ function RunsFilter({ value }: { value: Filter }) {
   )
 }
 
+/** "Show steps": a converge's child runs, hidden by default (spec 068). */
+function StepsToggle({ on, held }: { on: boolean; held: boolean }) {
+  const id = useId()
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <Checkbox
+        id={id}
+        checked={on}
+        onCheckedChange={(c) => {
+          const q = [held ? 'state=pending_approval' : null, c === true ? 'steps=1' : null].filter((x) => x !== null)
+          navigate(q.length > 0 ? `/runs?${q.join('&')}` : '/runs', { replace: true })
+        }}
+      />
+      <label htmlFor={id}>Show converge steps</label>
+    </div>
+  )
+}
+
 /** Held runs, oldest first: the one waiting longest is the one to answer first. */
 function oldestFirst(runs: readonly RunInfo[]): RunInfo[] {
   return runs.filter((r) => r.state === 'pending_approval').sort((a, b) => a.created_at.localeCompare(b.created_at))
@@ -97,10 +118,14 @@ export default function RunsPage() {
   const me = useSession((s) => s.me)
   const filter: Filter = useSearchParam('state') === 'pending_approval' ? 'pending_approval' : 'all'
   const held = filter === 'pending_approval'
+  const steps = useSearchParam('steps') === '1'
   // The page reloads whenever `load` changes, so a new filter lists again.
   const load = useCallback((ws: string) => loadRuns(ws, held ? 'pending_approval' : null), [loadRuns, held])
   // A run approved while the filter is on stays in the store until the next list: hide it here.
-  const shown = useMemo(() => (held ? oldestFirst(runs) : runs), [held, runs])
+  const shown = useMemo(() => {
+    const listed = steps ? runs : runs.filter((r) => r.parent_run === null)
+    return held ? oldestFirst(listed) : listed
+  }, [held, steps, runs])
   const variant = emptyVariant({ filtered: held, canAct: workspace !== null && canOperate(me, workspace) })
 
   return (
@@ -116,7 +141,10 @@ export default function RunsPage() {
       >
         <CurrentWorkspace load={load} />
       </PageHeader>
-      <RunsFilter value={filter} />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <RunsFilter value={filter} />
+        <StepsToggle on={steps} held={held} />
+      </div>
       <ErrorLine />
       {workspace && failed && (
         <LoadFailed
@@ -144,16 +172,23 @@ export default function RunsPage() {
           label="Runs"
           rows={shown}
           rowKey={(r) => r.id}
-          rowData={(r) => ({ 'data-run-state': r.state })}
+          rowData={(r) => ({ 'data-run-state': r.state, 'data-run-kind': r.kind })}
           columns={[
             {
               key: 'job',
               header: 'Job',
               className: 'w-[22%]',
               cell: (r) => (
-                <Link to={`/runs/${r.id}`} className={`${LINK} font-mono break-all`}>
-                  {r.job_name}
-                </Link>
+                <span className="flex min-w-0 flex-wrap items-center gap-1">
+                  <Link to={`/runs/${r.id}`} className={`${LINK} font-mono break-all`}>
+                    {r.kind === 'converge' ? 'converge' : r.job_name}
+                  </Link>
+                  {r.check && (
+                    <Badge variant="outline" data-check-badge>
+                      check
+                    </Badge>
+                  )}
+                </span>
               ),
             },
             { key: 'state', header: 'State', cell: (r) => <StateBadge state={r.state} label={waitingText(r)} /> },

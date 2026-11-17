@@ -3,12 +3,13 @@
  *
  * The payload types are the generated bindings (`ConvergeTarget`, `ConvergePlan`, `ConvergeView`,
  * ...). The `Cmd`/`Event` variants that carry them are not in the generated unions yet, so their
- * names and shapes are declared here, and `sendConverge`/`convergeEvent` are the only two places
- * that cross from these to the generated `Cmd`/`Event`. Once keel-protocol has the variants, align
- * the names in `CMD` and `EVENT` and drop the casts; nothing else in the app names them.
+ * names and shapes are declared here, and `asCmd`/`convergeEvent` are the only two places that
+ * cross from these to the generated `Cmd`/`Event`. Once keel-protocol has the variants, align the
+ * names in `CMD` and `EVENT` and drop the casts; nothing else in the app names them.
+ *
+ * Type imports only, so the Playwright fake (tests/support/fake-converge.ts) shares these names.
  */
-import { sendCmd } from '@/app/connection'
-import type { Cmd, ConvergeHostState, ConvergePlan, ConvergeTarget, ConvergeView, Event, RequestId } from '@/protocol/wire'
+import type { Cmd, ConvergeHostState, ConvergePlan, ConvergeTarget, ConvergeView, Event } from '../../protocol/wire'
 
 /** Command names (`Cmd.type`). */
 export const CMD = {
@@ -48,9 +49,9 @@ export type ConvergeEvent =
 
 const NAMES: ReadonlySet<string> = new Set(Object.values(EVENT))
 
-/** Sends a converge command on the shared socket; `null` when there is no socket. */
-export function sendConverge(cmd: ConvergeCmd): RequestId | null {
-  return sendCmd(cmd as unknown as Cmd)
+/** The converge command as a generated `Cmd`, to send on the shared socket. */
+export function asCmd(cmd: ConvergeCmd): Cmd {
+  return cmd as unknown as Cmd
 }
 
 /** The event as a converge event, or `null` when it is not one. */

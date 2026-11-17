@@ -188,6 +188,18 @@ export function stepTone(state: StepState): Tone {
   }
 }
 
+const TONE_CLASS: Record<Tone, string> = {
+  ok: 'text-status-ok',
+  err: 'text-status-err',
+  live: 'text-accent-neon',
+  muted: 'text-muted-foreground',
+}
+
+/** The text colour for a step's state. */
+export function toneClass(state: StepState): string {
+  return TONE_CLASS[stepTone(state)]
+}
+
 const DONE: readonly StepState[] = ['succeeded', 'covered']
 
 /** Steps Retry failed would run again: every step that did not succeed. */

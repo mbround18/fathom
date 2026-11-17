@@ -14,12 +14,12 @@
  */
 import { create } from 'zustand'
 
-import { onReconnected, onServerEvent } from '@/app/connection'
+import { onReconnected, onServerEvent, sendCmd } from '@/app/connection'
 import { navigate } from '@companion/ui/kit'
 import type { ConvergePlan, ConvergeTarget, ConvergeView, RequestId } from '@/protocol/wire'
 
 import { runIds } from './derive'
-import { CMD, convergeEvent, EVENT, sendConverge, type ConvergeCmd } from './wire'
+import { asCmd, CMD, convergeEvent, EVENT, type ConvergeCmd } from './wire'
 
 const OFFLINE = 'Keel is not connected. Wait for it to reconnect, then try again.'
 
@@ -61,7 +61,7 @@ export interface ConvergeState {
 const mine = new Set<RequestId>()
 
 function send(cmd: ConvergeCmd): boolean {
-  const id = sendConverge(cmd)
+  const id = sendCmd(asCmd(cmd))
   if (id === null) {
     useConverge.setState({ error: OFFLINE, confirming: false })
     return false
