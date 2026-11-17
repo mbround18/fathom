@@ -422,6 +422,8 @@ pub struct Config {
     pub join_pending_max: u32,
     /// Join attempts per source per minute.
     pub join_rate: u32,
+    /// Keel's own limits on what a relay may cost it (spec 067 T060), env only.
+    pub relay_limits: RelayLimits,
     /// An origin only (no path).
     pub public_url: Url,
     /// May carry a password: never logged.
@@ -447,6 +449,129 @@ pub struct Config {
     pub build: BuildInfo,
     /// `(setting, where it came from)`, for the start-up log. Never values.
     pub sources: Vec<(&'static str, String)>,
+}
+
+/// Keel's side of the relay limits (spec 067 T060): enforced whatever the relay claims or
+/// enforces itself. Hitting one refuses or closes a stream and is audited (coalesced); it never
+/// quarantines the relay, since a busy honest zone can hit them. Environment only
+/// (`KEEL_RELAY_*`), they are tunables, not everyday settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelayLimits {
+    /// Concurrent carried runner streams per relay [`KEEL_RELAY_MAX_STREAMS`, 256].
+    pub max_streams: u32,
+    /// New streams per second per relay [`KEEL_RELAY_STREAM_RATE`, 20] …
+    pub stream_rate: u32,
+    /// … with this burst [`KEEL_RELAY_STREAM_BURST`, 50].
+    pub stream_burst: u32,
+    /// From a carried stream's open to the runner's SSH authentication and subsystem; then it
+    /// is closed [`KEEL_RELAY_AUTH_DEADLINE`, 10s].
+    pub auth_deadline: Duration,
+    /// The SSH channel window Keel grants a relay link's channels [`KEEL_RELAY_WINDOW_SIZE`,
+    /// 256KiB]: what the relay can make Keel buffer per stream.
+    pub window_size: u32,
+    /// The largest SSH packet Keel accepts on a relay link [`KEEL_RELAY_MAX_PACKET`, 32KiB].
+    pub maximum_packet_size: u32,
+    /// A relay link with no traffic at all for this long is dropped
+    /// [`KEEL_RELAY_INACTIVITY_TIMEOUT`, 2m]. Keepalives (15 s) count as traffic.
+    pub inactivity_timeout: Duration,
+    /// Unanswered `Ping`s after which the link is dropped [`KEEL_RELAY_MAX_UNANSWERED_PINGS`, 4].
+    pub max_unanswered_pings: u32,
+    /// Enrollment (and join) attempts per minute through one relay
+    /// [`KEEL_RELAY_ENROLL_PER_MINUTE`, 30] …
+    pub enroll_per_minute: u32,
+    /// … with this burst [`KEEL_RELAY_ENROLL_BURST`, 10].
+    pub enroll_burst: u32,
+}
+
+impl Default for RelayLimits {
+    fn default() -> Self {
+        Self {
+            max_streams: 256,
+            stream_rate: 20,
+            stream_burst: 50,
+            auth_deadline: Duration::from_secs(10),
+            window_size: 256 << 10,
+            maximum_packet_size: 32 << 10,
+            inactivity_timeout: Duration::from_secs(120),
+            max_unanswered_pings: 4,
+            enroll_per_minute: 30,
+            enroll_burst: 10,
+        }
+    }
+}
+
+impl RelayLimits {
+    fn resolve(r: &mut Resolver<'_>) -> Result<Self, ConfigError> {
+        let d = Self::default();
+        let mut count = |setting: &'static str, env: &str, default: u32| {
+            let Some(v) = r.pick(setting, None, env) else {
+                return Ok(default);
+            };
+            match v.trim().parse::<u32>() {
+                Ok(n) if n > 0 => Ok(n),
+                _ => refuse(format!("{env}: `{v}` is not a whole number above zero")),
+            }
+        };
+        let max_streams = count("relay_max_streams", "KEEL_RELAY_MAX_STREAMS", d.max_streams)?;
+        let stream_rate = count("relay_stream_rate", "KEEL_RELAY_STREAM_RATE", d.stream_rate)?;
+        let stream_burst =
+            count("relay_stream_burst", "KEEL_RELAY_STREAM_BURST", d.stream_burst)?;
+        let max_unanswered_pings = count(
+            "relay_max_unanswered_pings",
+            "KEEL_RELAY_MAX_UNANSWERED_PINGS",
+            d.max_unanswered_pings,
+        )?;
+        let enroll_per_minute = count(
+            "relay_enroll_per_minute",
+            "KEEL_RELAY_ENROLL_PER_MINUTE",
+            d.enroll_per_minute,
+        )?;
+        let enroll_burst =
+            count("relay_enroll_burst", "KEEL_RELAY_ENROLL_BURST", d.enroll_burst)?;
+        let mut duration = |setting: &'static str, env: &str, default: Duration| {
+            r.pick(setting, None, env)
+                .map_or(Ok(default), |v| parse_duration(env, &v))
+        };
+        let auth_deadline =
+            duration("relay_auth_deadline", "KEEL_RELAY_AUTH_DEADLINE", d.auth_deadline)?;
+        let inactivity_timeout = duration(
+            "relay_inactivity_timeout",
+            "KEEL_RELAY_INACTIVITY_TIMEOUT",
+            d.inactivity_timeout,
+        )?;
+        let mut size = |setting: &'static str, env: &str, default: u32| {
+            let Some(v) = r.pick(setting, None, env) else {
+                return Ok(default);
+            };
+            let n = parse_bytes(env, &v)?;
+            u32::try_from(n).or_else(|_| refuse(format!("{env}: at most 4GiB")))
+        };
+        let window_size = size("relay_window_size", "KEEL_RELAY_WINDOW_SIZE", d.window_size)?;
+        let maximum_packet_size = size(
+            "relay_max_packet",
+            "KEEL_RELAY_MAX_PACKET",
+            d.maximum_packet_size,
+        )?;
+        if maximum_packet_size > window_size {
+            return refuse("KEEL_RELAY_MAX_PACKET: must not exceed KEEL_RELAY_WINDOW_SIZE");
+        }
+        if inactivity_timeout <= Duration::from_secs(30) {
+            // Two keepalives (15 s) must fit, or an idle healthy link would be dropped.
+            return refuse("KEEL_RELAY_INACTIVITY_TIMEOUT: must be more than 30s");
+        }
+        Ok(Self {
+            max_streams,
+            stream_rate,
+            stream_burst,
+            auth_deadline,
+            window_size,
+            maximum_packet_size,
+            inactivity_timeout,
+            max_unanswered_pings,
+            enroll_per_minute,
+            enroll_burst,
+        })
+    }
 }
 
 /// How the environment is read: the process env in production, a map in tests.
@@ -802,6 +927,8 @@ impl Config {
         )?;
         let join_rate = count(&mut r, "join_rate", flags.join_rate, "KEEL_JOIN_RATE", 10)?;
 
+        let relay_limits = RelayLimits::resolve(&mut r)?;
+
         let cap = r.pick("run_log_cap", flags.run_log_cap, "KEEL_RUN_LOG_CAP");
         let run_log_cap = parse_bytes("KEEL_RUN_LOG_CAP", cap.as_deref().unwrap_or("64MiB"))?;
 
@@ -958,6 +1085,7 @@ impl Config {
             relay_health_interval,
             join_pending_max,
             join_rate,
+            relay_limits,
             public_url,
             database_url,
             master_key_file,
@@ -1197,6 +1325,7 @@ mod tests {
         assert_eq!(c.relay_health_interval, Duration::from_secs(30));
         assert_eq!(c.join_pending_max, 50);
         assert_eq!(c.join_rate, 10);
+        assert_eq!(c.relay_limits, RelayLimits::default());
         assert_eq!(c.data_dir, PathBuf::from("/var/lib/keel"));
         assert_eq!(c.static_dir, PathBuf::from("/usr/share/keel/web"));
         assert_eq!(c.step_up_window, Duration::from_secs(300));
@@ -1449,6 +1578,53 @@ mod tests {
             ("KEEL_RELAY_HEALTH_INTERVAL", "0s"),
             ("KEEL_RELAY_HEALTH_INTERVAL", "soon"),
             ("KEEL_RELAYS", "maybe"),
+        ] {
+            let mut env = BASE.to_vec();
+            env.push((key, bad));
+            let err = resolve(&env).unwrap_err();
+            assert!(err.0.contains(key), "{key}={bad}: {err}");
+        }
+    }
+
+    /// Spec 067 T060: each Keel-side relay limit is a `KEEL_RELAY_*` value, checked at start.
+    #[test]
+    fn relay_limits() {
+        let mut env = BASE.to_vec();
+        env.extend([
+            ("KEEL_RELAY_MAX_STREAMS", "8"),
+            ("KEEL_RELAY_STREAM_RATE", "2"),
+            ("KEEL_RELAY_STREAM_BURST", "3"),
+            ("KEEL_RELAY_AUTH_DEADLINE", "5s"),
+            ("KEEL_RELAY_WINDOW_SIZE", "64KiB"),
+            ("KEEL_RELAY_MAX_PACKET", "16KiB"),
+            ("KEEL_RELAY_INACTIVITY_TIMEOUT", "1m"),
+            ("KEEL_RELAY_MAX_UNANSWERED_PINGS", "2"),
+            ("KEEL_RELAY_ENROLL_PER_MINUTE", "6"),
+            ("KEEL_RELAY_ENROLL_BURST", "1"),
+        ]);
+        let c = resolve(&env).unwrap();
+        assert_eq!(
+            c.relay_limits,
+            RelayLimits {
+                max_streams: 8,
+                stream_rate: 2,
+                stream_burst: 3,
+                auth_deadline: Duration::from_secs(5),
+                window_size: 64 << 10,
+                maximum_packet_size: 16 << 10,
+                inactivity_timeout: Duration::from_secs(60),
+                max_unanswered_pings: 2,
+                enroll_per_minute: 6,
+                enroll_burst: 1,
+            }
+        );
+        for (key, bad) in [
+            ("KEEL_RELAY_MAX_STREAMS", "0"),
+            ("KEEL_RELAY_STREAM_RATE", "-1"),
+            ("KEEL_RELAY_AUTH_DEADLINE", "soon"),
+            ("KEEL_RELAY_WINDOW_SIZE", "8GiB"),
+            ("KEEL_RELAY_MAX_PACKET", "1MiB"),
+            ("KEEL_RELAY_INACTIVITY_TIMEOUT", "20s"),
         ] {
             let mut env = BASE.to_vec();
             env.push((key, bad));

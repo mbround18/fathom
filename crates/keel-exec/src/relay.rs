@@ -164,15 +164,30 @@ pub fn relay_server_config(host_key: PrivateKey) -> russh::server::Config {
     }
 }
 
+/// The SSH window Keel grants each relay-link channel: what a relay can make Keel buffer per
+/// stream before Keel reads it (russh's default is 2 MiB).
+pub const LINK_WINDOW_SIZE: u32 = 256 << 10;
+/// The largest SSH packet Keel accepts on a relay link.
+pub const LINK_MAX_PACKET: u32 = 32 << 10;
+/// Messages queued per relay-link channel before the link stops reading (russh's default 100).
+pub const LINK_CHANNEL_BUFFER: usize = 32;
+/// A relay link with no traffic for this long is dropped; keepalives count as traffic.
+pub const LINK_INACTIVITY: Duration = Duration::from_secs(120);
+
 /// Keel's SSH client configuration for dialling relays. It expects a plain host key, which
-/// [`LinkClientPolicy`] pins.
+/// [`LinkClientPolicy`] pins, and bounds what a relay can make Keel hold (spec 067 T060): the
+/// channel window, packet size and per-channel queue, an inactivity timeout and keepalives.
+/// Keel may tighten these from its own settings.
 pub fn link_client_config() -> russh::client::Config {
     let mut preferred = client_preferred();
     // A relay has no host certificate: ask for the plain key only.
     preferred.host_key_certificates = std::borrow::Cow::Borrowed(&[]);
     russh::client::Config {
         preferred,
-        inactivity_timeout: None,
+        window_size: LINK_WINDOW_SIZE,
+        maximum_packet_size: LINK_MAX_PACKET,
+        channel_buffer_size: LINK_CHANNEL_BUFFER,
+        inactivity_timeout: Some(LINK_INACTIVITY),
         keepalive_interval: Some(LINK_KEEPALIVE),
         keepalive_max: LINK_KEEPALIVE_MAX,
         nodelay: true,
@@ -804,5 +819,52 @@ impl client::Handler for LinkClientPolicy {
             format!("{originator_address}:{originator_port}"),
         )
         .await
+    }
+
+    async fn should_accept_unknown_server_channel(
+        &mut self,
+        _id: ChannelId,
+        channel_type: &str,
+    ) -> bool {
+        let shown: String = channel_type.chars().take(64).collect();
+        (self.on_violation)(channel_violation("unknown", shown));
+        false
+    }
+
+    // Keel never opens a shell or exec, so a relay has nothing to send these about. russh
+    // refuses other channel requests and every global request (`tcpip-forward`, ...) itself
+    // without a hook, so those are refused but cannot be reported here.
+
+    async fn xon_xoff(
+        &mut self,
+        _channel: ChannelId,
+        client_can_do: bool,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        (self.on_violation)(request_violation("xon-xoff", client_can_do.to_string()));
+        Ok(())
+    }
+
+    async fn exit_status(
+        &mut self,
+        _channel: ChannelId,
+        exit_status: u32,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        (self.on_violation)(request_violation("exit-status", exit_status.to_string()));
+        Ok(())
+    }
+
+    async fn exit_signal(
+        &mut self,
+        _channel: ChannelId,
+        signal_name: russh::Sig,
+        _core_dumped: bool,
+        _error_message: &str,
+        _lang_tag: &str,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        (self.on_violation)(request_violation("exit-signal", format!("{signal_name:?}")));
+        Ok(())
     }
 }
