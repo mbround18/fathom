@@ -69,7 +69,7 @@ test('Settings opens on Workspace, titled with the workspace, for an owner with 
   await page.goto('/settings')
   await expect(page).toHaveURL(/\/settings\/workspace\?ws=ops$/)
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Settings')
-  await expect(page.getByRole('tab')).toHaveText(['Workspace', 'Enrollment', 'Tokens', 'Identity', 'System'])
+  await expect(page.getByRole('tab')).toHaveText(['Workspace', 'Hosts', 'Enrollment', 'Tokens', 'Identity', 'System'])
   await expect(page.getByRole('heading', { name: 'Ops: Repository' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Ops: Forge connection' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Ops: Danger zone' })).toBeVisible()
@@ -153,12 +153,12 @@ test('the forge connection is saved, tested and removed', async ({ page, backend
   expect(r.forges.size).toBe(0)
 })
 
-test('a ws_admin of the current workspace sees Settings with the Workspace tab alone', async ({ page, backend }) => {
+test('a ws_admin of the current workspace sees Settings with the Workspace and Hosts tabs', async ({ page, backend }) => {
   setUp(backend, 'user')
   await page.goto('/hosts')
   await page.getByRole('navigation').getByRole('link', { name: 'Settings' }).click()
   await expect(page).toHaveURL(/\/settings\/workspace\?ws=ops$/)
-  await expect(page.getByRole('tab')).toHaveText(['Workspace'])
+  await expect(page.getByRole('tab')).toHaveText(['Workspace', 'Hosts'])
   await page.goto('/settings/tokens')
   await expect(page).toHaveURL(/\/settings\/workspace\?ws=ops$/)
 })

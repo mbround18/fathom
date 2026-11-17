@@ -7,9 +7,9 @@
  * Changes go through the governance confirm dialog; a Roll from Tokens opens the Enroll dialog's
  * result step, so both are mounted here.
  */
-import { CertificateIcon, GearSixIcon, IdentificationCardIcon, KeyIcon, ShieldStarIcon, StackIcon } from '@phosphor-icons/react'
-import { useEffect, type ReactNode } from 'react'
-import { EmptyState, navigate, Page, PageHeader, Tabs, type Params } from '@companion/ui/kit'
+import { CertificateIcon, GearSixIcon, HardDrivesIcon, IdentificationCardIcon, KeyIcon, ShieldStarIcon, StackIcon } from '@phosphor-icons/react'
+import { lazy, Suspense, useEffect, type ReactNode } from 'react'
+import { EmptyState, LoadState, navigate, Page, PageHeader, Tabs, type Params } from '@companion/ui/kit'
 
 import { useSession } from '@/app/session-store'
 import { useCurrentWorkspace } from '@/app/workspace-store'
@@ -22,8 +22,11 @@ import { resolveTab, settingsPath, TAB_LABEL, visibleTabs, type SettingsTab } fr
 import { TokensTab } from './TokensTab'
 import { WorkspaceTab } from './WorkspaceTab'
 
+const HostsTab = lazy(() => import('./HostsTab'))
+
 const ICON: Record<SettingsTab, ReactNode> = {
   workspace: <StackIcon aria-hidden />,
+  hosts: <HardDrivesIcon aria-hidden />,
   enrollment: <CertificateIcon aria-hidden />,
   tokens: <KeyIcon aria-hidden />,
   identity: <IdentificationCardIcon aria-hidden />,
@@ -34,6 +37,12 @@ function Panel({ tab }: { tab: SettingsTab }) {
   switch (tab) {
     case 'workspace':
       return <WorkspaceTab />
+    case 'hosts':
+      return (
+        <Suspense fallback={<LoadState loading label="Loading…" />}>
+          <HostsTab />
+        </Suspense>
+      )
     case 'enrollment':
       return <EnrollmentTab />
     case 'tokens':
@@ -63,7 +72,7 @@ export default function SettingsPage({ params }: { params: Params }) {
       <PageHeader
         id="settings-title"
         title="Settings"
-        description="The current workspace's repository and forge, how hosts enroll, every token on the instance, and how roles come from your identity provider."
+        description="The current workspace's repository and forge, how hosts enroll and join, every token on the instance, and how roles come from your identity provider."
       />
       {tabs.length === 0 ? (
         <EmptyState icon={<GearSixIcon aria-hidden />} title="For admins">

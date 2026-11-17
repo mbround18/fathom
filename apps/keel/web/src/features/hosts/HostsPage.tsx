@@ -7,7 +7,7 @@
  * status, its age key, and Propose sops recipient for a workspace admin when no `.sops.yaml` rule
  * names that key yet.
  */
-import { KeyIcon, PlusIcon, XIcon } from '@phosphor-icons/react'
+import { DesktopTowerIcon, DoorOpenIcon, KeyIcon, PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Checkbox } from '@companion/ui'
 import {
   ConfirmDialog as Confirm,
@@ -22,16 +22,19 @@ import {
   LINK,
   LoadFailed,
   LoadState,
+  navigate,
   NoMatch,
   Page,
   PageHeader,
   SectionIntro,
   STATUS,
+  Tabs,
   TermTip,
   useReveal,
+  useSearchParam,
   type Column,
 } from '@companion/ui/kit'
-import { useEffect, useId, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { CurrentWorkspace } from '@/app/WorkspacePicker'
@@ -48,6 +51,19 @@ import { EnrollDialog } from './EnrollDialog'
 import { useEnroll } from './enroll-store'
 import { useHosts } from './store'
 import { canAdminister, canOperate, useWorkspaces } from './workspaces'
+
+const JoinRequestsTab = lazy(() => import('./JoinRequestsTab'))
+
+/** The Hosts page's tabs: the list, and hosts asking to join (`?tab=join`). */
+type HostsTab = 'hosts' | 'join'
+
+function hostsTab(asked: string | null): HostsTab {
+  return asked === 'join' ? 'join' : 'hosts'
+}
+
+function navigateTab(tab: HostsTab): void {
+  navigate(tab === 'join' ? '/hosts?tab=join' : '/hosts', { replace: true })
+}
 
 function tone(state: HostStatus): string {
   switch (state) {
@@ -368,6 +384,7 @@ export default function HostsPage() {
   const me = useSession((s) => s.me)
   const mintedCount = useEnroll((s) => s.mintedCount)
   const current = useCurrentWorkspace()
+  const tab = hostsTab(useSearchParam('tab'))
   const loadCatalog = useCatalog((s) => s.load)
   const catalogId = current?.id ?? null
   const primary = current?.primary_binding ?? null
@@ -424,6 +441,67 @@ export default function HostsPage() {
   // Revoking a host needs Administer (keel-server hosts.rs), more than enrolling one.
   const canRevoke = workspace !== null && canAdminister(me, workspace)
 
+  const list = (workspace: string) => (
+    <div className="flex min-w-0 flex-col gap-3">
+          {failed && (
+            <LoadFailed
+              what="hosts"
+              refusal={failed}
+              onRetry={() => {
+                load(workspace)
+              }}
+            />
+          )}
+          {guided && <NoHosts workspace={workspace} canAct={variant === 'guided'} />}
+          {!failed && !guided && (
+            <>
+              <DataTable
+                label="Hosts"
+                filter={<ChangedFilter />}
+                columns={columns}
+                rows={hosts}
+                rowKey={(h) => h.id}
+                selected={(h) => h.id === opened}
+                rowData={(h) => ({
+                  'data-host-state': h.state,
+                  'data-host-changed-outside': String(h.changed_outside),
+                  'data-inventory-status': h.inventory_status,
+                })}
+                actions={(h) =>
+                  canRevoke &&
+                  h.state !== 'revoked' && (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="text-status-err"
+                      aria-label={`Revoke ${h.inventory_name}`}
+                      onClick={() => {
+                        revoke(h.id)
+                      }}
+                    >
+                      Revoke
+                    </Button>
+                  )
+                }
+                empty={
+                  loaded ? (
+                    <NoMatch
+                      what="hosts"
+                      onClear={() => {
+                        setChangedOnly(false)
+                      }}
+                    />
+                  ) : (
+                    <LoadState loading label="Loading hosts…" />
+                  )
+                }
+              />
+              <HostDetailPanel />
+            </>
+          )}
+    </div>
+  )
+
   return (
     <Page name="hosts" labelledBy="hosts-title">
       <PageHeader
@@ -441,61 +519,24 @@ export default function HostsPage() {
         <WorkspacePicker />
       </PageHeader>
       <ErrorLine />
-      {workspace && failed && (
-        <LoadFailed
-          what="hosts"
-          refusal={failed}
-          onRetry={() => {
-            load(workspace)
-          }}
-        />
-      )}
-      {workspace && guided && <NoHosts workspace={workspace} canAct={variant === 'guided'} />}
-      {workspace && !failed && !guided && (
-        <>
-          <DataTable
-            label="Hosts"
-            filter={<ChangedFilter />}
-            columns={columns}
-            rows={hosts}
-            rowKey={(h) => h.id}
-            selected={(h) => h.id === opened}
-            rowData={(h) => ({
-              'data-host-state': h.state,
-              'data-host-changed-outside': String(h.changed_outside),
-              'data-inventory-status': h.inventory_status,
-            })}
-            actions={(h) =>
-              canRevoke &&
-              h.state !== 'revoked' && (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  className="text-status-err"
-                  aria-label={`Revoke ${h.inventory_name}`}
-                  onClick={() => {
-                    revoke(h.id)
-                  }}
-                >
-                  Revoke
-                </Button>
-              )
-            }
-            empty={
-              loaded ? (
-                <NoMatch
-                  what="hosts"
-                  onClear={() => {
-                    setChangedOnly(false)
-                  }}
-                />
-              ) : (
-                <LoadState loading label="Loading hosts…" />
-              )
-            }
-          />
-          <HostDetailPanel />
-        </>
+      {workspace && (
+        <Tabs
+          label="Hosts"
+          items={[
+            { value: 'hosts', label: 'Hosts', icon: <DesktopTowerIcon aria-hidden /> },
+            { value: 'join', label: 'Join requests', icon: <DoorOpenIcon aria-hidden /> },
+          ]}
+          value={tab}
+          onChange={navigateTab}
+        >
+          {tab === 'join' ? (
+            <Suspense fallback={<LoadState loading label="Loading…" />}>
+              <JoinRequestsTab workspace={workspace} />
+            </Suspense>
+          ) : (
+            list(workspace)
+          )}
+        </Tabs>
       )}
       {workspace && <SshCaLine />}
       <ConfirmDialog />

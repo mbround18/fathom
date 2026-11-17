@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { canSeeSettings, resolveTab, showsSettings, visibleTabs } from '@/features/settings/tabs'
 import type { Me, MeGrant } from '@/protocol/wire'
 
-const ALL = ['workspace', 'enrollment', 'tokens', 'identity', 'system']
+const ALL = ['workspace', 'hosts', 'enrollment', 'tokens', 'identity', 'system']
 
 function user(grants: Partial<MeGrant>[]): Me {
   return {
@@ -33,9 +33,9 @@ describe('settings tabs', () => {
     expect(canSeeSettings('owner')).toBe(true)
     expect(showsSettings('user', user([]), 'ws1')).toBe(false)
   })
-  it('a ws_admin of the current workspace sees Workspace alone, and the nav entry (spec 066 R10)', () => {
+  it('a ws_admin of the current workspace sees Workspace and Hosts, and the nav entry (spec 066 R10, 055 T148)', () => {
     const me = user([{ workspace: 'ws1', role: 'ws_admin' }])
-    expect(visibleTabs('user', me, 'ws1')).toEqual(['workspace'])
+    expect(visibleTabs('user', me, 'ws1')).toEqual(['workspace', 'hosts'])
     expect(showsSettings('user', me, 'ws1')).toBe(true)
     expect(visibleTabs('user', me, 'ws2')).toEqual([])
     expect(showsSettings('user', me, null)).toBe(false)
@@ -50,5 +50,6 @@ describe('settings tabs', () => {
     expect(resolveTab(undefined, 'owner')).toBe('workspace')
     const me = user([{ workspace: 'ws1', role: 'ws_admin' }])
     expect(resolveTab('tokens', 'user', me, 'ws1')).toBe('workspace')
+    expect(resolveTab('hosts', 'user', me, 'ws1')).toBe('hosts')
   })
 })

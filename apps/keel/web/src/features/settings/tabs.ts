@@ -1,19 +1,20 @@
 /**
  * Settings' tabs and who sees them (spec 060, contracts/web-ui.md "Navigation"; spec 066 R10).
- * Owners and admins see Workspace, Enrollment, Tokens, Identity and System. A `ws_admin` of the
- * current workspace sees Workspace alone, and the nav entry with it. The System tab is owner and
+ * Owners and admins see Workspace, Hosts, Enrollment, Tokens, Identity and System. A `ws_admin` of
+ * the current workspace sees Workspace and Hosts (its join token, spec 055 T148), and the nav entry with it. The System tab is owner and
  * admin since spec 061 (FR-024), with sections shaped by role. An unknown or forbidden tab goes to
  * Workspace. The server decides again on every command; this only decides what to draw.
  */
 import { canAdminister } from '@/features/hosts/workspaces'
 import type { InstanceRole, Me } from '@/protocol/wire'
 
-export type SettingsTab = 'workspace' | 'enrollment' | 'tokens' | 'identity' | 'system'
+export type SettingsTab = 'workspace' | 'hosts' | 'enrollment' | 'tokens' | 'identity' | 'system'
 
 export const DEFAULT_TAB: SettingsTab = 'workspace'
 
 export const TAB_LABEL: Record<SettingsTab, string> = {
   workspace: 'Workspace',
+  hosts: 'Hosts',
   enrollment: 'Enrollment',
   tokens: 'Tokens',
   identity: 'Identity',
@@ -31,8 +32,8 @@ export function visibleTabs(
   me: Me | null = null,
   workspace: string | null = null,
 ): SettingsTab[] {
-  if (canSeeSettings(role)) return ['workspace', 'enrollment', 'tokens', 'identity', 'system']
-  if (workspace !== null && canAdminister(me, workspace)) return ['workspace']
+  if (canSeeSettings(role)) return ['workspace', 'hosts', 'enrollment', 'tokens', 'identity', 'system']
+  if (workspace !== null && canAdminister(me, workspace)) return ['workspace', 'hosts']
   return []
 }
 

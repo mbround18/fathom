@@ -64,6 +64,38 @@ Keel cannot verify. Runs with `--check` don't count. The mark clears when a revi
 host is approved, or when every job assigned to the host has since run and succeeded. Tick **Only
 hosts changed outside Keel** to list just those hosts.
 
+## Join with a join token
+
+An enrolment token covers one host. A **join token** lets any host that runs the base profile ask
+to join the workspace, and waits for an operator to accept it. Use it for fleets, images and
+machines you build in bulk.
+
+A workspace has at most one join token, and none until a Workspace admin issues one:
+
+1. Open **Settings → Hosts** and choose **Issue join token**. Pick how long it lasts, and
+   optionally an inventory name and profiles to suggest.
+2. Confirm with your passkey. Keel shows the token once, with what it tells a host (the server,
+   the host CA it pins, when it expires). Copy it into the variable your base profile reads.
+
+**Rotate** replaces the token and **Disable** retires it. Both reject the requests still waiting
+on the old token, and those hosts stop asking. A host that already joined is not affected.
+
+### Join requests
+
+A host with a join token asks to join and keeps asking, less often each time, until someone
+decides. Its request shows under **Infrastructure → Hosts → Join requests**.
+
+Everything in a request is the host's own claim except the **Host key fingerprint**. Before you
+accept, run `keel-runner fingerprint` on the host and check that it prints the same value.
+
+- **Accept** asks for the inventory name and profiles, filled in from the host and the token. The
+  profiles must be ones the host allows. It needs the Operator role and your passkey. The host gets
+  its certificate the next time it asks, and shows in the Hosts list.
+- **Reject** takes an optional note. The host deletes its join token and stops; Keel refuses the
+  same host key for 30 days.
+
+A request nobody decides on expires after 7 days.
+
 ## Add a host
 
 **Add host** does two things in one step: it adds the host to the primary repository's inventory,
