@@ -128,7 +128,7 @@ that host's rest; retry resumes.
 - [ ] T024 [server] Wire commands and events in `server/src/api.rs`: `PreviewConverge`,
   `ConfirmConverge`, `CancelConverge`, `GetConverge`, retry, `ConvergeChanged`; authz Operate on
   every profile of every host; `feature_disabled` when the flag is off.
-- [ ] T025 [P] [runner] Test in `runner/tests/`: a recipe manifest parses; a step whose job's
+- [X] T025 [P] [runner] Test in `runner/tests/`: a recipe manifest parses; a step whose job's
   profiles are outside the ceiling is refused as today (FR-017, no code change expected).
 - [X] T026 [P] [web] `web/src/features/converge/` store and `ConvergePreview` dialog (matrix,
   `via`, params, credential names, combined policy, signed review list, refusals, replaces).
@@ -160,7 +160,7 @@ that host's rest; retry resumes.
 
 **Independent test**: `cargo test -p keel-server --test host_profiles`.
 
-- [ ] T036 [P] [core] `converge::suggest` tests and implementation (adds from groups; removes
+- [X] T036 [P] [core] `converge::suggest` tests and implementation (adds from groups; removes
   only for profiles a mapping could produce; dismissed suggestions return only when groups
   change).
 - [ ] T037 [P] [server] Tests first, `server/tests/host_profiles.rs`: step-up required; cert
@@ -188,7 +188,7 @@ that host's rest; retry resumes.
 - [ ] T043 [server] `server/src/runs.rs` `create_run`: coverage lookup via
   `converge_hosts`/`converge_steps` and `converge::covers`, mirror ancestry check, insert
   `covered` rows with `covered_by`, audit `run_host.covered`.
-- [ ] T072 [P] [core] Tests first, then `converge::narrow_by_vars(changed: &[Path], matched_paths, inventory) -> Option<BTreeSet<HostName>>` in `core/converge.rs` (FR-020): `None` when any matched change is not a group/host vars file or is `group_vars/all.*`; otherwise the hosts in the named groups (children included) and named hosts. Cover `.yml`/`.yaml`, directory-form `group_vars/<g>/`, child groups, and an unknown group (narrows to no hosts → no run, audited `run.skipped: no_hosts`).
+- [X] T072 [P] [core] Tests first, then `converge::narrow_by_vars(changed: &[Path], matched_paths, inventory) -> Option<BTreeSet<HostName>>` in `core/converge.rs` (FR-020): `None` when any matched change is not a group/host vars file or is `group_vars/all.*`; otherwise the hosts in the named groups (children included) and named hosts. Cover `.yml`/`.yaml`, directory-form `group_vars/<g>/`, child groups, and an unknown group (narrows to no hosts → no run, audited `run.skipped: no_hosts`).
 - [ ] T073 [server] `server/src/runs.rs` `on_push`: intersect the job's host set with `narrow_by_vars` for path-triggered runs only; record the narrowing reason on the run (`narrowed_by: ["group_vars/keel_servers.yml"]`) and show it in the run header. Test in `server/tests/coverage.rs`.
 - [ ] T044 [P] [web] "covered by converge" in run host rows; `s068/covered.spec.ts`.
 - [ ] T045 (../ansible) Hand contracts/ansible.md §2–§3 (narrow jobs, covers, the paths
@@ -198,11 +198,11 @@ that host's rest; retry resumes.
 
 **Independent test**: `cargo test -p keel-server --test check_mode` (SC-004).
 
-- [ ] T046 [P] [core] `trust/ledger.rs` `Outcome::Checked`: tests that it does not move the base
+- [X] T046 [P] [core] `trust/ledger.rs` `Outcome::Checked`: tests that it does not move the base
   and that a replayed run id is still refused; implement.
-- [ ] T047 [P] [runner] Tests first, `runner/tests/check_mode.rs`: `check: true` adds
+- [X] T047 [P] [runner] Tests first, `runner/tests/check_mode.rs`: `check: true` adds
   `--check --diff`; signed mode writes `Checked`; base unchanged.
-- [ ] T048 [runner] Implement in `runner/src/executor/mod.rs` and `process.rs`.
+- [X] T048 [runner] Implement in `runner/src/executor/mod.rs` and `process.rs`.
 - [ ] T049 [P] [server] Tests first, `server/tests/check_mode.rs`: check run and check converge
   write no `host_revisions`, drift or rollback point; policy with `check: false` doesn't match a
   check run; listed with `check`.
@@ -215,10 +215,11 @@ that host's rest; retry resumes.
 
 **Independent test**: `cargo test -p keel-server --test env_canary` (SC-005).
 
-- [ ] T052 [P] [runner] Tests first, `runner/tests/env_vars.rs`: `env_var` item lands in
+- [X] T052 [P] [runner] Tests first, `runner/tests/env_vars.rs`: `env_var` item lands in
   `ansible-playbook`'s env after `env_clear`; reserved names refused (`env_refused`); value not in
   the runner log.
-- [ ] T053 [runner] Implement in `runner/src/executor/secrets.rs` using `keel_core::env_names`.
+- [X] T053 [runner] Implement in `runner/src/executor/secrets.rs` using `keel_core::env_names`.
+  Note: missing `env_var` credentials are not counted by core `missing_credentials`; the runner fails the run itself ("env credentials not sent"). Refusal code `env_refused` is new in keel-exec.
 - [ ] T054 [P] [server] Tests first, `server/tests/env_canary.rs`: a canary credential via
   `env:`; assert it appears in no log, event, audit row, or text/jsonb/bytea column outside the
   sealed credential store.
@@ -231,9 +232,10 @@ that host's rest; retry resumes.
 
 **Independent test**: `cargo test -p keel-server --test required_checks`.
 
-- [ ] T057 [P] [core] `Forge::commit_statuses` in `core/ports.rs`; Forgejo and GitHub adapters in
+- [X] T057 [P] [core] `Forge::commit_statuses` in `core/ports.rs`; Forgejo and GitHub adapters in
   `forge/` with recorded-fixture tests (`cargo test -p keel-forge statuses`); `Unsupported` for
   others.
+  Note: signature is `commit_statuses(sha)` (adapters are already repo-bound, `RepoRef` lives in keel-forge); core state enum is `CommitStatusState` (no `Missing`: the server derives it); GitHub reads one page of 100 check runs.
 - [ ] T058 [P] [server] Tests first, `server/tests/required_checks.rs`: `waiting_checks →
   queued` on all success; `checks_failed`; `checks_timeout`; preview refused on an unsupported
   forge; converges and runs both gated.
@@ -247,11 +249,13 @@ that host's rest; retry resumes.
 
 **Independent test**: `cargo test -p keel-server --test choice_params`.
 
-- [ ] T061 [P] [core] `ParamKind::Choice` and `RepoTree::list_dirs` in `core/manifest.rs`, with
+- [X] T061 [P] [core] `ParamKind::Choice` and `RepoTree::list_dirs` in `core/manifest.rs`, with
   tests for both shapes, `default`, and the `from:` limits.
-- [ ] T062 [P] [runner] Tests first, `runner/tests/choice.rs` (re-check against the checkout,
+  Note: `RepoTree::list_dirs` returns `Option<Vec<String>>` (default `None`, fails closed) rather than `Result<_, TreeError>`.
+- [X] T062 [P] [runner] Tests first, `runner/tests/choice.rs` (re-check against the checkout,
   `choice_mismatch`) and `runner/tests/prompt.rs` (a fixture `pause` play fails in < 5 s).
-- [ ] T063 [runner] Implement the `choice` re-check and `setsid()` in place of `setpgid(0,0)`
+  Note: the prompt fixture reads `/dev/tty` in the fake `ansible-playbook` (not a real `pause` play); the run finishes in well under 5 s, the test's hang guard is 60 s.
+- [X] T063 [runner] Implement the `choice` re-check and `setsid()` in place of `setpgid(0,0)`
   (`runner/src/executor/process.rs:194`), keeping group kill.
 - [ ] T064 [P] [server] Tests first, `server/tests/choice_params.rs`: allowed values at the
   pinned commit, refusal of other values, `PreviewRunStart` with params and check.
