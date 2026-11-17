@@ -167,7 +167,7 @@ leaves the host disconnected, not failed.
   `max_pending_accepts` (64). It logs open and close with peer and byte counts, and never logs
   contents.
 - [ ] T019 [US1] Implement `relay/src/bin/keel-relay.rs` with the subcommands `serve`, `key` and
-  `check-config`, and `relay/packaging/keel-relay.service` as an unprivileged `keel-relay` user
+  `check-config`, and `relay/systemd/keel-relay.service` (matching `runner/systemd/`; ../ansible byte-copies it) with `RestartPreventExitStatus=78`, `ReadOnlyPaths=/etc/keel-relay`, the runner unit's hardening, and runs as an unprivileged `keel-relay` user
   with `NoNewPrivileges`, `ProtectSystem=strict`, `StateDirectory=keel-relay` and no
   capabilities.
 - [ ] T020 [US1] Implement `RelaySupervisor` in `server/src/relays.rs`:

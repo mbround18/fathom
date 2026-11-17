@@ -153,7 +153,7 @@ crates/keel-protocol/src/relay.rs             (new: zones, relays, reach, querie
 crates/keel-protocol/src/{cmd,event,host,lib}.rs
 apps/keel/relay/                              (new crate: lib + bin keel-relay)
   Cargo.toml, src/{lib,config,link,forward,cache,key}.rs, src/bin/keel-relay.rs,
-  tests/{link,limits}.rs, packaging/keel-relay.service
+  tests/{link,limits}.rs, systemd/keel-relay.service
 apps/keel/server/migrations/0017_relays.sql
 apps/keel/server/src/relays.rs                (new: supervisor, link client, registration, zones)
 apps/keel/server/src/host_queries.rs          (new)
