@@ -744,7 +744,26 @@ pub async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
         }
         // The socket drops the subscription before dispatching; nothing to answer.
         Cmd::UnsubscribeRun { .. } => Vec::new(),
-        Cmd::PreviewRunStart { job, limit } => {
+        Cmd::PreviewRunStart {
+            job,
+            limit,
+            params,
+            check,
+        } => {
+            // Spec 068 adds these to the wire ahead of the server support (T016+): refuse them
+            // rather than start a real run that silently drops them.
+            if check {
+                return op_error(
+                    "check_unsupported",
+                    "This server cannot start check runs yet.",
+                );
+            }
+            if !params.is_empty() {
+                return op_error(
+                    "params_unsupported",
+                    "This server cannot take run params from this command yet.",
+                );
+            }
             preview_run_start(app, req, job, limit.map(|l| l.as_str().to_owned())).await
         }
         Cmd::PreviewCancel { run } => preview_cancel(app, req, run).await,
@@ -1276,6 +1295,10 @@ impl RunRow {
                 self.approval_expires_at,
                 self.answers,
             ),
+            // Spec 068 columns arrive with the server lane's migration.
+            kind: keel_protocol::RunKind::Normal,
+            check: false,
+            parent_run: None,
         }
     }
 }
@@ -1349,6 +1372,8 @@ pub(crate) async fn get_run(app: &AppState, run: Uuid) -> Result<Option<Event>, 
                 ended_at: ended.map(ts),
                 stats: stats.and_then(|s| serde_json::from_value::<HostStats>(s).ok()),
                 first_failure: ff.and_then(|f| serde_json::from_value::<FirstFailure>(f).ok()),
+                covered_by: None,
+                skip_reason: None,
             },
         )
         .collect();

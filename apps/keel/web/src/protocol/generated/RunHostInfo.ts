@@ -7,4 +7,12 @@ export type RunHostInfo = { host: string, name: string, state: HostPhase,
 /**
  * The host's own refusal (`unsigned`, `base_mismatch`, …).
  */
-refusal: string | null, started_at: string | null, ended_at: string | null, stats: HostStats | null, first_failure: FirstFailure | null, };
+refusal: string | null, started_at: string | null, ended_at: string | null, stats: HostStats | null, first_failure: FirstFailure | null, 
+/**
+ * The converge step run that applies this one in full (spec 068 `covered`).
+ */
+covered_by: string | null, 
+/**
+ * Why a converge step was `skipped` (spec 068).
+ */
+skip_reason: string | null, };

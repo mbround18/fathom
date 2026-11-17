@@ -102,6 +102,8 @@ pub enum RunPhase {
     Cancelled,
     Denied,
     Expired,
+    /// Spec 068: waiting for the binding's required commit checks before dispatch.
+    WaitingChecks,
 }
 
 /// Why a run reached its state.
@@ -117,6 +119,14 @@ pub enum RunReason {
     ArtifactMissing,
     CredentialUnavailable,
     HostRefused,
+    /// Spec 068: a required commit check failed.
+    ChecksFailed,
+    /// Spec 068: the required commit checks did not finish in time.
+    ChecksTimeout,
+    /// Spec 068: a newer converge superseded this unapproved one.
+    Replaced,
+    /// Spec 068: the host's runner does not understand the manifest keys the step needs.
+    RunnerTooOld,
 }
 
 /// One host's state within a run.
@@ -131,6 +141,24 @@ pub enum HostPhase {
     Refused,
     Lost,
     Cancelled,
+    /// Spec 068: a converge step waiting for the host's earlier steps.
+    Blocked,
+    /// Spec 068: a converge step not run because an earlier step on the host failed.
+    Skipped,
+    /// Spec 068: a converge step another step on the host applies in full (`covers`).
+    Covered,
+}
+
+/// What kind of run this is. Older servers and stored runs without it are `Normal`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum RunKind {
+    #[default]
+    Normal,
+    Rollback,
+    Baseline,
+    /// Spec 068: a converge parent; its steps are child runs (`parent_run`).
+    Converge,
 }
 
 /// What started a run.
@@ -221,6 +249,16 @@ pub struct RunInfo {
     /// Present once the run has been held for approval (spec 064).
     #[serde(default)]
     pub approval: Option<RunApproval>,
+    /// Spec 068.
+    #[serde(default)]
+    pub kind: RunKind,
+    /// `ansible-playbook --check` (spec 068).
+    #[serde(default)]
+    pub check: bool,
+    /// The converge this run is a step of (spec 068).
+    #[serde(default)]
+    #[ts(type = "string | null")]
+    pub parent_run: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -235,6 +273,13 @@ pub struct RunHostInfo {
     pub ended_at: Option<String>,
     pub stats: Option<HostStats>,
     pub first_failure: Option<FirstFailure>,
+    /// The converge step run that applies this one in full (spec 068 `covered`).
+    #[serde(default)]
+    #[ts(type = "string | null")]
+    pub covered_by: Option<Uuid>,
+    /// Why a converge step was `skipped` (spec 068).
+    #[serde(default)]
+    pub skip_reason: Option<String>,
 }
 
 /// A job as synced from `.keel/jobs.yaml`.

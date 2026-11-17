@@ -133,6 +133,10 @@ fn check_value(kind: CredentialKind, value: &str) -> Result<(), Vec<Event>> {
             }
         }
         CredentialKind::VaultPassword => {}
+        // Spec 068: refused until the server lane adds storage and delivery for it.
+        CredentialKind::EnvValue => {
+            return bad("This server cannot store env_value credentials yet.");
+        }
     }
     Ok(())
 }

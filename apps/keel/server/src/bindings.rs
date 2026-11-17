@@ -204,6 +204,10 @@ impl Row {
                 self.manifest_problems,
             )
             .unwrap_or_default(),
+            // Spec 068 columns arrive with the server lane's migration.
+            required_checks: Vec::new(),
+            checks_timeout_secs: 0,
+            runners_refusing_manifest: Vec::new(),
         }
     }
 }

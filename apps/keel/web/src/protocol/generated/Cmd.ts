@@ -61,7 +61,15 @@ expires_in_days: number, } } | { "type": "PreviewApiTokenRevoke", "data": { toke
 /**
  * A host's inventory name.
  */
-host: ObjectName | null, actor: string | null, state: RunPhase | null, from: Instant | null, to: Instant | null, } } | { "type": "GetRun", "data": { run: string, } } | { "type": "SubscribeRun", "data": { run: string, from_seq: number, } } | { "type": "UnsubscribeRun", "data": { run: string, } } | { "type": "PreviewRunStart", "data": { job: string, limit: Pattern | null, } } | { "type": "PreviewCancel", "data": { run: string, } } | { "type": "PreviewRunApprove", "data": { run: string, } } | { "type": "PreviewRunDeny", "data": { run: string, reason: ApprovalReason | null, } } | { "type": "CountPendingApprovals" } | { "type": "ListJobs", "data": { binding: string, } } | { "type": "ListPolicies", "data": { workspace: string, } } | { "type": "PreviewPolicyUpsert", "data": PolicySpec } | { "type": "PreviewPolicyRemove", "data": { policy: string, } } | { "type": "ExplainPolicy", "data": { job: string, limit: Pattern | null, } } | { "type": "ListHosts", "data": { workspace: string, profile: ProfileName | null, drift: boolean | null, 
+host: ObjectName | null, actor: string | null, state: RunPhase | null, from: Instant | null, to: Instant | null, } } | { "type": "GetRun", "data": { run: string, } } | { "type": "SubscribeRun", "data": { run: string, from_seq: number, } } | { "type": "UnsubscribeRun", "data": { run: string, } } | { "type": "PreviewRunStart", "data": { job: string, limit: Pattern | null, 
+/**
+ * Values for the job's declared params (spec 068).
+ */
+params: { [key in string]: string }, 
+/**
+ * Run `ansible-playbook --check` (spec 068).
+ */
+check: boolean, } } | { "type": "PreviewCancel", "data": { run: string, } } | { "type": "PreviewRunApprove", "data": { run: string, } } | { "type": "PreviewRunDeny", "data": { run: string, reason: ApprovalReason | null, } } | { "type": "CountPendingApprovals" } | { "type": "ListJobs", "data": { binding: string, } } | { "type": "ListPolicies", "data": { workspace: string, } } | { "type": "PreviewPolicyUpsert", "data": PolicySpec } | { "type": "PreviewPolicyRemove", "data": { policy: string, } } | { "type": "ExplainPolicy", "data": { job: string, limit: Pattern | null, } } | { "type": "ListHosts", "data": { workspace: string, profile: ProfileName | null, drift: boolean | null, 
 /**
  * Only hosts that did (`true`) or did not (`false`) change outside Keel.
  */

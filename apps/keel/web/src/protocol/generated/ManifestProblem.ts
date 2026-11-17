@@ -3,4 +3,8 @@
 /**
  * One manifest problem, as the binding shows it under `manifest_invalid`.
  */
-export type ManifestProblem = { at: string, message: string, };
+export type ManifestProblem = { at: string, message: string, 
+/**
+ * The validation code for spec 068's rules (`profile_cycle`, `env_name_reserved`, ...).
+ */
+code: string | null, };

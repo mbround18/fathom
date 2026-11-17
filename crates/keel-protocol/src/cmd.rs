@@ -483,6 +483,12 @@ pub enum Cmd {
         job: Uuid,
         #[serde(default)]
         limit: Option<Pattern>,
+        /// Values for the job's declared params (spec 068).
+        #[serde(default)]
+        params: std::collections::BTreeMap<String, String>,
+        /// Run `ansible-playbook --check` (spec 068).
+        #[serde(default)]
+        check: bool,
     },
     /// `Preview`; `Confirm` sends `Cancel` to the run's hosts and replies `RunState`.
     PreviewCancel {

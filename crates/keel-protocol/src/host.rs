@@ -146,6 +146,12 @@ pub struct HostInfo {
     pub age_recipient: Option<String>,
     /// Whether the primary repository's inventory lists it yet (spec 066).
     pub inventory_status: crate::repository::HostInventoryStatus,
+    /// The host's current converge, if one is open (spec 068).
+    #[serde(default)]
+    pub converge: Option<crate::converge::ConvergeHostSummary>,
+    /// Open profile suggestions from the inventory's `groups:` (spec 068).
+    #[serde(default)]
+    pub suggestions: u16,
 }
 
 /// One run outside Keel, as the host reported it: the host's claim, not something Keel checked

@@ -632,6 +632,9 @@ impl HostRow {
             age_recipient: self.age_recipient.clone(),
             // Spec 066 FR-023: from the workspace's primary catalog.
             inventory_status: listing.status(&self.inventory_name),
+            // Spec 068: filled by the server lane (converge, suggestions).
+            converge: None,
+            suggestions: 0,
         }
     }
 }

@@ -825,6 +825,8 @@ async fn a_token_may_list_runs_but_never_start_or_cancel_one() {
         Cmd::PreviewRunStart {
             job: jobs[0].0,
             limit: None,
+            params: Default::default(),
+            check: false,
         },
         Cmd::PreviewCancel {
             run: Uuid::now_v7(),
@@ -894,6 +896,8 @@ async fn a_manual_run_previews_its_targets_and_secrets_never_reach_the_record() 
         f.h.confirm(Cmd::PreviewRunStart {
             job: jobs[0].0,
             limit: Some(limit),
+            params: Default::default(),
+            check: false,
         })
         .await;
     assert!(p.affected.iter().any(|a| a == "web-2"), "{p:?}");

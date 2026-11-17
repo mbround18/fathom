@@ -55,7 +55,11 @@ fn binding_info() -> BindingInfo {
         manifest_problems: vec![ManifestProblem {
             at: "jobs.web.playbook".into(),
             message: "'x.yaml' does not exist at this commit".into(),
+            code: None,
         }],
+        required_checks: vec![],
+        checks_timeout_secs: 0,
+        runners_refusing_manifest: vec![],
     }
 }
 

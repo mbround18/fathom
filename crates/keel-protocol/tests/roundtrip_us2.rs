@@ -52,6 +52,9 @@ fn run_info() -> RunInfo {
         }),
         params: Default::default(),
         approval: None,
+        kind: RunKind::Normal,
+        check: false,
+        parent_run: None,
     }
 }
 
@@ -76,6 +79,8 @@ fn run_commands() {
         Cmd::PreviewRunStart {
             job: id(4),
             limit: Some(Pattern::new("web-*").unwrap()),
+            params: Default::default(),
+            check: false,
         },
         Cmd::PreviewCancel { run: id(1) },
         Cmd::ListJobs { binding: id(3) },
@@ -197,6 +202,8 @@ fn run_events() {
                     rc: Some(255),
                     unreachable: true,
                 }),
+                covered_by: None,
+                skip_reason: None,
             }],
         },
         Event::RunSubscribed { run: id(1), seq: 9 },
