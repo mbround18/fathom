@@ -54,3 +54,6 @@ pub mod updates;
 pub mod proposals;
 pub mod repo_catalog;
 pub mod repository;
+
+// Relays and zones (spec 067)
+pub mod relays;

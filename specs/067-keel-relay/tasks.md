@@ -104,13 +104,13 @@ Migration numbers are fixed so that parallel branches don't collide: `0015_join.
   hub's session entry, and write `hosts.last_path` on `Hello`. The existing connect and
   disconnect audit entries gain `path`. Existing runner tests must stay green
   (`cargo test -p keel-server --test enroll --test runs`).
-- [ ] T011 Add Keel's relay-link key in `server/src/relays.rs`, following the `ssh_cas` code in
+- [X] T011 Add Keel's relay-link key in `server/src/relays.rs`, following the `ssh_cas` code in
   `server/src/hosts.rs`:
   - generate an Ed25519 key on startup when no `active` row exists;
   - seal it under the master key with aad `relay_link_key:<id>`;
   - load it into `AppState`;
   - audit `relay_link_key.create`.
-- [ ] T012 Add server config `--relay-health-interval` / `KEEL_RELAY_HEALTH_INTERVAL` (default
+- [X] T012 Add server config `--relay-health-interval` / `KEEL_RELAY_HEALTH_INTERVAL` (default
   30 s) and runtime flag `KEEL_RELAYS` (default on) in `server/src/config.rs`, with tests next
   to the existing `runner_listen` config tests.
 - [X] T013 [P] Implement `relay/src/config.rs`: `relay.toml` with `deny_unknown_fields` and the

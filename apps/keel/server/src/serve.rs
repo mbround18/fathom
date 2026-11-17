@@ -150,6 +150,8 @@ pub struct AppState {
     pub updates: Arc<crate::updates::Updates>,
     /// How proposals reach forges (spec 066): without a connector, every change is manual.
     pub forges: crate::proposals::Forges,
+    /// Keel's relay-link key (spec 067), once [`crate::relays::bootstrap`] loaded it.
+    pub relay_link: crate::relays::LinkKey,
 }
 
 impl FromRef<AppState> for AuthState {
@@ -202,6 +204,7 @@ impl AppState {
             system_workspace: Arc::new(RwLock::new(None)),
             updates,
             forges: crate::proposals::Forges::default(),
+            relay_link: crate::relays::LinkKey::default(),
         }
     }
 
