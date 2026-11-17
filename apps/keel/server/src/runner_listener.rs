@@ -16,8 +16,13 @@
 //! the active host CA, that `inventory_name` matches, and that the token's profiles are within
 //! the host's `allowed_profiles`. Any failure closes the connection, burns the token and is
 //! audited. The token itself is never logged or audited.
+//!
+//! A connection arrives over TCP ([`spawn`]) or, from spec 067, as a relay's `forwarded-tcpip`
+//! channel. Both go through [`serve_connection`] with the [`RunnerPath`] they came by; the SSH
+//! session, its authentication and its subsystems are the same either way.
 
 use std::collections::BTreeSet;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -111,9 +116,80 @@ impl RunnerAuthority for Authority {
     }
 }
 
-/// [`SubsystemService`]: enrollment, renewal, and runner sessions.
+/// How a runner connection reached Keel (spec 067). Kept with the run hub's session and
+/// written to `hosts.last_path` on `Hello`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunnerPath {
+    /// Straight to the runner listener. `peer` is the TCP peer address, when known.
+    Direct { peer: Option<SocketAddr> },
+    /// Through a relay's link. `advisory_peer` is the runner address the relay claimed in the
+    /// `forwarded-tcpip` open: shown and logged, never trusted.
+    Relay {
+        relay_id: Uuid,
+        advisory_peer: Option<String>,
+    },
+}
+
+/// The longest relay-claimed peer kept (in `hosts.last_path` and logs).
+const MAX_ADVISORY_PEER: usize = 128;
+
+impl RunnerPath {
+    /// The relay a connection came through, if any.
+    #[must_use]
+    pub fn relay(&self) -> Option<Uuid> {
+        match self {
+            RunnerPath::Direct { .. } => None,
+            RunnerPath::Relay { relay_id, .. } => Some(*relay_id),
+        }
+    }
+
+    /// The `hosts.last_path` value (data-model.md): `{"kind":"direct","peer":..}` or
+    /// `{"kind":"relay","relay":..,"peer":..}`; `peer` is null when unknown.
+    #[must_use]
+    pub fn to_json(&self) -> serde_json::Value {
+        match self {
+            RunnerPath::Direct { peer } => {
+                json!({ "kind": "direct", "peer": peer.map(|p| p.to_string()) })
+            }
+            RunnerPath::Relay {
+                relay_id,
+                advisory_peer,
+            } => json!({
+                "kind": "relay",
+                "relay": relay_id,
+                // Claimed by the relay; capped so a hostile one cannot bloat the row.
+                "peer": advisory_peer
+                    .as_deref()
+                    .map(|p| p.chars().take(MAX_ADVISORY_PEER).collect::<String>()),
+            }),
+        }
+    }
+}
+
+impl std::fmt::Display for RunnerPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RunnerPath::Direct { peer: Some(p) } => write!(f, "direct {p}"),
+            RunnerPath::Direct { peer: None } => f.write_str("direct"),
+            RunnerPath::Relay {
+                relay_id,
+                advisory_peer,
+            } => {
+                write!(f, "relay {relay_id}")?;
+                if let Some(p) = advisory_peer {
+                    let p: String = p.chars().take(MAX_ADVISORY_PEER).collect();
+                    write!(f, " (claims {})", p.escape_debug())?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+/// [`SubsystemService`]: enrollment, renewal, and runner sessions, for one connection.
 pub struct Service {
     app: AppState,
+    path: RunnerPath,
 }
 
 impl SubsystemService for Service {
@@ -138,8 +214,11 @@ impl SubsystemService for Service {
                 let Ok(host) = Uuid::parse_str(&identity.runner_id) else {
                     return;
                 };
-                if let Err(e) = crate::queue::attach(self.app.clone(), host, stream).await {
-                    tracing::warn!(host = %host, error = %e, "runner session refused");
+                let path = self.path.clone();
+                if let Err(e) =
+                    crate::queue::attach_on(self.app.clone(), host, stream, path.clone()).await
+                {
+                    tracing::warn!(host = %host, %path, error = %e, "runner session refused");
                 }
             }
         }
@@ -581,38 +660,125 @@ impl HostIdentity {
     }
 }
 
-/// Serves runners on `listener` until the task is dropped.
+/// The runner-facing SSH host identity: one ephemeral key, shared by the TCP listener and every
+/// relay link, with its host certificate re-issued as needed. Cheap to clone.
+#[derive(Clone)]
+pub struct RunnerHost {
+    identity: Arc<Mutex<HostIdentity>>,
+}
+
+impl RunnerHost {
+    /// A fresh ephemeral host key.
+    ///
+    /// # Errors
+    ///
+    /// The key could not be generated.
+    pub fn new() -> Result<Self, String> {
+        let key =
+            PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).map_err(|e| e.to_string())?;
+        Ok(Self {
+            identity: Arc::new(Mutex::new(HostIdentity { key, cert: None })),
+        })
+    }
+
+    /// The server config for the next connection, or `None` while no host CA is loaded (the
+    /// connection must then be dropped).
+    #[must_use]
+    pub fn config(&self, app: &AppState) -> Option<Arc<russh::server::Config>> {
+        self.identity.lock().ok().and_then(|mut i| i.config(app))
+    }
+}
+
+/// Serves one runner connection over `stream`, which arrived by `path`, until it ends. The same
+/// SSH server either way: authentication decides the subsystem, and a runner session reaches
+/// the run hub with `path` attached.
+pub async fn serve_connection<S>(
+    app: AppState,
+    config: Arc<russh::server::Config>,
+    stream: S,
+    path: RunnerPath,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let authority = Arc::new(Authority { app: app.clone() });
+    let service = Arc::new(Service { app, path });
+    let handler = KeelSshHandler::new(authority, service);
+    if let Ok(session) = russh::server::run_stream(config, stream, handler).await {
+        let _ = session.await;
+    }
+}
+
+/// Serves runners on `listener` until the task is dropped, with a host identity of its own.
 ///
 /// # Errors
 ///
 /// The host key could not be generated.
 pub fn spawn(app: AppState, listener: TcpListener) -> Result<tokio::task::JoinHandle<()>, String> {
-    let key =
-        PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).map_err(|e| e.to_string())?;
-    let identity = Mutex::new(HostIdentity { key, cert: None });
-    let authority = Arc::new(Authority { app: app.clone() });
-    let service = Arc::new(Service { app: app.clone() });
-    Ok(tokio::spawn(async move {
+    Ok(spawn_with(app, RunnerHost::new()?, listener))
+}
+
+/// Serves runners on `listener` with `host` (shared with the relay links) until the task is
+/// dropped.
+#[must_use]
+pub fn spawn_with(
+    app: AppState,
+    host: RunnerHost,
+    listener: TcpListener,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
         loop {
-            let socket = match listener.accept().await {
-                Ok((s, _)) => s,
+            let (socket, peer) = match listener.accept().await {
+                Ok(s) => s,
                 Err(e) => {
                     tracing::warn!(error = %e, "runner listener accept failed");
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     continue;
                 }
             };
-            let config = identity.lock().ok().and_then(|mut i| i.config(&app));
-            let Some(config) = config else {
+            let Some(config) = host.config(&app) else {
                 // No CAs: refuse by closing.
                 continue;
             };
-            let handler = KeelSshHandler::new(Arc::clone(&authority), Arc::clone(&service));
-            tokio::spawn(async move {
-                if let Ok(session) = russh::server::run_stream(config, socket, handler).await {
-                    let _ = session.await;
-                }
-            });
+            let path = RunnerPath::Direct { peer: Some(peer) };
+            tokio::spawn(serve_connection(app.clone(), config, socket, path));
         }
-    }))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paths_serialise_as_the_data_model_says() {
+        let direct = RunnerPath::Direct {
+            peer: Some("203.0.113.4:51234".parse().unwrap()),
+        };
+        assert_eq!(
+            direct.to_json(),
+            json!({"kind": "direct", "peer": "203.0.113.4:51234"})
+        );
+        assert_eq!(direct.relay(), None);
+        assert_eq!(
+            RunnerPath::Direct { peer: None }.to_json(),
+            json!({"kind": "direct", "peer": null})
+        );
+        let relay = Uuid::nil();
+        let claimed = RunnerPath::Relay {
+            relay_id: relay,
+            advisory_peer: Some("x".repeat(500)),
+        };
+        assert_eq!(claimed.relay(), Some(relay));
+        let v = claimed.to_json();
+        assert_eq!(v["kind"], "relay");
+        assert_eq!(v["relay"], relay.to_string());
+        assert_eq!(v["peer"].as_str().unwrap().len(), MAX_ADVISORY_PEER);
+        // A claimed peer cannot forge log lines.
+        let shown = RunnerPath::Relay {
+            relay_id: relay,
+            advisory_peer: Some("1.2.3.4:5\nfake".into()),
+        }
+        .to_string();
+        assert!(!shown.contains('\n'), "{shown}");
+    }
 }

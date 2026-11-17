@@ -96,7 +96,7 @@ Migration numbers are fixed so that parallel branches don't collide: `0015_join.
 - [X] T009 [P] Add `Hello.capabilities: Vec<String>` to `exec/frames.rs`
   (`#[serde(default, skip_serializing_if = "Vec::is_empty")]`). Add a round-trip test, and a test
   that an old `Hello` without the field still parses.
-- [ ] T010 Thread a `RunnerPath { Direct { peer }, Relay { relay_id, advisory_peer } }` through
+- [X] T010 Thread a `RunnerPath { Direct { peer }, Relay { relay_id, advisory_peer } }` through
   `server/src/runner_listener.rs`. Factor the per-connection code into
   `serve_connection(app, config, stream, path)`, so it accepts any
   `AsyncRead + AsyncWrite + Unpin + Send` stream. The TCP accept loop then calls it with

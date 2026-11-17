@@ -550,7 +550,7 @@ async fn a_runner_enrols_over_ssh_then_authenticates_with_its_certificate() {
     let mut handle = ssh_connect(&h, addr).await;
     assert!(matches!(
         handle
-            .authenticate_openssh_cert("runner", Arc::new(runner.clone()), cert)
+            .authenticate_openssh_cert("runner", Arc::new(runner.clone()), cert.clone())
             .await
             .expect("auth"),
         AuthResult::Success
@@ -564,6 +564,70 @@ async fn a_runner_enrols_over_ssh_then_authenticates_with_its_certificate() {
         .await
         .expect("host");
     assert_ne!(state, "revoked");
+
+    // Its session's Hello records the path it came by (spec 067 T010): direct, from this socket.
+    // One session channel per connection, so reconnect.
+    drop(handle);
+    let mut handle = ssh_connect(&h, addr).await;
+    assert!(matches!(
+        handle
+            .authenticate_openssh_cert("runner", Arc::new(runner.clone()), cert)
+            .await
+            .expect("auth"),
+        AuthResult::Success
+    ));
+    let mut stream = open_subsystem(&handle, Subsystem::Runner)
+        .await
+        .expect("runner subsystem");
+    write_frame(
+        &mut stream,
+        &Frame::Hello {
+            host_id: host.to_string(),
+            version: "0.0.0".into(),
+            ansible_core: "2.21.0".into(),
+            python: "3.12.3".into(),
+            allowed_profiles: profiles(&["debian"]),
+            require_signed: false,
+            override_quorum: 1,
+            ledger_head: None,
+            bases: Vec::new(),
+            age_recipient: None,
+            capabilities: Vec::new(),
+        },
+    )
+    .await
+    .expect("hello");
+    let deadline = tokio::time::Instant::now() + WAIT;
+    let path = loop {
+        let (path,): (Option<serde_json::Value>,) =
+            sqlx::query_as("select last_path from hosts where id = $1")
+                .bind(host)
+                .fetch_one(&h.db.owner)
+                .await
+                .expect("host");
+        // The row is written before the session registers with the run hub.
+        if let Some(path) = path
+            && h.app.runs.path(host).is_some()
+        {
+            break path;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "no last_path");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    assert_eq!(path["kind"], "direct", "{path}");
+    assert!(
+        path["peer"]
+            .as_str()
+            .is_some_and(|p| p.starts_with("127.0.0.1:")),
+        "{path}"
+    );
+    assert_eq!(
+        h.app.runs.path(host),
+        Some(runner_listener::RunnerPath::Direct {
+            peer: path["peer"].as_str().and_then(|p| p.parse().ok())
+        })
+    );
+    drop(stream);
     task.abort();
     h.finish().await;
 }

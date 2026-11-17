@@ -42,6 +42,7 @@ use tokio::sync::{Notify, broadcast, mpsc};
 use uuid::Uuid;
 
 use crate::audit::{self, Actor, Decision, Entry};
+use crate::runner_listener::RunnerPath;
 use crate::serve::AppState;
 
 /// The largest `data` kept for one run event; a larger result is replaced by a note.
@@ -76,6 +77,8 @@ impl Default for RunSettings {
 
 struct Link {
     session: u64,
+    /// How this session reached Keel (spec 067).
+    path: RunnerPath,
     tx: mpsc::UnboundedSender<Frame>,
     /// Ends the session (revocation).
     close: Arc<Notify>,
@@ -155,13 +158,37 @@ impl Runs {
             .unwrap_or(false)
     }
 
-    fn register(&self, host: Uuid, tx: mpsc::UnboundedSender<Frame>, close: Arc<Notify>) -> u64 {
+    fn register(
+        &self,
+        host: Uuid,
+        path: RunnerPath,
+        tx: mpsc::UnboundedSender<Frame>,
+        close: Arc<Notify>,
+    ) -> u64 {
         let session = self.inner.sessions.fetch_add(1, Ordering::Relaxed) + 1;
         if let Ok(mut l) = self.inner.links.lock() {
             // A reconnect replaces the old link; the old session ends on its own.
-            l.insert(host, Link { session, tx, close });
+            l.insert(
+                host,
+                Link {
+                    session,
+                    path,
+                    tx,
+                    close,
+                },
+            );
         }
         session
+    }
+
+    /// How `host`'s runner is connected, or `None` when it is not.
+    #[must_use]
+    pub fn path(&self, host: Uuid) -> Option<RunnerPath> {
+        self.inner
+            .links
+            .lock()
+            .ok()
+            .and_then(|l| l.get(&host).map(|link| link.path.clone()))
     }
 
     /// Ends `host`'s session, if it has one: its in-flight hosts become `lost`.
@@ -571,7 +598,25 @@ impl From<sqlx::Error> for AttachError {
 /// # Errors
 ///
 /// The runner did not identify itself as `host`, or `host` is unknown or revoked.
-pub async fn attach<S>(app: AppState, host: Uuid, mut stream: S) -> Result<(), AttachError>
+pub async fn attach<S>(app: AppState, host: Uuid, stream: S) -> Result<(), AttachError>
+where
+    S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+{
+    attach_on(app, host, stream, RunnerPath::Direct { peer: None }).await
+}
+
+/// [`attach`] for a connection that arrived by `path` (spec 067): kept with the session and
+/// written to `hosts.last_path` with the `Hello`.
+///
+/// # Errors
+///
+/// As [`attach`].
+pub async fn attach_on<S>(
+    app: AppState,
+    host: Uuid,
+    mut stream: S,
+    path: RunnerPath,
+) -> Result<(), AttachError>
 where
     S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
@@ -614,7 +659,8 @@ where
     let row: Option<(Uuid,)> = sqlx::query_as(
         "update hosts set state = 'online', runner_version = $2, ansible_version = $3, \
          python_version = $4, override_quorum = $5, ledger_head = $6, age_recipient = $7, \
-         last_seen_at = now() where id = $1 and state <> 'revoked' returning workspace_id",
+         last_seen_at = now(), last_path = $8 where id = $1 and state <> 'revoked' \
+         returning workspace_id",
     )
     .bind(host)
     .bind(truncate(&version, 64))
@@ -624,6 +670,7 @@ where
     .bind(ledger_head.map(|h| truncate(&h, 128)))
     // A runner that sends none (or an old one) clears it; a malformed one is dropped, not stored.
     .bind(age_recipient.filter(|r| is_age_recipient(r)))
+    .bind(path.to_json())
     .fetch_optional(&app.db)
     .await?;
     let Some((workspace,)) = row else {
@@ -651,7 +698,9 @@ where
         }
     });
     let close = Arc::new(Notify::new());
-    let session = app.runs.register(host, out_tx.clone(), Arc::clone(&close));
+    let session = app
+        .runs
+        .register(host, path.clone(), out_tx.clone(), Arc::clone(&close));
     if let Some(cas) = app.ssh.get() {
         let _ = out_tx.send(Frame::Krl {
             bytes: cas.krl.to_bytes(),
@@ -664,7 +713,7 @@ where
             state: keel_protocol::HostStatus::Online,
         },
     );
-    tracing::info!(host = %host, "runner connected");
+    tracing::info!(host = %host, %path, "runner connected");
     let app2 = app.clone();
     tokio::spawn(async move {
         let mut s = Session {
@@ -680,7 +729,7 @@ where
         reader_task.abort();
         drop(s.out);
         let _ = writer_task.await;
-        tracing::info!(host = %host, lost, "runner disconnected");
+        tracing::info!(host = %host, %path, lost, "runner disconnected");
         disconnected(&app2, host).await;
     });
     kick(&app);
