@@ -12,6 +12,7 @@ use keel_core::domain::WorkspaceId;
 use keel_core::manifest::Context;
 use keel_core::ports::CommitId;
 use keel_core::repo_url;
+use keel_exec::frames::CAP_MANIFEST_V068;
 use keel_git::Mirror;
 use keel_protocol::{
     ActiveStatus, BindingInfo, BindingSpec, BindingUpdate, Event, JobSummary, ManifestProblem,
@@ -174,12 +175,14 @@ struct Row {
     last_synced_at: Option<OffsetDateTime>,
     last_sync_error: Option<String>,
     manifest_problems: Value,
+    checks_timeout_secs: i32,
+    manifest_v068: bool,
 }
 
 const SELECT: &str = "select b.id, b.project_id, p.workspace_id, b.url, b.branch, b.transport, \
      b.credential_id, b.known_host, b.poll_interval, b.allow_force_push, b.signed_mode, \
      b.override_quorum, b.status, b.last_commit, b.last_synced_at, b.last_sync_error, \
-     b.manifest_problems from repo_bindings b join projects p on p.id = b.project_id";
+     b.manifest_problems, b.checks_timeout_secs, b.manifest_v068 from repo_bindings b join projects p on p.id = b.project_id";
 
 impl Row {
     fn info(self) -> BindingInfo {
@@ -204,9 +207,9 @@ impl Row {
                 self.manifest_problems,
             )
             .unwrap_or_default(),
-            // Spec 068 columns arrive with the server lane's migration.
+            // Required checks land with US5; refusing runners are filled by `binding_event`.
             required_checks: Vec::new(),
-            checks_timeout_secs: 0,
+            checks_timeout_secs: u32::try_from(self.checks_timeout_secs).unwrap_or(3600),
             runners_refusing_manifest: Vec::new(),
         }
     }
@@ -254,10 +257,21 @@ pub(crate) async fn binding_event(
             defined_at_commit: at,
         })
         .collect();
-    Ok(Some(Event::Binding {
-        binding: r.info(),
-        jobs,
-    }))
+    // Spec 068 runner floor: the workspace's connected runners that would refuse this manifest.
+    let refusing = if r.manifest_v068 {
+        let hosts: Vec<(Uuid,)> =
+            sqlx::query_as("select id from hosts where workspace_id = $1 and state <> 'revoked'")
+                .bind(r.workspace_id)
+                .fetch_all(&app.db)
+                .await?;
+        app.runs
+            .lacking(hosts.into_iter().map(|(h,)| h), CAP_MANIFEST_V068)
+    } else {
+        Vec::new()
+    };
+    let mut binding = r.info();
+    binding.runners_refusing_manifest = refusing;
+    Ok(Some(Event::Binding { binding, jobs }))
 }
 
 pub async fn list(app: &AppState, req: &Request<'_>, workspace: Uuid) -> Vec<Event> {

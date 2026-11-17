@@ -347,6 +347,16 @@ fn read_manifest(
     manifest::validate(&bytes, &tree, ctx)
 }
 
+/// Whether `m` uses a key only a spec 068 runner reads (recipes, groups, `covers`, `env`), so a
+/// runner without `manifest-v068` is not sent its jobs (contracts/protocol.md).
+pub(crate) fn uses_v068_keys(m: &Manifest) -> bool {
+    !m.groups.is_empty()
+        || m.profiles.values().any(manifest::Profile::has_recipe)
+        || m.jobs
+            .values()
+            .any(|j| !j.definition.covers.is_empty() || !j.definition.env.is_empty())
+}
+
 /// The mirrors' parent directory.
 #[must_use]
 pub fn data_dir(app: &AppState) -> PathBuf {
@@ -657,11 +667,13 @@ async fn record(
                     upsert_inventories(&mut tx, at, trigger, &fetched.inventories).await?;
                 sqlx::query(
                     "update repo_bindings set last_commit = $2, last_synced_at = $3, \
-                     last_sync_error = null, manifest_problems = '[]' where id = $1",
+                     last_sync_error = null, manifest_problems = '[]', manifest_v068 = $4 \
+                     where id = $1",
                 )
                 .bind(binding)
                 .bind(commit)
                 .bind(now)
+                .bind(uses_v068_keys(m))
                 .execute(&mut *tx)
                 .await?;
             }

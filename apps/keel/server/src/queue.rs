@@ -32,7 +32,9 @@ use keel_core::ports::CommitId;
 use keel_core::run::{self as core_run, HostState, RunEvent, RunState};
 use keel_exec::codec;
 use keel_exec::events::{self, HostStatus, KeelEvent};
-use keel_exec::frames::{self, Frame, Peer, Refusal, SecretItem, SecretString, Subsystem};
+use keel_exec::frames::{
+    self, CAP_MANIFEST_V068, Frame, Peer, Refusal, SecretItem, SecretString, Subsystem,
+};
 use keel_git::Mirror;
 use keel_protocol::{Event, LogStream};
 use serde_json::{Value, json};
@@ -79,6 +81,8 @@ struct Link {
     tx: mpsc::UnboundedSender<Frame>,
     /// Ends the session (revocation).
     close: Arc<Notify>,
+    /// `Hello.capabilities` (spec 067's shape; 068 checks `manifest-v068`).
+    capabilities: Vec<String>,
 }
 
 /// One run's output accounting.
@@ -155,13 +159,51 @@ impl Runs {
             .unwrap_or(false)
     }
 
-    fn register(&self, host: Uuid, tx: mpsc::UnboundedSender<Frame>, close: Arc<Notify>) -> u64 {
+    fn register(
+        &self,
+        host: Uuid,
+        tx: mpsc::UnboundedSender<Frame>,
+        close: Arc<Notify>,
+        capabilities: Vec<String>,
+    ) -> u64 {
         let session = self.inner.sessions.fetch_add(1, Ordering::Relaxed) + 1;
         if let Ok(mut l) = self.inner.links.lock() {
             // A reconnect replaces the old link; the old session ends on its own.
-            l.insert(host, Link { session, tx, close });
+            l.insert(
+                host,
+                Link {
+                    session,
+                    tx,
+                    close,
+                    capabilities,
+                },
+            );
         }
         session
+    }
+
+    /// Whether `host`'s current session advertised `cap`; false when it is not connected.
+    #[must_use]
+    pub fn has_capability(&self, host: Uuid, cap: &str) -> bool {
+        self.inner.links.lock().ok().is_some_and(|l| {
+            l.get(&host)
+                .is_some_and(|link| link.capabilities.iter().any(|c| c == cap))
+        })
+    }
+
+    /// Of `hosts`, the connected ones whose session lacks `cap` (a disconnected host is unknown).
+    #[must_use]
+    pub fn lacking(&self, hosts: impl IntoIterator<Item = Uuid>, cap: &str) -> Vec<Uuid> {
+        let Ok(l) = self.inner.links.lock() else {
+            return Vec::new();
+        };
+        hosts
+            .into_iter()
+            .filter(|h| {
+                l.get(h)
+                    .is_some_and(|link| !link.capabilities.iter().any(|c| c == cap))
+            })
+            .collect()
     }
 
     /// Ends `host`'s session, if it has one: its in-flight hosts become `lost`.
@@ -587,6 +629,7 @@ where
         override_quorum,
         ledger_head,
         age_recipient,
+        capabilities,
         ..
     }) = hello
     else {
@@ -651,7 +694,14 @@ where
         }
     });
     let close = Arc::new(Notify::new());
-    let session = app.runs.register(host, out_tx.clone(), Arc::clone(&close));
+    let capabilities: Vec<String> = capabilities
+        .into_iter()
+        .take(32)
+        .map(|c| truncate(&c, 64))
+        .collect();
+    let session = app
+        .runs
+        .register(host, out_tx.clone(), Arc::clone(&close), capabilities);
     if let Some(cas) = app.ssh.get() {
         let _ = out_tx.send(Frame::Krl {
             bytes: cas.krl.to_bytes(),
@@ -1666,6 +1716,7 @@ enum AssignError {
     ArtifactMissing,
     CredentialUnavailable,
     NotConnected,
+    RunnerTooOld,
     Internal,
 }
 
@@ -1675,6 +1726,7 @@ impl AssignError {
             Self::ArtifactMissing => "artifact_missing",
             Self::CredentialUnavailable => "credential_unavailable",
             Self::NotConnected => "runner_lost",
+            Self::RunnerTooOld => "runner_too_old",
             Self::Internal => "internal",
         }
     }
@@ -1692,6 +1744,7 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
         String,
         Option<i32>,
         Value,
+        bool,
     );
     let row: Option<Row> = sqlx::query_as(
         "select r.binding_id, r.job_name, r.commit, j.definition, r.workspace_id, r.signed_mode, \
@@ -1700,7 +1753,8 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
                     and hr.authorization_kind <> 'unchecked' \
                   order by hr.applied_at desc, hr.id desc limit 1), \
                 rh.host_name, \
-                greatest(b.override_quorum, h.override_quorum, 1), r.params \
+                greatest(b.override_quorum, h.override_quorum, 1), r.params, \
+                coalesce(b.manifest_v068, false) \
          from runs r \
          join run_hosts rh on rh.run_id = r.id and rh.host_id = $2 \
          join hosts h on h.id = rh.host_id \
@@ -1713,11 +1767,26 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
     .fetch_optional(&app.db)
     .await
     .map_err(|_| AssignError::Internal)?;
-    let Some((Some(binding), job, commit, def, workspace, signed, base, host_name, quorum, params)) =
-        row
+    let Some((
+        Some(binding),
+        job,
+        commit,
+        def,
+        workspace,
+        signed,
+        base,
+        host_name,
+        quorum,
+        params,
+        v068,
+    )) = row
     else {
         return Err(AssignError::ArtifactMissing);
     };
+    // Spec 068 runner floor: a runner that cannot read this manifest's keys is not sent it.
+    if v068 && !app.runs.has_capability(host, CAP_MANIFEST_V068) {
+        return Err(AssignError::RunnerTooOld);
+    }
     let def: Option<keel_core::manifest::JobDefinition> =
         def.and_then(|d| serde_json::from_value(d).ok());
     let Some(def) = def else {
@@ -1886,16 +1955,17 @@ async fn secrets(
 
 async fn fail_host(app: &AppState, run: Uuid, host: Uuid, why: AssignError) {
     let name: Option<(String,)> = sqlx::query_as(
-        "update run_hosts set state = $3, ended_at = now() \
+        "update run_hosts set state = $3, refusal = $4, ended_at = now() \
          where run_id = $1 and host_id = $2 and state = 'sent' returning host_name",
     )
     .bind(run)
     .bind(host)
-    .bind(if matches!(why, AssignError::NotConnected) {
-        "lost"
-    } else {
-        "failed"
+    .bind(match why {
+        AssignError::NotConnected => "lost",
+        AssignError::RunnerTooOld => "refused",
+        _ => "failed",
     })
+    .bind(matches!(why, AssignError::RunnerTooOld).then_some("runner_too_old"))
     .fetch_optional(&app.db)
     .await
     .ok()

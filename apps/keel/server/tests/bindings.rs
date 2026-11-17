@@ -383,3 +383,117 @@ async fn a_token_may_list_bindings_but_never_sync_them() {
     );
     h.finish().await;
 }
+
+/// Spec 068 T015: a manifest using a 068 key (here recipes, groups, `covers` and `env`) is
+/// flagged at sync; a connected runner without `manifest-v068` is listed as refusing it and is
+/// not sent its jobs (`runner_too_old`), while one with it is.
+#[tokio::test]
+async fn a_runner_without_manifest_v068_is_not_sent_a_068_manifest() {
+    use keel_exec::fake::FakeRunner;
+    let Some(h) = Harness::new("runner_floor_v068").await else {
+        return;
+    };
+    let plain = bind(&h, &Source::new(&manifest(&[]))).await;
+    let (_src, id) = repos::bind_converge_repo(&h).await;
+    let flags: Vec<(uuid::Uuid, bool)> =
+        sqlx::query_as("select id, manifest_v068 from repo_bindings order by id")
+            .fetch_all(&h.db.owner)
+            .await
+            .expect("bindings");
+    assert!(flags.contains(&(plain, false)), "{flags:?}");
+    assert!(flags.contains(&(id, true)), "{flags:?}");
+
+    let mut hosts = Vec::new();
+    for name in ["old", "new"] {
+        let host = uuid::Uuid::now_v7();
+        sqlx::query(
+            "insert into hosts (id, workspace_id, inventory_name, allowed_profiles) \
+             values ($1, $2, $3, '{debian}')",
+        )
+        .bind(host)
+        .bind(h.workspace)
+        .bind(name)
+        .execute(&h.db.owner)
+        .await
+        .expect("host");
+        hosts.push(host);
+    }
+    let (old, new) = (hosts[0], hosts[1]);
+    let mut handles = Vec::new();
+    for (host, runner) in [
+        (old, FakeRunner::new(old.to_string())),
+        (
+            new,
+            FakeRunner::new(new.to_string())
+                .with_capabilities([keel_exec::frames::CAP_MANIFEST_V068]),
+        ),
+    ] {
+        let (stream, handle) = runner.spawn();
+        keel_server::queue::attach(h.app.clone(), host, stream)
+            .await
+            .expect("attach");
+        handles.push(handle);
+    }
+    let (info, _) = binding(&h, id).await;
+    assert_eq!(info.runners_refusing_manifest, vec![old]);
+    assert!(
+        binding(&h, plain)
+            .await
+            .0
+            .runners_refusing_manifest
+            .is_empty()
+    );
+
+    // One run of `debian` on both hosts.
+    let run = uuid::Uuid::now_v7();
+    sqlx::query(
+        "insert into runs (id, workspace_id, binding_id, job_id, job_name, trigger, commit, \
+         inventory_name, state) \
+         select $1, $2, b.id, j.id, j.name, 'manual', b.last_commit, 'prod', 'queued' \
+           from repo_bindings b join jobs j on j.binding_id = b.id and j.name = 'debian' \
+          where b.id = $3",
+    )
+    .bind(run)
+    .bind(h.workspace)
+    .bind(id)
+    .execute(&h.db.owner)
+    .await
+    .expect("run");
+    for (host, name) in [(old, "old"), (new, "new")] {
+        sqlx::query("insert into run_hosts (run_id, host_id, host_name) values ($1, $2, $3)")
+            .bind(run)
+            .bind(host)
+            .bind(name)
+            .execute(&h.db.owner)
+            .await
+            .expect("run host");
+    }
+    keel_server::queue::kick(&h.app);
+    let start = std::time::Instant::now();
+    let states = loop {
+        let states: Vec<(String, String, Option<String>)> = sqlx::query_as(
+            "select host_name, state, refusal from run_hosts where run_id = $1 order by host_name",
+        )
+        .bind(run)
+        .fetch_all(&h.db.owner)
+        .await
+        .expect("run hosts");
+        if states
+            .iter()
+            .all(|(_, s, _)| s != "queued" && s != "sent" && s != "running")
+        {
+            break states;
+        }
+        assert!(start.elapsed().as_secs() < 10, "{states:?}");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    };
+    assert_eq!(
+        states,
+        vec![
+            ("new".into(), "succeeded".into(), None),
+            ("old".into(), "refused".into(), Some("runner_too_old".into())),
+        ]
+    );
+    drop(handles);
+    h.finish().await;
+}

@@ -167,6 +167,18 @@ impl FakeRunner {
         self
     }
 
+    /// Advertise `caps` in the `Hello` (e.g. `manifest-v068`); a new runner has none.
+    pub fn with_capabilities<I, S>(mut self, caps: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        if let Frame::Hello { capabilities, .. } = &mut self.hello {
+            *capabilities = caps.into_iter().map(Into::into).collect();
+        }
+        self
+    }
+
     /// The script for `Assign`s of `job`.
     pub fn script(mut self, job: impl Into<String>, script: Script) -> Self {
         self.scripts.insert(job.into(), script);
