@@ -42,6 +42,10 @@ pub struct ManifestIssue {
     /// A dotted location, such as `jobs.web-deploy.playbook`.
     pub at: String,
     pub message: String,
+    /// A stable code for the rules added by spec 068 (`profile_cycle`, `env_name_reserved`, …;
+    /// contracts/manifest.md). Absent for older rules, and omitted from JSON when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
 }
 
 impl ManifestIssue {
@@ -49,6 +53,15 @@ impl ManifestIssue {
         Self {
             at: at.into(),
             message: message.into(),
+            code: None,
+        }
+    }
+
+    fn coded(at: impl Into<String>, code: &str, message: impl Into<String>) -> Self {
+        Self {
+            at: at.into(),
+            message: message.into(),
+            code: Some(code.to_owned()),
         }
     }
 }
@@ -63,18 +76,36 @@ pub struct Context {
 }
 
 /// A validated manifest.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Manifest {
     pub profiles: BTreeMap<String, Profile>,
     pub inventories: BTreeMap<String, RepoInventory>,
     pub jobs: BTreeMap<String, Job>,
+    /// Inventory group → profiles it suggests (spec 068 `groups:`). Never assigns.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub groups: BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
     #[serde(default)]
     pub description: Option<String>,
+    /// Profiles applied first, in order, recursively (spec 068 recipe).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub includes: Vec<String>,
+    /// Jobs applied after the includes, in order (spec 068 recipe).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub jobs: Vec<String>,
+}
+
+impl Profile {
+    /// Whether the profile declares a recipe. Without one, a converge runs every job whose
+    /// `profiles` names it, as before spec 068.
+    #[must_use]
+    pub fn has_recipe(&self) -> bool {
+        !self.includes.is_empty() || !self.jobs.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,6 +158,14 @@ pub struct JobDefinition {
     /// before 061 reads back, and one without params stores exactly as before.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub params: BTreeMap<String, ParamSpec>,
+    /// Jobs this one applies in full at the same commit (spec 068 `covers`). Omitted when empty,
+    /// so a definition without it stores exactly as before.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub covers: Vec<String>,
+    /// Environment name → credential name (an `env_value` credential), set for
+    /// `ansible-playbook` (spec 068 `env`). Omitted when empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
 }
 
 /// The most params one job may declare.
@@ -196,6 +235,8 @@ struct RawManifest {
     inventories: BTreeMap<String, RepoInventory>,
     #[serde(default)]
     jobs: BTreeMap<String, RawJob>,
+    #[serde(default)]
+    groups: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -219,6 +260,10 @@ struct RawJob {
     rollback: Option<Rollback>,
     #[serde(default)]
     params: BTreeMap<String, ParamSpec>,
+    #[serde(default)]
+    covers: Vec<String>,
+    #[serde(default)]
+    env: BTreeMap<String, String>,
 }
 
 /// Parses and validates `bytes` (the manifest at the fetched head) against `tree`.
@@ -258,7 +303,7 @@ pub fn validate(
                 "profile names use a-z, 0-9, '-' and '_' (at most 63)",
             ));
         }
-        profiles.insert(name, profile.unwrap_or(Profile { description: None }));
+        profiles.insert(name, profile.unwrap_or_default());
     }
 
     for (name, inv) in &raw.inventories {
@@ -275,6 +320,7 @@ pub fn validate(
         }
     }
 
+    let declared_jobs: BTreeSet<String> = raw.jobs.keys().cloned().collect();
     let mut jobs = BTreeMap::new();
     for (name, job) in raw.jobs {
         let at = format!("jobs.{name}");
@@ -284,6 +330,7 @@ pub fn validate(
                 "job names use a-z, 0-9, '-' and '_' (at most 63)",
             ));
         }
+        validate_covers(&at, &job.covers, &declared_jobs, &mut issues);
         if let Some(job) = validate_job(
             &at,
             job,
@@ -297,12 +344,22 @@ pub fn validate(
         }
     }
 
+    validate_recipes(&profiles, &declared_jobs, &mut issues);
+    validate_groups(&raw.groups, &profiles, &mut issues);
+
     if issues.is_empty() {
-        Ok(Manifest {
+        let manifest = Manifest {
             profiles,
             inventories: raw.inventories,
             jobs,
-        })
+            groups: raw.groups,
+        };
+        validate_plans(&manifest, &mut issues);
+        if issues.is_empty() {
+            Ok(manifest)
+        } else {
+            Err(issues)
+        }
     } else {
         Err(issues)
     }
@@ -435,6 +492,8 @@ fn validate_job(
         }
     }
 
+    validate_env(at, &job.env, issues);
+
     if issues.len() != before {
         return None;
     }
@@ -457,9 +516,165 @@ fn validate_job(
             timeout_secs,
             rollback: job.rollback,
             params: job.params,
+            covers: job.covers,
+            env: job.env,
         },
         missing_credentials,
     })
+}
+
+/// `jobs.<j>.covers`: declared jobs, not itself, each once. Cycles are found by
+/// [`validate_plans`] once every job is valid.
+fn validate_covers(
+    at: &str,
+    covers: &[String],
+    declared_jobs: &BTreeSet<String>,
+    issues: &mut Vec<ManifestIssue>,
+) {
+    let me = at.strip_prefix("jobs.").unwrap_or(at);
+    let cat = format!("{at}.covers");
+    let mut seen = BTreeSet::new();
+    for c in covers {
+        if c == me {
+            issues.push(ManifestIssue::coded(
+                &cat,
+                "self_cover",
+                format!("job '{me}' covers itself"),
+            ));
+        } else if !declared_jobs.contains(c) {
+            issues.push(ManifestIssue::coded(
+                &cat,
+                "unknown_cover",
+                format!("'{c}' is not a job in this manifest"),
+            ));
+        } else if !seen.insert(c) {
+            issues.push(ManifestIssue::coded(
+                &cat,
+                "unknown_cover",
+                format!("'{c}' is listed twice"),
+            ));
+        }
+    }
+}
+
+/// `jobs.<j>.env`: at most [`crate::env_names::MAX_JOB_ENV`] entries, each a valid, unreserved
+/// name mapped to a credential name. Whether the credential exists is the server's concern
+/// (a warning at sync, `credential_unavailable` at dispatch).
+fn validate_env(at: &str, env: &BTreeMap<String, String>, issues: &mut Vec<ManifestIssue>) {
+    use crate::env_names::{self, MAX_JOB_ENV};
+    if env.len() > MAX_JOB_ENV {
+        issues.push(ManifestIssue::coded(
+            format!("{at}.env"),
+            "env_too_many",
+            format!("a job sets at most {MAX_JOB_ENV} environment names"),
+        ));
+    }
+    for (name, credential) in env {
+        let nat = format!("{at}.env.{name}");
+        if let Err(e) = env_names::check(name) {
+            issues.push(ManifestIssue::coded(&nat, e.code(), e.to_string()));
+        }
+        if !is_name(credential) {
+            issues.push(ManifestIssue::coded(
+                &nat,
+                "env_name_invalid",
+                "the value is a credential name: a-z, 0-9, '-' and '_' (at most 63)",
+            ));
+        }
+    }
+}
+
+/// `profiles.<p>.includes` and `.jobs`: declared names, no job twice in one recipe.
+fn validate_recipes(
+    profiles: &BTreeMap<String, Profile>,
+    declared_jobs: &BTreeSet<String>,
+    issues: &mut Vec<ManifestIssue>,
+) {
+    for (name, p) in profiles {
+        for inc in &p.includes {
+            if !profiles.contains_key(inc) {
+                issues.push(ManifestIssue::coded(
+                    format!("profiles.{name}.includes"),
+                    "unknown_include",
+                    format!("profile '{inc}' is not declared under profiles"),
+                ));
+            }
+        }
+        let at = format!("profiles.{name}.jobs");
+        let mut seen = BTreeSet::new();
+        for job in &p.jobs {
+            if !declared_jobs.contains(job) {
+                issues.push(ManifestIssue::coded(
+                    &at,
+                    "unknown_recipe_job",
+                    format!("job '{job}' is not declared under jobs"),
+                ));
+            } else if !seen.insert(job) {
+                issues.push(ManifestIssue::coded(
+                    &at,
+                    "duplicate_recipe_job",
+                    format!("job '{job}' is listed twice"),
+                ));
+            }
+        }
+    }
+}
+
+/// `groups:` values must be declared profiles. Keys are inventory groups and are not checked:
+/// an unknown group simply matches no host.
+fn validate_groups(
+    groups: &BTreeMap<String, Vec<String>>,
+    profiles: &BTreeMap<String, Profile>,
+    issues: &mut Vec<ManifestIssue>,
+) {
+    for (group, targets) in groups {
+        for p in targets {
+            if !profiles.contains_key(p) {
+                issues.push(ManifestIssue::coded(
+                    format!("groups.{group}"),
+                    "unknown_group_profile",
+                    format!("profile '{p}' is not declared under profiles"),
+                ));
+            }
+        }
+    }
+}
+
+/// What needs the whole manifest: every profile expands (no cycle, at most 32 steps and 8
+/// deep) and `covers` closes without a cycle. Each cycle is reported once.
+fn validate_plans(m: &Manifest, issues: &mut Vec<ManifestIssue>) {
+    use crate::converge::{self, CoverError, ExpandError};
+    let mut cycles: BTreeSet<BTreeSet<String>> = BTreeSet::new();
+    for name in m.profiles.keys() {
+        match converge::expand(std::slice::from_ref(name), m) {
+            Ok(_) => {}
+            Err(ExpandError::Cycle(c)) => {
+                if cycles.insert(c.iter().cloned().collect()) {
+                    issues.push(ManifestIssue::coded(
+                        format!("profiles.{name}.includes"),
+                        "profile_cycle",
+                        ExpandError::Cycle(c).to_string(),
+                    ));
+                }
+            }
+            Err(e) => issues.push(ManifestIssue::coded(
+                format!("profiles.{name}"),
+                e.code(),
+                e.to_string(),
+            )),
+        }
+    }
+    if let Err(e) = converge::coverage(m) {
+        let at = match &e {
+            CoverError::SelfCover(j) | CoverError::Unknown { job: j, .. } => j.clone(),
+            CoverError::Cycle(c) => c.first().cloned().unwrap_or_default(),
+        };
+        issues.push(ManifestIssue::coded(
+            format!("jobs.{at}.covers"),
+            e.code(),
+            e.to_string(),
+        ));
+    }
 }
 
 /// Names of profiles, jobs, inventories and credentials.

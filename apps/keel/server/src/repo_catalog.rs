@@ -596,13 +596,22 @@ pub(crate) async fn stored_manifest(db: &PgPool, binding: Uuid) -> Result<Manife
     Ok(Manifest {
         profiles: profiles
             .into_iter()
-            .map(|(n, description)| (n, keel_core::manifest::Profile { description }))
+            .map(|(n, description)| {
+                (
+                    n,
+                    keel_core::manifest::Profile {
+                        description,
+                        ..Default::default()
+                    },
+                )
+            })
             .collect(),
         inventories: inventories
             .into_iter()
             .map(|(n, path)| (n, keel_core::manifest::RepoInventory { path, schema: None }))
             .collect(),
         jobs: std::collections::BTreeMap::new(),
+        groups: std::collections::BTreeMap::new(),
     })
 }
 

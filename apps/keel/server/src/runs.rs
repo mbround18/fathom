@@ -1490,6 +1490,7 @@ async fn preview_policy_upsert(app: &AppState, req: &Request<'_>, spec: PolicySp
             job: spec.job.map(|j| j.as_str().to_owned()),
             inventory: spec.inventory.map(|i| i.as_str().to_owned()),
             limit: spec.limit.map(|l| l.as_str().to_owned()),
+            check: None,
         },
         requires_approval: spec.requires_approval,
         approvals_needed: spec.approvals_needed,

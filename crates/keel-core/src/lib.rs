@@ -5,8 +5,10 @@
 pub mod approval;
 pub mod authz;
 pub mod catalog;
+pub mod converge;
 pub mod domain;
 pub mod enroll_template;
+pub mod env_names;
 pub mod inventory;
 pub mod inventory_edit;
 pub mod manifest;

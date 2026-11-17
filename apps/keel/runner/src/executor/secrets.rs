@@ -62,19 +62,8 @@ fn valid_name(name: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
 }
 
-fn valid_env_name(name: &str) -> bool {
-    let mut bytes = name.bytes();
-    matches!(bytes.next(), Some(b) if b.is_ascii_uppercase() || b == b'_')
-        && bytes.all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
-}
-
-fn reserved_env_name(name: &str) -> bool {
-    name.starts_with("ANSIBLE_")
-        || name.starts_with("LD_")
-        || name.starts_with("PYTHON")
-        || name.starts_with("KEEL_")
-        || matches!(name, "PATH" | "HOME" | "SHELL" | "IFS" | "ENV" | "BASH_ENV")
-}
+// One rule with the manifest's `jobs.<j>.env` (spec 068 T011).
+use keel_core::env_names::{is_reserved as reserved_env_name, is_shell_name as valid_env_name};
 
 fn valid_var_name(name: &str) -> bool {
     let mut bytes = name.bytes();

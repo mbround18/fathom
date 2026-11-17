@@ -329,12 +329,14 @@ fn read_manifest(
             return Err(vec![ManifestIssue {
                 at: manifest::MANIFEST_PATH.to_owned(),
                 message: "the manifest does not exist at this commit".to_owned(),
+                code: None,
             }]);
         }
         Err(_) => {
             return Err(vec![ManifestIssue {
                 at: manifest::MANIFEST_PATH.to_owned(),
                 message: "the manifest could not be read".to_owned(),
+                code: None,
             }]);
         }
     };
