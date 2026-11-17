@@ -287,7 +287,7 @@ side, and anything an honest relay never does takes the relay out of service.
   query frames, `relay.toml`, `hub_keys` and `queries.toml` parsing. None may panic,
   allocate more than the frame cap, or accept anything the strict parser would refuse. Put them
   in `exec/relay.rs` tests, `relay/tests/` and `runner/tests/queries.rs`.
-- [ ] T065 [US2] **Relay sandbox** in `relay/systemd/keel-relay.service`:
+- [X] T065 [US2] **Relay sandbox** in `relay/systemd/keel-relay.service`:
   - the runner unit's hardening, plus `CapabilityBoundingSet=` and `AmbientCapabilities=`
     (empty);
   - `SystemCallFilter=@system-service ~@privileged ~@resources`,
@@ -296,6 +296,7 @@ side, and anything an honest relay never does takes the relay out of service.
     and `StateDirectory=keel-relay`.
 
   Record the `systemd-analyze security keel-relay.service` score (target ≤ 2.0 "OK") in this file.
+  Done 2026-11-17: every directive above is present (a8c3781e); offline score 1.1 OK; fluxified told the same day.
   Tell the fluxified session when the unit changes, because ../ansible byte-copies it.
 - [ ] T066 [US2] **Independent adversarial review**, before US3 merges. A fresh agent gets only
   the code, `contracts/relay.md` and this hardening list, with none of the implementers'
