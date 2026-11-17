@@ -1749,6 +1749,7 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
             pack_size: pack.bytes.len() as u64,
             quorum: quorum.and_then(|q| u32::try_from(q).ok()),
             params: serde_json::from_value::<BTreeMap<String, String>>(params).unwrap_or_default(),
+            check: false,
         },
         Frame::Secrets {
             run_id: run_id.clone(),
@@ -1877,6 +1878,7 @@ async fn secrets(
             name,
             kind,
             value: SecretString::new(value),
+            env_name: None,
         });
     }
     Ok(items)

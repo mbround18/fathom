@@ -211,6 +211,7 @@ mod tests {
             name: name.to_owned(),
             kind: kind.to_owned(),
             value: SecretString::new(value),
+            env_name: None,
         }
     }
 

@@ -250,10 +250,20 @@ async fn run(
         pack_size,
         quorum,
         params,
+        check,
     } = assign
     else {
         return;
     };
+    // Spec 068 check mode lands with T025; until then a check run is refused, never run for real.
+    if check {
+        let _ = out.send(Frame::Refused {
+            run_id,
+            reason: Refusal::VersionTooOld,
+            detail: "this runner does not support check runs yet".to_owned(),
+        });
+        return;
+    }
     if !valid_run_id(&run_id) {
         eprintln!("keel-executor: refused a run id with unexpected characters; closing");
         return;
