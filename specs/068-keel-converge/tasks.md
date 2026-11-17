@@ -36,20 +36,20 @@ phase, tasks in different lanes marked [P] can run at once; tasks in one lane ru
 **External work**: tasks marked **(../ansible)** are contract deltas for the ansible session.
 Nothing in `../ansible` is edited from this repo.
 
-**Migration**: `server/migrations/0018_converge.sql` (0015 and 0017 are reserved by 067). If an
-0018 exists on main at merge time, renumber before any shared database applies it.
+**Migration**: `server/migrations/0019_converge.sql` (0015, 0017 and 0018 are 067's). If a
+0019 exists on main at merge time, renumber before any shared database applies it.
 
 ## Phase 1: Setup
 
-- [ ] T001 [server] Create `server/migrations/0018_converge.sql` with a header comment only, and
+- [X] T001 [server] Create `server/migrations/0019_converge.sql` with a header comment only, and
   a test in `server/tests/migrate.rs` that migration versions are unique and contiguous except
   the documented 0015/0017 reservations.
 - [X] T002 [P] [web] Add Playwright project `s068` (`testDir: './tests/e2e/s068'`) to
   `web/playwright.config.ts`, update its header list, create `web/tests/e2e/s068/` and an empty
   `web/tests/support/fake-converge.ts`.
-- [ ] T003 [P] [server] Runtime flag `KEEL_CONVERGE` (default off) in `server/src/config.rs`,
+- [X] T003 [P] [server] Runtime flag `KEEL_CONVERGE` (default off) in `server/src/config.rs`,
   reported in `SystemInfo.flags`; with it off, every converge command answers `feature_disabled`.
-- [ ] T004 [P] [server] Fixture repo `server/tests/fixtures/converge-repo/` (manifest with
+- [X] T004 [P] [server] Fixture repo `server/tests/fixtures/converge-repo/` (manifest with
   `debian`, `keel-node` recipe, `k3s-master` covering `k3s-audit`, a `choice` param, an `env`
   binding; playbooks that write a marker per job) and a helper in `server/tests/common` to bind it.
 
@@ -80,11 +80,11 @@ Nothing in `../ansible` is edited from this repo.
 - [X] T013 [P] [core] `exec/frames.rs`: `Assign.check` (skipped when false), `SecretItem` kind
   `env_var { name }`, capability constant `manifest-v068`; round-trip tests and a test that a
   frame with `check: true` fails to parse under the old struct shape (fail closed).
-- [ ] T014 [server] Fill `0018_converge.sql` per data-model.md: `runs` and `run_hosts` column
+- [X] T014 [server] Fill `0019_converge.sql` per data-model.md: `runs` and `run_hosts` column
   and check changes, `host_enrollments.auto_converge`, `converge_hosts` with
   `converge_hosts_one_holding`, `converge_steps`, `profile_suggestions`,
   `binding_required_checks`, `bindings.checks_timeout_secs`, `run_check_states`, grants.
-- [ ] T015 [server] Runner floor: sync records whether a binding's manifest uses any 068 key and
+- [X] T015 [server] Runner floor: sync records whether a binding's manifest uses any 068 key and
   computes `runners_refusing_manifest` from `hosts.runner_version`/capabilities; `dispatch_ready`
   refuses a host whose session lacks `manifest-v068` for such a binding with `runner_too_old`.
   Test in `server/tests/bindings.rs`. (Needs 067 `Hello.capabilities`; if absent, add the field
@@ -103,7 +103,8 @@ that host's rest; retry resumes.
   order; a failed step skips the rest on that host (`dependency_failed`) while another host
   finishes; retry creates a converge with `retry_of` of only the not-succeeded steps at the same
   commit; signed mode: one child run per job, each with its review group.
-- [ ] T017 [P] [server] Tests first, `server/tests/converge_lock.rs`: a path run created between
+  Partial: all but signed mode are covered (10 tests); the signed-mode case waits on T018.
+- [X] T017 [P] [server] Tests first, `server/tests/converge_lock.rs`: a path run created between
   step 1 and step 2 waits until the chain ends; two converges cannot both hold a host (unique
   index); a `lost` step releases the hold; a replayed `Finished` on a lost row does not advance;
   restart with a hold and no live step is reconciled.
@@ -111,23 +112,25 @@ that host's rest; retry resumes.
   inventory, `host_plan` per host, refusals (outside ceiling, runner too old, revoked),
   `combine_policies`, signed-mode `review::early_check` per child, `replaces`/`blocked_by`.
   OTel span `converge.plan` (hosts, steps).
-- [ ] T019 [server] `create_converge`: one transaction inserting the parent run, one child run
+  Partial: signed-mode bindings are refused (`signed_mode_unsupported`); `review::early_check` per child is not built.
+- [X] T019 [server] `create_converge`: one transaction inserting the parent run, one child run
   per distinct job (`parent_run_id`, `Mirror::pin` per child), `converge_hosts` (`waiting`),
   `converge_steps`, `run_hosts` (`blocked`); audit `converge.create`; superseding an unapproved
   converge sets it `cancelled/replaced` with `converge.replace`.
-- [ ] T020 [server] Trigger `converge_advance` in `0018_converge.sql` (data-model.md §Trigger),
+- [X] T020 [server] Trigger `converge_advance` in `0019_converge.sql` (data-model.md §Trigger),
   plus a SQL-level test in `server/tests/converge_lock.rs` driving each terminal transition.
-- [ ] T021 [server] `server/src/queue.rs` `dispatch_ready`: the `converge_hosts` `not exists`
+- [X] T021 [server] `server/src/queue.rs` `dispatch_ready`: the `converge_hosts` `not exists`
   filter and `waiting → holding` on claiming a converge step, same transaction;
   `recover_in_flight` reconcile pass; span `converge.step` (job, outcome) on finish.
-- [ ] T022 [server] `server/src/approvals.rs`: approving a converge parent moves each host's
+- [X] T022 [server] `server/src/approvals.rs`: approving a converge parent moves each host's
   position-0 row `blocked → queued`; deny, expire, cancel cascade to children and release holds;
   `try_finish` ends the parent when every `converge_hosts` row is terminal.
-- [ ] T023 [server] Retry: `PreviewConvergeRetry`/`ConfirmConvergeRetry` (same commit and
+- [X] T023 [server] Retry: `PreviewConvergeRetry`/`ConfirmConvergeRetry` (same commit and
   inventory; `replan: true` re-plans at head), through the approval policy (see Q3).
-- [ ] T024 [server] Wire commands and events in `server/src/api.rs`: `PreviewConverge`,
+- [X] T024 [server] Wire commands and events in `server/src/api.rs`: `PreviewConverge`,
   `ConfirmConverge`, `CancelConverge`, `GetConverge`, retry, `ConvergeChanged`; authz Operate on
   every profile of every host; `feature_disabled` when the flag is off.
+  Commands route through `dispatch.rs`; Operate is checked on the binding's workspace, not per profile.
 - [X] T025 [P] [runner] Test in `runner/tests/`: a recipe manifest parses; a step whose job's
   profiles are outside the ceiling is refused as today (FR-017, no code change expected).
 - [X] T026 [P] [web] `web/src/features/converge/` store and `ConvergePreview` dialog (matrix,
