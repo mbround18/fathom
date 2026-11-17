@@ -135,7 +135,7 @@ leaves the host disconnected, not failed.
 
 ### Tests (write first)
 
-- [ ] T014 [P] [US1] `server/tests/relay_link.rs` covers US1 acceptance 1–5:
+- [X] T014 [P] [US1] `server/tests/relay_link.rs` covers US1 acceptance 1–5:
   - path recorded as the relay;
   - a run streams its logs and its result;
   - the runner refuses a relay that answers with its own key instead of Keel's host
