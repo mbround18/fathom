@@ -1,0 +1,7 @@
+-- Spec 068: Keel converge. A converge is one parent run (`kind = 'converge'`) whose steps are
+-- child runs, one per distinct job; each host walks its steps in order under a per-host hold
+-- (`converge_hosts_one_holding`), advanced by the `converge_advance` trigger on `run_hosts`.
+-- Also: commit-status gates, profile suggestions and auto-converge on enrollment.
+--
+-- Numbering: 0015 and 0017 are reserved by spec 067; if another branch lands 0018 first,
+-- renumber this file before any shared database applies it (data-model.md).
