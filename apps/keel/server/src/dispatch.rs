@@ -238,7 +238,10 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::GetRelayLinkKeys
         | Cmd::PreviewRelayLinkKeyRotate
         | Cmd::PreviewRelayLinkKeyActivate { .. }
-        | Cmd::PreviewRelayLinkKeyRetire { .. } => Ok(()),
+        | Cmd::PreviewRelayLinkKeyRetire { .. }
+        // Host queries (spec 067 US5): checked on the host's workspace in the handler.
+        | Cmd::AskHost { .. }
+        | Cmd::ListHostQueries { .. } => Ok(()),
         // Settings, enrolments, admin tokens and the System workspace (spec 060): sessions
         // only; the handlers check instance admin or owner.
         Cmd::GetSettings
@@ -557,6 +560,10 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         | Cmd::PreviewRelayLinkKeyRotate
         | Cmd::PreviewRelayLinkKeyActivate { .. }
         | Cmd::PreviewRelayLinkKeyRetire { .. }) => crate::zones::handle(app, req, other).await,
+        // Host queries (spec 067 US5).
+        other @ (Cmd::AskHost { .. } | Cmd::ListHostQueries { .. }) => {
+            crate::host_queries::handle(app, req, other).await
+        }
     };
     events
         .into_iter()

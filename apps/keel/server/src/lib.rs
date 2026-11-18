@@ -59,5 +59,6 @@ pub mod repo_catalog;
 pub mod repository;
 
 // Relays and zones (spec 067)
+pub mod host_queries;
 pub mod relays;
 pub mod zones;

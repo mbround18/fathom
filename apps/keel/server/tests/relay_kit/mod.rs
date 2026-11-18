@@ -382,6 +382,21 @@ pub async fn runner_session(
     Handle<KeelSshClient>,
     ChannelStream<russh::client::Msg>,
 ) {
+    runner_session_with(h, handle, name, port, Vec::new()).await
+}
+
+/// [`runner_session`] whose `Hello` advertises `capabilities`.
+pub async fn runner_session_with(
+    h: &Harness,
+    handle: &russh::server::Handle,
+    name: &str,
+    port: u32,
+    capabilities: Vec<String>,
+) -> (
+    Uuid,
+    Handle<KeelSshClient>,
+    ChannelStream<russh::client::Msg>,
+) {
     let (_, token) = mint(h, name).await;
     let runner = key();
     let allowed = vec!["debian".to_owned()];
@@ -405,7 +420,7 @@ pub async fn runner_session(
             .expect("auth"),
         AuthResult::Success
     ));
-    let stream = runner_hello(h, &ssh, host_id).await;
+    let stream = runner_hello_with(h, &ssh, host_id, capabilities).await;
     (host_id, ssh, stream)
 }
 
@@ -414,6 +429,16 @@ pub async fn runner_hello(
     h: &Harness,
     ssh: &Handle<KeelSshClient>,
     host_id: Uuid,
+) -> ChannelStream<russh::client::Msg> {
+    runner_hello_with(h, ssh, host_id, Vec::new()).await
+}
+
+/// [`runner_hello`] advertising `capabilities`.
+pub async fn runner_hello_with(
+    h: &Harness,
+    ssh: &Handle<KeelSshClient>,
+    host_id: Uuid,
+    capabilities: Vec<String>,
 ) -> ChannelStream<russh::client::Msg> {
     let mut stream = open_subsystem(ssh, Subsystem::Runner)
         .await
@@ -431,7 +456,7 @@ pub async fn runner_hello(
             ledger_head: None,
             bases: Vec::new(),
             age_recipient: None,
-            capabilities: Vec::new(),
+            capabilities,
         },
     )
     .await

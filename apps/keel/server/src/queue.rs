@@ -62,6 +62,8 @@ pub struct RunSettings {
     pub flush_interval: Duration,
     pub flush_rows: usize,
     pub hello_timeout: Duration,
+    /// How long a host query waits for its answer (spec 067 US5).
+    pub query_timeout: Duration,
 }
 
 impl Default for RunSettings {
@@ -73,6 +75,7 @@ impl Default for RunSettings {
             flush_interval: Duration::from_millis(100),
             flush_rows: 64,
             hello_timeout: Duration::from_secs(10),
+            query_timeout: Duration::from_secs(15),
         }
     }
 }
@@ -810,6 +813,7 @@ where
             .map(|s| s.iter().copied().collect())
             .unwrap_or_default();
         disconnected(&app2, host, &sent).await;
+        crate::host_queries::session_ended(&app2, host).await;
     });
     kick(&app);
     Ok(())
@@ -1084,6 +1088,13 @@ impl Session {
             },
             // Answered in order, so a runner's Ping after a Finished comes back as a Pong only
             // once that Finished is handled: the runner's acknowledgement (spec 060).
+            // Host queries (spec 067 US5): stored off the session's path, so an answer never
+            // holds up run frames.
+            reply @ (Frame::QueryAnswer { .. } | Frame::QueryRefused { .. }) => {
+                let app = self.app.clone();
+                let host = self.host;
+                tokio::spawn(async move { crate::host_queries::on_reply(&app, host, reply).await });
+            }
             Frame::Ping => {
                 let _ = self.out.send(Frame::Pong);
             }
