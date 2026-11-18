@@ -98,21 +98,35 @@ Nothing in `../ansible` is edited from this repo.
 that host's rest; retry resumes.
 **Independent test**: `cargo test -p keel-server --test converge` and `--test converge_lock`.
 
-- [ ] T016 [P] [server] Tests first, `server/tests/converge.rs`: preview lists host × step with
+- [X] T016 [P] [server] Tests first, `server/tests/converge.rs`: preview lists host × step with
   `via`, params and credential names; one approval queues each host's first step; steps run in
   order; a failed step skips the rest on that host (`dependency_failed`) while another host
   finishes; retry creates a converge with `retry_of` of only the not-succeeded steps at the same
   commit; signed mode: one child run per job, each with its review group.
-  Partial: all but signed mode are covered (10 tests); the signed-mode case waits on T018.
+  Signed mode (module `signed`, 3 tests): the preview lists each step's review at the plan's one
+  commit; confirming makes one child per job, all at that commit, each in `needs_review` with its
+  own group (its hosts); the plan's approval is refused while in review; reviewing one step queues
+  that child but nothing is dispatched until every step is reviewed; each step goes out with its
+  own step's override only (the `Approvals` frame per child run id); a plan needing two approvals
+  waits in `pending_approval` after one reviewer; denying one step's review denies the converge.
 - [X] T017 [P] [server] Tests first, `server/tests/converge_lock.rs`: a path run created between
   step 1 and step 2 waits until the chain ends; two converges cannot both hold a host (unique
   index); a `lost` step releases the hold; a replayed `Finished` on a lost row does not advance;
   restart with a hold and no live step is reconciled.
-- [ ] T018 [server] `server/src/converge.rs` `preview_converge`: resolve targets, pin commit and
+- [X] T018 [server] `server/src/converge.rs` `preview_converge`: resolve targets, pin commit and
   inventory, `host_plan` per host, refusals (outside ceiling, runner too old, revoked),
   `combine_policies`, signed-mode `review::early_check` per child, `replaces`/`blocked_by`.
   OTel span `converge.plan` (hosts, steps).
-  Partial: signed-mode bindings are refused (`signed_mode_unsupported`); `review::early_check` per child is not built.
+  Signed mode: `review::early_check` runs per child (one per job, over that job's hosts, at the one
+  pinned commit); `ConvergePlan.review` lists each child. `create` starts a child with groups in
+  `needs_review` (its hosts' bases recorded, groups inserted, the plan's four-eyes on the child)
+  and the parent with it; the parent holds its approval terms from the start (window stashed as
+  `created_at` + TTL). A child's groups open only while the parent is in review (`group_ctx`
+  reads the parent's state). `converge::reviewed` moves the parent on once no child is left in
+  review, counting distinct reviewers across children against `approvals_needed`;
+  `converge::review_denied` denies the plan and abandons its steps. `checks::release` sends a
+  converge whose children wait for review to `needs_review`. The runner is unchanged: `assign`
+  already sends each child's own override approvals, bound to its run id and job.
 - [X] T019 [server] `create_converge`: one transaction inserting the parent run, one child run
   per distinct job (`parent_run_id`, `Mirror::pin` per child), `converge_hosts` (`waiting`),
   `converge_steps`, `run_hosts` (`blocked`); audit `converge.create`; superseding an unapproved
