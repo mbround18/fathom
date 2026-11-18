@@ -11,7 +11,10 @@ import { GuideLink } from './GuideLink'
 
 /** The field look without a size: border, focus ring, disabled and invalid states. */
 const FIELD_LOOK =
-  'min-w-0 border border-input bg-background text-sm outline-none transition-colors ' +
+  // Fill, text size and option colours match `@companion/ui`'s Input, so a select beside an input
+  // reads as the same kind of control in both themes.
+  'min-w-0 border border-input bg-transparent text-xs outline-none transition-colors dark:bg-input/30 ' +
+  '[&_option]:bg-background [&_option]:text-foreground ' +
   'focus-visible:border-accent-neon focus-visible:ring-1 focus-visible:ring-accent-neon/60 ' +
   'disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-status-err'
 
