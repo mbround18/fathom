@@ -343,7 +343,10 @@ side, and anything an honest relay never does takes the relay out of service.
     refusal detail is capped.
   - **F6 fixed**: a quarantine is held in memory until its database write lands. `sync` honours
     it, so the relay is not redialled, and retries the write.
-  - **F7 not changed**, by direction. It is an **open owner question**.
+  - **F7 not changed**, by direction. It is an **open owner question**. Anyone on the network
+    path who presents a wrong host key quarantines the relay until a human releases it, which is
+    availability abuse by design. Options: rate-limit host-key quarantines, or quarantine only when
+    a mismatch follows authenticated data (and treat a pre-auth mismatch as a lost link).
   - **Relay binary**:
     - A carried stream idle for `LINK_INACTIVITY` (120 s) is now closed.
     - "A newer link replaces the old one" is unchanged. Only a key in `hub_keys`, so Keel
