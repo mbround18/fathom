@@ -205,7 +205,9 @@ that host's rest; retry resumes.
 - [X] T072 [P] [core] Tests first, then `converge::narrow_by_vars(changed: &[Path], matched_paths, inventory) -> Option<BTreeSet<HostName>>` in `core/converge.rs` (FR-020): `None` when any matched change is not a group/host vars file or is `group_vars/all.*`; otherwise the hosts in the named groups (children included) and named hosts. Cover `.yml`/`.yaml`, directory-form `group_vars/<g>/`, child groups, and an unknown group (narrows to no hosts → no run, audited `run.skipped: no_hosts`).
 - [X] T073 [server] `server/src/runs.rs` `on_push`: intersect the job's host set with `narrow_by_vars` for path-triggered runs only; record the narrowing reason on the run (`narrowed_by: ["group_vars/keel_servers.yml"]`) and show it in the run header. Test in `server/tests/coverage.rs`.
   Note: new column `runs.narrowed_by text[]` (migration 0019) and `RunInfo.narrowed_by?: string[]` (absent when not narrowed). Narrowing uses the pinned revision's `inventory_hosts.groups`. A vars push naming no host the job reaches creates no run and audits `run.skipped` (reason `no_hosts`, context `narrowed_by`). Core gains `target::matching_paths`. Run header display is web (not done here).
-- [ ] T044 [P] [web] "covered by converge" in run host rows; `s068/covered.spec.ts`.
+- [X] T044 [P] [web] "covered by converge" in run host rows; `s068/covered.spec.ts`.
+  Done: host rows link "by converge <id>", skipped rows give the reason, the header names
+  `narrowed_by` (RunPage.tsx, run-068.ts).
 - [ ] T045 (../ansible) Hand contracts/ansible.md §2–§3 (narrow jobs, covers, the paths
   recommendation) to the ansible session.
 
@@ -225,8 +227,11 @@ that host's rest; retry resumes.
 - [X] T050 [server] `runs.check_mode` through `create_run`/`create_converge`, `Assign.check`,
   `finished()` skips revision writes; policy matching on `check`.
   Note: `create_converge` already stored `check_mode`. `NewRun.check` → `runs.check_mode`; `plan()` uses `policy::resolve_check`; `queue::assign` reads `check_mode` into `Assign.check`; `host_revision` returns early for a check run. `PreviewRunStart.check` no longer refuses `check_unsupported`, and its summary starts "Check (ansible-playbook --check --diff, changes nothing)". Protocol: `PolicySpec.check?` and `PolicyInfo.check?` (`Option<bool>`, optional) so policies can be set and listed on `check`. A check converge covers nothing (US4 coverage skips `check_mode` converges).
-- [ ] T051 [P] [web] Check toggles (Start dialog, converge preview), `check` badges in every run
+- [X] T051 [P] [web] Check toggles (Start dialog, converge preview), `check` badges in every run
   list; `s068/check-mode.spec.ts`.
+  Done: new StartRunDialog.tsx (Repository > Jobs > Run) with the Check switch; CheckBadge and
+  RunChecks in checks.tsx on run page and converge page. Check on policies deferred: the web app
+  has no policies UI yet.
 
 ## Phase 8: User Story 6, credentials as environment variables (P2)
 
@@ -245,7 +250,9 @@ that host's rest; retry resumes.
   (`core/ports.rs:97`) instead of `credentials::open`; `env_value` credential kind; `env_var`
   items; credential names (only) in the converge and run previews.
   Note: the core `SecretResolver` port is sync, so the server adapter is `credentials::Granted`: the granted rows are loaded (still sealed) once per assignment, and each value is unsealed only in `resolve`. `env:` entries must be `env_value` credentials and go out as `env_var` items with `env_name`; anything missing or of another kind fails the assignment with `credential_unavailable` (US1 leftover: core `missing_credentials` still does not count `env:`). Migration 0019 adds `env_value` to `credentials_kind_check`. Run previews end with "Credentials sent: a, b (as $VAR)."; converge plans already carry `credential_names`. A dispatch now also kicks after a converge settles and after `CancelConverge`, so a released hold sends the next run at once.
-- [ ] T056 [P] [web] `env_value` kind in the credentials UI; credential names shown in previews.
+- [X] T056 [P] [web] `env_value` kind in the credentials UI; credential names shown in previews.
+  Done: "Environment value" kind with a hint (BindingsPage.tsx); the Start dialog lists the
+  credentials sent; `s068/env-credential.spec.ts`.
 
 ## Phase 9: User Story 7, runnable only once checks passed (P3)
 
@@ -263,8 +270,11 @@ that host's rest; retry resumes.
   at create, poller on the sync cadence, `run_check_states`, `RunChecksChanged`, span
   `checks.wait`.
   Note: Deviations: the generic `Confirm` replaces the contract's `ConfirmRequiredChecks`; `PreviewRequiredChecks` also takes an optional `timeout_secs` (60..=86400). New `Event::RunChecksChanged { run_id, checks }` and `RunInfo.checks?`. The gate sits before review/approval/queue for both manual runs and converges (converge approval no longer goes straight to queued while checks are required); the post-checks state is derived from `review_groups`/`approvals_needed`, so no migration. Contexts are snapshotted on the run when it is made. Polling is its own 30 s loop (`checks::spawn_poller`), reading statuses once per (binding, commit); a forge read failure keeps the run waiting until its timeout. keel-core gained `waiting_checks -> cancelled` for user cancel and binding disable.
-- [ ] T060 [P] [web] Binding Required checks section; `waiting_checks` display with forge links;
+- [X] T060 [P] [web] Binding Required checks section; `waiting_checks` display with forge links;
   `s068/required-checks.spec.ts`.
+  Done: bindings/RequiredChecks.tsx (add, remove, timeout via PreviewRequiredChecks + Confirm,
+  inline refusals incl. checks_unsupported); live RunChecksChanged in runs/store.ts. Fakes in
+  tests/support/fake-runs-068.ts.
 
 ## Phase 10: User Story 8, one-off jobs with parameters (P3)
 
@@ -284,7 +294,9 @@ that host's rest; retry resumes.
 - [X] T065 [server] `RepoTree::list_dirs` from the mirror/`repo_catalog`; `ParamView.allowed`;
   `PreviewRunStart.params`/`check` through `check_params` (`runs.rs:177`).
   Note: `RepoTree::list_dirs` was already implemented by the mirror tree (`TreeAt`); the server reads it through a new `with_tree` (mirror in `spawn_blocking`, an empty tree when the mirror or commit is missing, so `from:` fails closed). There was no `ParamView` on the wire: `JobInfo.params?: Record<string, ParamView>` is new, with `ParamView { kind, allowed, default, unavailable }` resolved at the binding head (the commit a start pins). `PreviewRunStart.params` is checked by the new `check_params_at` against the pinned commit and refused `param_invalid` before the preview; the `params_unsupported` refusal is gone. The summary lists params (" Params: k=v, …."). Converge step params are untouched.
-- [ ] T066 [P] [web] Start dialog params with a `choice` select; `s068/choice-param.spec.ts`.
+- [X] T066 [P] [web] Start dialog params with a `choice` select; `s068/choice-param.spec.ts`.
+  Done: choice Select (disabled with its reason when unavailable), oci_digest input,
+  param_invalid shown inline.
 
 ## Phase 11: Polish and cross-cutting
 
