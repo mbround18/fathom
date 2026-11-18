@@ -806,6 +806,27 @@ async fn preview_relay_edit(
             .map_err(RegisterError::Db)?,
             None => None,
         };
+        // Names and host keys are unique (revoked relays included); say so before confirming.
+        let (name_taken, key_taken): (bool, bool) = sqlx::query_as(
+            "select \
+               exists (select 1 from relays where workspace_id = $1 and name = $2 \
+                 and ($4::uuid is null or id <> $4)), \
+               exists (select 1 from relays where host_key_fingerprint = $3 \
+                 and ($4::uuid is null or id <> $4))",
+        )
+        .bind(ws)
+        .bind(&edit.name)
+        .bind(&fingerprint)
+        .bind(relay)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(RegisterError::Db)?;
+        if name_taken {
+            return Err(RegisterError::NameTaken);
+        }
+        if key_taken {
+            return Err(RegisterError::HostKeyTaken);
+        }
         Ok::<_, RegisterError>((fingerprint, before))
     }
     .await;

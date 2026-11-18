@@ -343,7 +343,7 @@ manages relays and Keel's link key.
 only that zone's hosts to `disconnected (relay unreachable)`, and the change is audited (Vitest,
 Playwright `s067`, `server/tests/relays.rs`).
 
-- [ ] T028 [P] [US3] Add the protocol types from contracts/protocol.md in a new `proto/relay.rs`:
+- [X] T028 [P] [US3] Add the protocol types from contracts/protocol.md in a new `proto/relay.rs`:
   `ZoneInfo`, `RelayState`, `RelayInfo`, `RunnerPath`, `HostReach`, `RelayLinkKey`, `QueryKind`,
   `HostQuery`.
   - `HostInfo` gains `zone: Option<Uuid>` and `reach: HostReach`, both `#[serde(default)]`.
@@ -352,14 +352,18 @@ Playwright `s067`, `server/tests/relays.rs`).
   - Add the events `RelayChanged`, `HostReachChanged` and `HostQueryAnswered` in
     `proto/event.rs`.
   - Add round-trip tests for every new variant, and regenerate `web/src/protocol/generated`.
-- [ ] T029 [P] [US3] Test first, unit tests for `derive_reach(host, zone, relays_live)` in
+  - Done in `crates/keel-protocol/src/relay.rs`, tested in `tests/roundtrip_067.rs`. Added
+    `PreviewRelayRelease` (wrapping T059's `release_relay`) and `RelayLinkKeyState`. `HostReach`
+    is tagged `kind`: `connected{path}`, `disconnected`, `relay_unreachable{relays}`,
+    `relay_revoked{relay}` and `no_path`.
+- [X] T029 [P] [US3] Test first, unit tests for `derive_reach(host, zone, relays_live)` in
   `server/src/relays.rs`, covering every row of data-model.md's "Host (display, derived)" table:
   - connected direct or via a relay;
   - disconnected;
   - relay unreachable;
   - relay revoked;
   - no path.
-- [ ] T030 [US3] Implement the zone and relay handlers in `server/src/relays.rs` and route them
+- [X] T030 [US3] Implement the zone and relay handlers in `server/src/relays.rs` and route them
   in `server/src/api.rs`:
   - `ListZones`, `PreviewZoneCreate`, `PreviewZoneUpdate` and `PreviewZoneRemove`. The remove
     preview lists blocking hosts and relays.
@@ -371,15 +375,34 @@ Playwright `s067`, `server/tests/relays.rs`).
     `PreviewRelayLinkKeyRetire` (instance admin, step-up, mirroring `PreviewSshCaRotate`).
 
   Every confirm audits in the same transaction. Add tests in `server/tests/relays.rs`.
-- [ ] T031 [US3] Fill `HostInfo.zone` and `reach` in `ListHosts`. Push `RelayChanged` on state
+
+  Deviations:
+  - The handlers live in `server/src/zones.rs`, routed in `dispatch.rs`. `relays.rs` gained
+    `update_relay` and the link-key rotate, activate and retire functions.
+  - `PreviewRelayRelease` (step-up) shows the quarantine reason, when it happened, and the
+    `relay.refused` attempts since.
+  - `PreviewRelayRevoke` asks for no step-up, so a compromised relay can be cut off fast. Zone
+    changes ask for none either.
+  - Migration `0020_zone_remove.sql` grants `delete` on zones (0019 is taken by another branch).
+    The foreign keys have no cascade, so a zone that ever had a relay, even a revoked one, can't
+    be removed. The remove preview lists such relays as `relay <name> (revoked)`.
+- [X] T031 [US3] Fill `HostInfo.zone` and `reach` in `ListHosts`. Push `RelayChanged` on state
   changes (RTT and stream-count updates at most every 30 s), and `HostReachChanged` when a host's
   derived reach changes (`server/src/relays.rs`, `server/src/ws.rs`). In
   `server/tests/relays.rs`, stopping the relay must emit `HostReachChanged` to
   `relay_unreachable` within one health interval.
-- [ ] T032 [US3] Add a run preview warning in `server/src/preview.rs`. It fires when targets
+  - The pushes come from a publisher task that `RelaySupervisor` owns, through the existing
+    workspace broadcast rather than `ws.rs`. `queue.rs` also pushes reach on runner connect and
+    disconnect, and `PreviewHostZone` pushes it when a host changes zone. The test uses a relay
+    nothing listens on, so it never connects.
+- [X] T032 [US3] Add a run preview warning in `server/src/preview.rs`. It fires when targets
   include `relays.host_id` of the only non-revoked relay of a zone, and other targets are in
   that zone. It names the relay host and the dependent hosts. Test it in
   `server/tests/preview.rs`.
+  - The warning comes from `relays::run_warnings`, which the run-start preview in `runs.rs`
+    adds next to the spec 066 warnings. It names at most 10 hosts, then "and N more". The tests
+    are `relays::run_warnings` in `server/tests/relays.rs` and the wording in unit tests. No
+    test drives the full run preview.
 - [ ] T033 [P] [US3] Add the fake backend `web/tests/support/fake-relays.ts`, which serves zones,
   relays, link keys, reach and events for the commands above.
 - [ ] T034 [US3] Update `web/src/features/hosts/`:

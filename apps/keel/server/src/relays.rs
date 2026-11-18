@@ -2831,7 +2831,7 @@ mod tests {
         );
         // 2. Direct, or a zone with a connected relay: a path exists.
         assert_eq!(
-            derive_reach(None, None, Some(revoked.id), &[revoked.clone()]),
+            derive_reach(None, None, Some(revoked.id), std::slice::from_ref(&revoked)),
             HostReach::Disconnected
         );
         assert_eq!(
