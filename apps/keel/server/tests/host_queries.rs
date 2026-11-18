@@ -105,11 +105,7 @@ impl QueryRunner {
         keel_server::queue::attach(h.app.clone(), host, server_end)
             .await
             .expect("attach");
-        Self {
-            queries,
-            out,
-            task,
-        }
+        Self { queries, out, task }
     }
 
     async fn next_query(&mut self) -> (String, String, BTreeMap<String, String>, String) {
@@ -154,17 +150,20 @@ fn asked(events: &[Event]) -> HostQuery {
 }
 
 /// The next `HostQueryAnswered` for `id`.
-async fn answered(events: &mut broadcast::Receiver<(keel_core::WorkspaceId, Event)>, id: Uuid) -> HostQuery {
+async fn answered(
+    events: &mut broadcast::Receiver<(keel_core::WorkspaceId, Event)>,
+    id: Uuid,
+) -> HostQuery {
     let deadline = tokio::time::Instant::now() + WAIT;
     loop {
         let got = tokio::time::timeout_at(deadline, events.recv())
             .await
             .expect("no HostQueryAnswered")
             .expect("events");
-        if let (_, Event::HostQueryAnswered(q)) = got {
-            if q.id == id {
-                return q;
-            }
+        if let (_, Event::HostQueryAnswered(q)) = got
+            && q.id == id
+        {
+            return q;
         }
     }
 }
@@ -175,21 +174,22 @@ async fn list(h: &Harness, host: Uuid) -> (Vec<HostQuery>, Option<bool>) {
         .await
         .as_slice()
     {
-        [Event::HostQueries {
-            items, query_v1, ..
-        }] => (items.clone(), *query_v1),
+        [
+            Event::HostQueries {
+                items, query_v1, ..
+            },
+        ] => (items.clone(), *query_v1),
         other => panic!("expected HostQueries, got {other:?}"),
     }
 }
 
 /// The `context` of every `host.query` audit row, oldest first.
 async fn audits(h: &Harness) -> Vec<Value> {
-    let rows: Vec<(Value,)> = sqlx::query_as(
-        "select context from audit_event where action = 'host.query' order by seq",
-    )
-    .fetch_all(&h.db.owner)
-    .await
-    .expect("audit");
+    let rows: Vec<(Value,)> =
+        sqlx::query_as("select context from audit_event where action = 'host.query' order by seq")
+            .fetch_all(&h.db.owner)
+            .await
+            .expect("audit");
     rows.into_iter().map(|r| r.0).collect()
 }
 
@@ -203,15 +203,22 @@ async fn an_answered_query_is_stored_pushed_listed_and_audited_without_its_answe
     let mut events = h.app.repos.events.subscribe();
 
     let q = asked(
-        &h.cmd(ask(host, QueryKind::UnitState, &[("unit", "nginx.service")]))
-            .await,
+        &h.cmd(ask(
+            host,
+            QueryKind::UnitState,
+            &[("unit", "nginx.service")],
+        ))
+        .await,
     );
     assert_eq!(q.outcome, None);
     assert_eq!(q.asked_by, "owner");
     let (query_id, kind, params, asked_by) = runner.next_query().await;
     assert_eq!(query_id, q.id.to_string());
     assert_eq!(kind, "unit_state");
-    assert_eq!(params.get("unit").map(String::as_str), Some("nginx.service"));
+    assert_eq!(
+        params.get("unit").map(String::as_str),
+        Some("nginx.service")
+    );
     assert_eq!(asked_by, "owner");
 
     runner.reply(Frame::QueryAnswer {
@@ -220,7 +227,10 @@ async fn an_answered_query_is_stored_pushed_listed_and_audited_without_its_answe
     });
     let done = answered(&mut events, q.id).await;
     assert_eq!(done.outcome, Some(QueryOutcome::Answered));
-    assert_eq!(done.answer.as_ref().expect("answer")["active_state"], "active");
+    assert_eq!(
+        done.answer.as_ref().expect("answer")["active_state"],
+        "active"
+    );
     assert!(done.answered_at.is_some());
 
     let (items, query_v1) = list(&h, host).await;
@@ -241,7 +251,10 @@ async fn an_answered_query_is_stored_pushed_listed_and_audited_without_its_answe
     assert!(!h.audit_text().await.contains(SECRET));
     assert!(!h.audit_text().await.contains("active_state"));
     let (items, _) = list(&h, host).await;
-    assert_eq!(items[0].answer.as_ref().expect("answer")["active_state"], "active");
+    assert_eq!(
+        items[0].answer.as_ref().expect("answer")["active_state"],
+        "active"
+    );
     h.finish().await;
 }
 
@@ -256,7 +269,10 @@ async fn refusals_contract_breaches_and_foreign_replies() {
     let mut events = h.app.repos.events.subscribe();
 
     // Refused by the runner.
-    let q = asked(&h.cmd(ask(host, QueryKind::PathFree, &[("path", "/srv")])).await);
+    let q = asked(
+        &h.cmd(ask(host, QueryKind::PathFree, &[("path", "/srv")]))
+            .await,
+    );
     let (id, ..) = runner.next_query().await;
     runner.reply(Frame::QueryRefused {
         query_id: id,
@@ -350,8 +366,15 @@ async fn no_session_or_an_old_runner_settles_at_once() {
     assert_eq!(items.len(), 2);
     assert_eq!(items[0].id, q.id, "newest first");
 
-    let outcomes: Vec<Value> = audits(&h).await.iter().map(|c| c["outcome"].clone()).collect();
-    assert_eq!(outcomes, vec![json!("disconnected"), json!("no_capability")]);
+    let outcomes: Vec<Value> = audits(&h)
+        .await
+        .iter()
+        .map(|c| c["outcome"].clone())
+        .collect();
+    assert_eq!(
+        outcomes,
+        vec![json!("disconnected"), json!("no_capability")]
+    );
     h.finish().await;
 }
 
@@ -373,8 +396,14 @@ async fn bad_parameters_are_refused_before_anything_is_sent() {
         assert_eq!(op_error(&h.cmd(cmd).await), "bad_params");
     }
     assert!(list(&h, host).await.0.is_empty());
-    assert!(runner.queries.try_recv().is_err(), "a bad query reached the runner");
-    assert_eq!(op_error(&h.cmd(ask(Uuid::now_v7(), QueryKind::Facts, &[])).await), "not_found");
+    assert!(
+        runner.queries.try_recv().is_err(),
+        "a bad query reached the runner"
+    );
+    assert_eq!(
+        op_error(&h.cmd(ask(Uuid::now_v7(), QueryKind::Facts, &[])).await),
+        "not_found"
+    );
     h.finish().await;
 }
 
@@ -397,20 +426,25 @@ async fn viewers_list_but_only_operators_ask() {
         .execute(&h.db.owner)
         .await
         .expect("member");
-    sqlx::query("insert into grants (id, team_id, workspace_id, role) values ($1, $2, $3, 'viewer')")
-        .bind(Uuid::now_v7())
-        .bind(team)
-        .bind(h.workspace)
-        .execute(&h.db.owner)
-        .await
-        .expect("grant");
+    sqlx::query(
+        "insert into grants (id, team_id, workspace_id, role) values ($1, $2, $3, 'viewer')",
+    )
+    .bind(Uuid::now_v7())
+    .bind(team)
+    .bind(h.workspace)
+    .execute(&h.db.owner)
+    .await
+    .expect("grant");
 
     let out = h.cmd_as(&vic, ask(host, QueryKind::Facts, &[])).await;
     assert!(matches!(out.as_slice(), [Event::Denied { .. }]), "{out:?}");
     let out = h
         .cmd_as(&vic, Cmd::ListHostQueries { host, limit: None })
         .await;
-    assert!(matches!(out.as_slice(), [Event::HostQueries { .. }]), "{out:?}");
+    assert!(
+        matches!(out.as_slice(), [Event::HostQueries { .. }]),
+        "{out:?}"
+    );
     h.finish().await;
 }
 
@@ -475,12 +509,20 @@ async fn a_query_through_a_relay_reaches_the_runner_and_comes_back() {
     sup.sync().await.expect("sync");
     let side = relay.next_link().await.answer(relay.fingerprint());
     wait_live(&h, id, |l| l.state == RelayState::Connected).await;
-    let (host, _ssh, mut stream) =
-        runner_session_with(&h, &side.handle, "web-1", 40011, vec![CAP_QUERY_V1.to_owned()])
-            .await;
+    let (host, _ssh, mut stream) = runner_session_with(
+        &h,
+        &side.handle,
+        "web-1",
+        40011,
+        vec![CAP_QUERY_V1.to_owned()],
+    )
+    .await;
     let mut events = h.app.repos.events.subscribe();
 
-    let q = asked(&h.cmd(ask(host, QueryKind::PathFree, &[("path", "/var")])).await);
+    let q = asked(
+        &h.cmd(ask(host, QueryKind::PathFree, &[("path", "/var")]))
+            .await,
+    );
     let query_id = loop {
         match tokio::time::timeout(WAIT, read_frame(&mut stream))
             .await
@@ -488,9 +530,7 @@ async fn a_query_through_a_relay_reaches_the_runner_and_comes_back() {
             .expect("read")
             .expect("open")
         {
-            Frame::Query {
-                query_id, kind, ..
-            } => {
+            Frame::Query { query_id, kind, .. } => {
                 assert_eq!(kind, "path_free");
                 break query_id;
             }

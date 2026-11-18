@@ -95,10 +95,8 @@ fn noise() -> impl Strategy<Value = Vec<u8>> {
         Just("extra"),
     ];
     (tag, prop::collection::btree_map(field, json_value(), 0..6)).prop_map(|(tag, fields)| {
-        let mut obj: Map<String, Value> = fields
-            .into_iter()
-            .map(|(k, v)| (k.to_owned(), v))
-            .collect();
+        let mut obj: Map<String, Value> =
+            fields.into_iter().map(|(k, v)| (k.to_owned(), v)).collect();
         obj.insert("frame".into(), json!(tag));
         serde_json::to_vec(&Value::Object(obj)).expect("json")
     })

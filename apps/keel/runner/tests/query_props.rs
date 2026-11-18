@@ -49,16 +49,23 @@ fn path_like() -> impl Strategy<Value = String> {
         Just("a\0b".to_owned()),
         "[a-z0-9._-]{1,8}",
     ];
-    (any::<bool>(), prop::collection::vec(part, 0..6), any::<bool>()).prop_map(
-        |(absolute, parts, trailing)| {
-            let mut s = if absolute { "/".to_owned() } else { String::new() };
+    (
+        any::<bool>(),
+        prop::collection::vec(part, 0..6),
+        any::<bool>(),
+    )
+        .prop_map(|(absolute, parts, trailing)| {
+            let mut s = if absolute {
+                "/".to_owned()
+            } else {
+                String::new()
+            };
             s.push_str(&parts.join("/"));
             if trailing {
                 s.push('/');
             }
             s
-        },
-    )
+        })
 }
 
 fn unit_like() -> impl Strategy<Value = String> {
