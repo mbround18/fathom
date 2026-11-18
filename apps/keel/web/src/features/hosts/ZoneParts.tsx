@@ -43,7 +43,7 @@ export function PathCell({ host, relays }: { host: HostInfo; relays: readonly Re
     <span
       data-host-path={host.reach.kind}
       title={reachDetail(host.reach, relays) ?? reachText(host.reach, relays)}
-      className={`text-xs ${tone === 'ok' ? 'font-mono text-foreground' : `font-medium ${TONE[tone]}`}`}
+      className={`text-xs break-normal [overflow-wrap:normal] ${tone === 'ok' ? 'font-mono text-foreground' : `font-medium ${TONE[tone]}`}`}
     >
       {pathText(host.reach, relays)}
     </span>

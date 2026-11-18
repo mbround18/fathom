@@ -238,8 +238,15 @@ function Zones({ canEdit }: { canEdit: boolean }) {
       {
         key: 'relays',
         header: 'Relays',
-        className: 'w-20',
-        cell: (z) => <span className={`tabular-nums ${z.relays === 0 ? 'text-status-err' : ''}`}>{z.relays}</span>,
+        className: 'w-28',
+        cell: (z) =>
+          z.relays === 0 ? (
+            <span data-zone-no-relay className="font-medium text-status-err">
+              0, no path
+            </span>
+          ) : (
+            <span className="tabular-nums">{z.relays}</span>
+          ),
       },
     ],
     [],
@@ -330,6 +337,21 @@ function Zones({ canEdit }: { canEdit: boolean }) {
         />
       )}
     </section>
+  )
+}
+
+/** `host:port`, wrapping only at dots and before the port, so the port never splits. */
+function DialAddress({ value }: { value: string }) {
+  const parts = value.split(/(?=[.:])/)
+  return (
+    <span className="font-mono text-xs break-normal [overflow-wrap:anywhere]">
+      {parts.map((p, i) => (
+        <span key={i}>
+          {i > 0 && <wbr />}
+          {p}
+        </span>
+      ))}
+    </span>
   )
 }
 
@@ -508,12 +530,12 @@ function Relays({ canEdit }: { canEdit: boolean }) {
   const release = useRelays((s) => s.releaseRelay)
   const columns = useMemo<Column<RelayInfo>[]>(
     () => [
-      { key: 'name', header: 'Name', className: 'w-[16%]', cell: (r) => <span className="font-mono break-all">{r.name}</span> },
-      { key: 'zone', header: 'Zone', className: 'w-[12%]', cell: (r) => <span className="font-mono">{zoneName(r.zone, zones)}</span> },
-      { key: 'address', header: 'Dial address', cell: (r) => <span className="font-mono text-xs break-all">{r.dial_address}</span> },
+      { key: 'name', header: 'Name', className: 'w-[13%]', cell: (r) => <span className="font-mono break-all">{r.name}</span> },
+      { key: 'zone', header: 'Zone', className: 'w-[10%]', cell: (r) => <span className="font-mono">{zoneName(r.zone, zones)}</span> },
+      { key: 'address', header: 'Dial address', className: 'w-[20%]', cell: (r) => <DialAddress value={r.dial_address} /> },
       { key: 'fingerprint', header: 'Host key', cell: (r) => <Fingerprint value={r.host_key_fingerprint} label={`${r.name} host key fingerprint`} /> },
       { key: 'state', header: 'State', className: 'w-[16%]', cell: (r) => <RelayStateCell relay={r} /> },
-      { key: 'version', header: 'Version', className: 'w-20', cell: (r) => <span className="tabular-nums">{r.version ?? '—'}</span> },
+      { key: 'version', header: 'Version', className: 'w-16', cell: (r) => <span className="tabular-nums">{r.version ?? '—'}</span> },
     ],
     [zones],
   )

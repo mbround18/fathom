@@ -419,7 +419,7 @@ export default function HostsPage() {
       {
         key: 'name',
         header: 'Name',
-        className: 'w-[28%]',
+        className: 'w-[22%]',
         cell: (h) => (
           <span className="flex min-w-0 flex-wrap items-center gap-1">
             <button
@@ -438,10 +438,10 @@ export default function HostsPage() {
         ),
       },
       { key: 'state', header: 'State', cell: (h) => <StateBadge state={h.state} /> },
-      { key: 'path', header: 'Path', cell: (h) => <PathCell host={h} relays={relays ?? []} /> },
+      { key: 'path', header: 'Path', className: 'w-[17%]', cell: (h) => <PathCell host={h} relays={relays ?? []} /> },
       { key: 'profiles', header: 'Profiles', tip: <TermTip term="profile" />, cell: (h) => <span className="font-mono">{h.profiles.join(', ')}</span> },
-      { key: 'runner', header: 'Runner', cell: (h) => h.runner_version ?? '—' },
-      { key: 'ansible', header: 'Ansible', cell: (h) => h.ansible_version ?? '—' },
+      { key: 'runner', header: 'Runner', className: 'w-20', cell: (h) => h.runner_version ?? '—' },
+      { key: 'ansible', header: 'Ansible', className: 'w-20', cell: (h) => h.ansible_version ?? '—' },
       { key: 'seen', header: 'Last seen', cell: (h) => <span className="tabular-nums">{h.last_seen_at ?? '—'}</span> },
     ],
     [show, relays],
