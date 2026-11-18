@@ -405,8 +405,21 @@ impl Runner {
             .map_err(|e| state_err("write", &path, e))
     }
 
-    pub(crate) fn accept_cert(&self, line: &str) -> Result<Certificate, RunnerError> {
+    /// Checks and saves a certificate from Keel. With `signer`, it must also be signed by that
+    /// CA: a certificate Keel pushes unasked must come from the CA of the one in use, since the
+    /// runner cannot check a signature itself and a certificate the server refuses would lock
+    /// the host out until it expires. A rotated CA arrives only as the answer to `RenewCert`.
+    pub(crate) fn accept_cert(
+        &self,
+        line: &str,
+        signer: Option<&KeyData>,
+    ) -> Result<Certificate, RunnerError> {
         let cert = check_issued(line, &self.key, &self.policy.inventory_name, unix_now())?;
+        if signer.is_some_and(|ca| cert.signature_key() != ca) {
+            return Err(RunnerError::BadCert(
+                "not signed by the CA of the certificate in use",
+            ));
+        }
         self.save_cert(&cert)?;
         Ok(cert)
     }
@@ -546,7 +559,7 @@ impl Runner {
             .await
             .map_err(|_| RunnerError::Protocol("no answer to RenewCert".to_owned()))?;
         let cert = match answer {
-            Ok(Some(Frame::Cert { cert })) => self.accept_cert(&cert)?,
+            Ok(Some(Frame::Cert { cert })) => self.accept_cert(&cert, None)?,
             Ok(Some(other)) => {
                 return Err(RunnerError::Protocol(format!(
                     "expected Cert, got {}",

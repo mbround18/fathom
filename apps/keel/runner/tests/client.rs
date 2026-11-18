@@ -6,6 +6,8 @@
 //!   runner even connects.
 //! - With an expired runner certificate (within the server's offline window) the runner sends
 //!   only `RenewCert`, and saves the certificate it gets back.
+//! - A certificate Keel pushes unasked mid-session is saved when valid; one for another key or
+//!   inventory name, or from another CA, is refused, the current one kept, the session going on.
 //! - Enrollment saves the certificate and host id and deletes the token; a session sends
 //!   `Hello` with the executor's ledger and relays a run both ways unchanged.
 
@@ -179,7 +181,7 @@ impl RunnerAuthority for TestAuthority {
 }
 
 /// Plays Keel's side: answers `Enroll` with `Enrolled`, `RenewCert` with `Cert`, and on a full
-/// session sends `assign` after `Hello` and stops after `Finished`. Records every frame with
+/// session sends `assign` after `Hello` and stops after `Finished` or `Pong`. Records every frame with
 /// its access and whether that access permits it; stops at the first refused frame.
 struct TestService {
     seen: mpsc::UnboundedSender<(Access, Frame, bool)>,
@@ -203,7 +205,7 @@ impl SubsystemService for TestService {
                 }],
                 Frame::RenewCert {} => vec![Frame::Cert { cert }],
                 Frame::Hello { .. } => self.assign.clone(),
-                Frame::Finished { .. } => return,
+                Frame::Finished { .. } | Frame::Pong => return,
                 _ => vec![],
             };
             for f in answer {
@@ -637,6 +639,93 @@ async fn a_session_says_hello_and_relays_a_run_unchanged() {
         got.push(f);
     }
     assert_eq!(got, vec![Frame::ReadLedger, assign, secrets]);
+}
+
+/// Holds a session whose server pushes `pushed` right after `Hello`, then pings and closes on
+/// the `Pong`. Returns the certificate the session started with and the one on disk after.
+async fn push_cert(pushed: impl FnOnce(&Pki, &KeyData) -> Certificate) -> (String, String) {
+    let pki = Pki::new();
+    let host = Host::new(&pki);
+    let key_data = host.runner(1).public_key().clone();
+    let current = runner_cert(&pki.runner_ca, &key_data, SystemTime::now());
+    let pushed = pushed(&pki, &key_data).to_openssh().unwrap();
+    let mut server = good_server(
+        &pki,
+        vec![key_data],
+        vec![Frame::Cert { cert: pushed }, Frame::Ping],
+    )
+    .await;
+    let _exec = fake_executor(&host.socket).await;
+    host.write_cert(&current);
+
+    tokio::time::timeout(WAIT, host.runner(server.port).run_once())
+        .await
+        .expect("hung")
+        .expect("a refused certificate does not end the session");
+    let names: Vec<&str> = server.frames().iter().map(|(_, f, _)| f.name()).collect();
+    assert_eq!(
+        names,
+        ["Hello", "Pong"],
+        "the session went on after the Cert"
+    );
+    (current.to_openssh().unwrap(), cert_on_disk(&host.state))
+}
+
+#[tokio::test]
+async fn a_pushed_certificate_is_saved() {
+    let mut sent = String::new();
+    let (current, on_disk) = push_cert(|pki, key| {
+        // Issued a minute earlier, so it differs from the current one.
+        let cert = runner_cert(
+            &pki.runner_ca,
+            key,
+            SystemTime::now() - Duration::from_secs(60),
+        );
+        sent = cert.to_openssh().unwrap();
+        cert
+    })
+    .await;
+    assert_ne!(on_disk, current);
+    assert_eq!(on_disk, sent);
+}
+
+#[tokio::test]
+async fn a_pushed_certificate_for_another_host_or_from_another_ca_is_refused() {
+    let another_key = |pki: &Pki, _: &KeyData| {
+        runner_cert(
+            &pki.runner_ca,
+            key().public_key().key_data(),
+            SystemTime::now(),
+        )
+    };
+    let another_inventory = |pki: &Pki, key: &KeyData| {
+        let profiles = vec!["base".to_owned()];
+        pki.runner_ca
+            .issue_runner_cert(&RunnerCertRequest {
+                runner_id: "r-2",
+                inventory_name: "web-2",
+                assigned_profiles: &profiles,
+                allowed_profiles: &profiles,
+                public_key: key,
+                ttl: DAY,
+                now: SystemTime::now(),
+            })
+            .unwrap()
+    };
+    let another_ca = |_: &Pki, key: &KeyData| {
+        let rogue = SshCa::generate(CaKind::Runner).unwrap();
+        runner_cert(&rogue, key, SystemTime::now())
+    };
+    for (case, (current, on_disk)) in [
+        ("another key", push_cert(another_key).await),
+        ("another inventory name", push_cert(another_inventory).await),
+        ("another CA", push_cert(another_ca).await),
+    ] {
+        assert_eq!(
+            on_disk, current,
+            "{case}: the current certificate was replaced"
+        );
+    }
 }
 
 #[test]

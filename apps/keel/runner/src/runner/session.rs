@@ -135,6 +135,10 @@ impl Runner {
 
         let mut handle = self.connect(&self.host_cas).await?;
         let mut renew_deadline = deadline_for(renew_at(&cert));
+        // The CA of the certificate in use: a `Cert` pushed unasked must come from it. After
+        // the runner sends `RenewCert`, the answer may come from a rotated CA.
+        let mut signer = cert.signature_key().clone();
+        let mut renew_asked = false;
         self.auth_cert(&mut handle, cert).await?;
         let stream = open_subsystem(&handle, Subsystem::Runner).await?;
         let (read_half, write_half) = tokio::io::split(stream);
@@ -193,11 +197,24 @@ impl Runner {
                         }
                         Frame::RenewCert {} => {
                             send(&out, Frame::RenewCert {})?;
+                            renew_asked = true;
                             renew_deadline = Instant::now() + RENEW_RETRY;
                         }
                         Frame::Cert { cert } => {
-                            let cert = self.accept_cert(&cert)?;
-                            renew_deadline = deadline_for(renew_at(&cert));
+                            // Keel pushes one unasked when the host's profiles change (spec
+                            // 068). A refused one is dropped and the current one kept; a
+                            // renewal is asked for again at the retry deadline.
+                            match self.accept_cert(&cert, (!renew_asked).then_some(&signer)) {
+                                Ok(cert) => {
+                                    signer = cert.signature_key().clone();
+                                    renew_asked = false;
+                                    renew_deadline = deadline_for(renew_at(&cert));
+                                }
+                                Err(RunnerError::BadCert(why)) => eprintln!(
+                                    "keel-runner: refused a certificate from Keel ({why}); keeping the current one"
+                                ),
+                                Err(e) => break Err(e),
+                            }
                         }
                         Frame::Krl { bytes } => self.save_krl(&bytes)?,
                         Frame::OutsideRunsAck { through } => {
@@ -267,6 +284,7 @@ impl Runner {
                 }
                 () = sleep_until(renew_deadline) => {
                     send(&out, Frame::RenewCert {})?;
+                    renew_asked = true;
                     renew_deadline = Instant::now() + RENEW_RETRY;
                 }
             }
