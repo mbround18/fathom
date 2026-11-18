@@ -173,6 +173,15 @@ onServerEvent(({ reply_to, event }) => {
       }
       break
     }
+    case 'HostReachChanged': {
+      // Spec 067: a relay came or went, so this host's path to Keel changed.
+      const { host, reach } = event.data
+      if (!s.hosts.some((h) => h.id === host)) break
+      const hosts = s.hosts.map((h) => (h.id === host ? { ...h, reach } : h))
+      const detail = s.detail?.host.id === host ? { ...s.detail, host: { ...s.detail.host, reach } } : s.detail
+      useHosts.setState({ hosts, detail })
+      break
+    }
     case 'SshCa':
       if (ours) useHosts.setState({ ssh: { cas: event.data.cas, cert_authority: event.data.cert_authority } })
       break
