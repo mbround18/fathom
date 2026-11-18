@@ -323,6 +323,10 @@ pub struct PolicyInfo {
     pub approval_ttl_secs: u32,
     /// The workspace catch-all: cannot be removed or narrowed.
     pub catch_all: bool,
+    /// Spec 068: `true` matches only check runs, `false` only real runs; absent matches both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub check: Option<bool>,
 }
 
 /// `PreviewPolicyUpsert`: a new policy (`id` absent) or a change to one.
@@ -346,6 +350,10 @@ pub struct PolicySpec {
     #[serde(default)]
     pub four_eyes: bool,
     pub approval_ttl_secs: u32,
+    /// Spec 068: `true` matches only check runs, `false` only real runs; absent matches both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub check: Option<bool>,
 }
 
 /// One policy as `ExplainPolicy` judged it.

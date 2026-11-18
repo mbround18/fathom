@@ -4,4 +4,8 @@ export type PolicyInfo = { id: string, workspace: string, priority: number, job:
 /**
  * The workspace catch-all: cannot be removed or narrowed.
  */
-catch_all: boolean, };
+catch_all: boolean, 
+/**
+ * Spec 068: `true` matches only check runs, `false` only real runs; absent matches both.
+ */
+check?: boolean, };

@@ -1264,14 +1264,19 @@ async fn host_revision(
     ledger_hash: Option<&str>,
     ledger_line: &str,
 ) -> Result<(), sqlx::Error> {
-    let (job, commit, signed, name): (Option<Uuid>, String, bool, String) = sqlx::query_as(
-        "select r.job_id, r.commit, r.signed_mode, rh.host_name from runs r \
-         join run_hosts rh on rh.run_id = r.id and rh.host_id = $2 where r.id = $1",
-    )
-    .bind(run)
-    .bind(host)
-    .fetch_one(&mut *tx)
-    .await?;
+    let (job, commit, signed, name, check): (Option<Uuid>, String, bool, String, bool) =
+        sqlx::query_as(
+            "select r.job_id, r.commit, r.signed_mode, rh.host_name, r.check_mode from runs r \
+             join run_hosts rh on rh.run_id = r.id and rh.host_id = $2 where r.id = $1",
+        )
+        .bind(run)
+        .bind(host)
+        .fetch_one(&mut *tx)
+        .await?;
+    // A check run (spec 068 FR-011) applied nothing: no base, drift or rollback point moves.
+    if check {
+        return Ok(());
+    }
     let outcome = if signed {
         match ledger_outcome(ledger_line, &run.to_string()) {
             Some(o) => o,
@@ -1905,6 +1910,7 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
         Option<i32>,
         Value,
         bool,
+        bool,
     );
     let row: Option<Row> = sqlx::query_as(
         "select r.binding_id, r.job_name, r.commit, j.definition, r.workspace_id, r.signed_mode, \
@@ -1914,7 +1920,7 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
                   order by hr.applied_at desc, hr.id desc limit 1), \
                 rh.host_name, \
                 greatest(b.override_quorum, h.override_quorum, 1), r.params, \
-                coalesce(b.manifest_v068, false) \
+                coalesce(b.manifest_v068, false), r.check_mode \
          from runs r \
          join run_hosts rh on rh.run_id = r.id and rh.host_id = $2 \
          join hosts h on h.id = rh.host_id \
@@ -1939,6 +1945,7 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
         quorum,
         params,
         v068,
+        check,
     )) = row
     else {
         return Err(AssignError::ArtifactMissing);
@@ -1978,7 +1985,7 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
             pack_size: pack.bytes.len() as u64,
             quorum: quorum.and_then(|q| u32::try_from(q).ok()),
             params: serde_json::from_value::<BTreeMap<String, String>>(params).unwrap_or_default(),
-            check: false,
+            check,
         },
         Frame::Secrets {
             run_id: run_id.clone(),

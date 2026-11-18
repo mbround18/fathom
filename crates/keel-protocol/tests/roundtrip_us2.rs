@@ -97,6 +97,7 @@ fn run_commands() {
             approvals_needed: 2,
             four_eyes: true,
             approval_ttl_secs: 3600,
+            check: Some(true),
         }),
         Cmd::PreviewPolicyRemove { policy: id(6) },
         Cmd::ExplainPolicy {
@@ -258,6 +259,7 @@ fn run_events() {
                 four_eyes: false,
                 approval_ttl_secs: 86_400,
                 catch_all: true,
+                check: None,
             }],
         },
         Event::PolicyExplanation {

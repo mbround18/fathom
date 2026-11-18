@@ -127,6 +127,7 @@ pub async fn on_push(app: &AppState, p: Push<'_>) {
             params: &BTreeMap::new(),
             update: None,
             path: Some(path),
+            check: false,
         };
         if let Err(e) = create_run(app, &new).await {
             tracing::error!(error = %e, job = %name, "creating a run failed");
@@ -165,6 +166,9 @@ struct NewRun<'a> {
     /// Set for a path-triggered run (spec 068): narrowed by vars files (FR-020) and covered by
     /// pending converges (FR-010).
     path: Option<PathRun<'a>>,
+    /// `ansible-playbook --check --diff` (spec 068 FR-011): matched by policy as a check run,
+    /// sent as `Assign.check`, and records no host revision.
+    check: bool,
 }
 
 /// What a push changed and the job's `paths` globs.
@@ -237,16 +241,18 @@ async fn plan(
     job_name: &str,
     def: &JobDefinition,
     run_limit: Option<&str>,
+    check: bool,
 ) -> Result<Result<Plan, target::LimitError>, sqlx::Error> {
     let policies = load_policies(&mut *conn, workspace).await?;
     let limit = run_limit.or(def.limit.as_deref());
-    let explanation = policy::resolve(
+    let explanation = policy::resolve_check(
         &policies,
         &policy::Subject {
             job: job_name,
             inventory: &def.inventory,
             limit,
         },
+        check,
     );
     let policy = explanation.winner.clone();
     let pinned = crate::inventory::pin_latest(&mut *conn, workspace, &def.inventory).await?;
@@ -346,7 +352,16 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     })
     .await;
     let pinned = matches!(pinned, Ok(Ok(())));
-    let plan = match plan(&mut tx, new.workspace, new.job_name, new.def, new.run_limit).await? {
+    let plan = match plan(
+        &mut tx,
+        new.workspace,
+        new.job_name,
+        new.def,
+        new.run_limit,
+        new.check,
+    )
+    .await?
+    {
         Ok(p) => p,
         Err(e) => {
             // A job limit the manifest accepted but targeting cannot read: fail closed.
@@ -451,13 +466,14 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
         "insert into runs (id, workspace_id, job_id, binding_id, job_name, trigger, delivery_id, \
          requested_by, commit, inventory_revision_id, inventory_name, resolved_hosts, run_limit, \
          policy_id, signed_mode, state, state_reason, queued_at, ended_at, summary, params, \
-         approvals_needed, four_eyes, approval_expires_at, narrowed_by) \
+         approvals_needed, four_eyes, approval_expires_at, narrowed_by, check_mode) \
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
          case when $16 = 'queued' then now() end, case when $18 then now() end, \
          case when $18 then $19 end, $20, \
          case when $16 = 'pending_approval' then $21 end, \
          case when $16 = 'pending_approval' then $22 end, \
-         case when $16 = 'pending_approval' then now() + $23 * interval '1 second' end, $24)",
+         case when $16 = 'pending_approval' then now() + $23 * interval '1 second' end, $24, \
+         $25)",
     )
     .bind(id)
     .bind(new.workspace)
@@ -484,6 +500,7 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     .bind(plan.policy.four_eyes)
     .bind(i64::from(plan.policy.approval_ttl_secs))
     .bind(&narrowed_by)
+    .bind(new.check)
     .execute(&mut *tx)
     .await?;
     if !ended {
@@ -557,6 +574,7 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
                 "params": new.params,
                 "narrowed_by": narrowed_by,
                 "covered": covered.len(),
+                "check": new.check,
             }),
         },
     )
@@ -645,6 +663,7 @@ async fn coverage(
          join run_hosts rh on rh.run_id = s.step_run_id and rh.host_id = s.host_id \
          where ch.host_id = any($1) and ch.state in ('waiting', 'holding') \
            and cr.kind = 'converge' and cr.binding_id = $2 and cr.ended_at is null \
+           and not cr.check_mode \
            and rh.state in ('blocked', 'queued', 'sent', 'running') \
          group by ch.host_id, cr.id, cr.commit, cr.created_at \
          order by cr.created_at, cr.id",
@@ -738,6 +757,7 @@ pub(crate) async fn create_baseline_run(
             params: &BTreeMap::new(),
             update: None,
             path: None,
+            check: false,
         },
     )
     .await
@@ -781,6 +801,7 @@ pub(crate) async fn create_update_run(
             params: &params,
             update: Some(audit),
             path: None,
+            check: false,
         },
     )
     .await
@@ -794,7 +815,7 @@ pub(crate) async fn plan_summary(
     job_name: &str,
     def: &JobDefinition,
 ) -> Result<Option<(Vec<String>, String)>, sqlx::Error> {
-    let Ok(p) = plan(conn, workspace, job_name, def, None).await? else {
+    let Ok(p) = plan(conn, workspace, job_name, def, None, false).await? else {
         return Ok(None);
     };
     if p.unrunnable.is_some() || p.hosts.is_empty() {
@@ -827,18 +848,20 @@ pub(crate) async fn plan_hosts(
     job_name: &str,
     def: &JobDefinition,
 ) -> Result<Option<(Vec<(Uuid, String)>, bool, i64)>, sqlx::Error> {
-    Ok(match plan(conn, workspace, job_name, def, None).await? {
-        Ok(p) if p.unrunnable.is_none() => Some((
-            p.hosts,
-            p.policy.id.is_nil() || p.policy.four_eyes,
-            if p.policy.id.is_nil() {
-                crate::review::MAX_OVERRIDE_SECS
-            } else {
-                i64::from(p.policy.approval_ttl_secs)
-            },
-        )),
-        _ => None,
-    })
+    Ok(
+        match plan(conn, workspace, job_name, def, None, false).await? {
+            Ok(p) if p.unrunnable.is_none() => Some((
+                p.hosts,
+                p.policy.id.is_nil() || p.policy.four_eyes,
+                if p.policy.id.is_nil() {
+                    crate::review::MAX_OVERRIDE_SECS
+                } else {
+                    i64::from(p.policy.approval_ttl_secs)
+                },
+            )),
+            _ => None,
+        },
+    )
 }
 
 // ---- commands --------------------------------------------------------------------------------
@@ -928,21 +951,15 @@ pub async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
             params,
             check,
         } => {
-            // Spec 068 adds these to the wire ahead of the server support (T016+): refuse them
-            // rather than start a real run that silently drops them.
-            if check {
-                return op_error(
-                    "check_unsupported",
-                    "This server cannot start check runs yet.",
-                );
-            }
+            // Spec 068 adds params to the wire ahead of the server support (T065): refuse them
+            // rather than start a run that silently drops them.
             if !params.is_empty() {
                 return op_error(
                     "params_unsupported",
                     "This server cannot take run params from this command yet.",
                 );
             }
-            preview_run_start(app, req, job, limit.map(|l| l.as_str().to_owned())).await
+            preview_run_start(app, req, job, limit.map(|l| l.as_str().to_owned()), check).await
         }
         Cmd::PreviewCancel { run } => preview_cancel(app, req, run).await,
         Cmd::ListJobs { binding } => {
@@ -1098,6 +1115,7 @@ async fn preview_run_start(
     req: &Request<'_>,
     job: Uuid,
     limit: Option<String>,
+    check: bool,
 ) -> Vec<Event> {
     const ACTION: &str = "preview_run_start";
     let Some((binding, ws, name, def, blocked)) = (match load_job(app, job).await {
@@ -1132,7 +1150,7 @@ async fn preview_run_start(
         Ok(c) => c,
         Err(e) => return db_failed(&e),
     };
-    let p = match plan(&mut conn, ws, &name, &def, limit.as_deref()).await {
+    let p = match plan(&mut conn, ws, &name, &def, limit.as_deref(), check).await {
         Ok(Ok(p)) => p,
         Ok(Err(e)) => return op_error(e.code(), &e.to_string()),
         Err(e) => return db_failed(&e),
@@ -1152,7 +1170,12 @@ async fn preview_run_start(
     }
     let affected: Vec<String> = p.hosts.iter().map(|h| h.1.clone()).collect();
     let summary = format!(
-        "Run job {name} at {} on {} host(s) of inventory {} (revision {}){}{}.",
+        "{} job {name} at {} on {} host(s) of inventory {} (revision {}){}{}.",
+        if check {
+            "Check (ansible-playbook --check --diff, changes nothing)"
+        } else {
+            "Run"
+        },
         &commit[..commit.len().min(12)],
         affected.len(),
         def.inventory,
@@ -1196,6 +1219,7 @@ async fn preview_run_start(
             params: &BTreeMap::new(),
             update: None,
             path: None,
+            check,
         };
         match create_run(&app, &new).await {
             Ok(run) => match get_run(&app, run).await {
@@ -1683,6 +1707,7 @@ fn policy_info(workspace: Uuid, p: Policy) -> PolicyInfo {
         approvals_needed: p.approvals_needed,
         four_eyes: p.four_eyes,
         approval_ttl_secs: p.approval_ttl_secs,
+        check: p.matcher.check,
     }
 }
 
@@ -1734,7 +1759,7 @@ async fn preview_policy_upsert(app: &AppState, req: &Request<'_>, spec: PolicySp
             job: spec.job.map(|j| j.as_str().to_owned()),
             inventory: spec.inventory.map(|i| i.as_str().to_owned()),
             limit: spec.limit.map(|l| l.as_str().to_owned()),
-            check: None,
+            check: spec.check,
         },
         requires_approval: spec.requires_approval,
         approvals_needed: spec.approvals_needed,

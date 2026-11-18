@@ -209,11 +209,13 @@ that host's rest; retry resumes.
 - [X] T047 [P] [runner] Tests first, `runner/tests/check_mode.rs`: `check: true` adds
   `--check --diff`; signed mode writes `Checked`; base unchanged.
 - [X] T048 [runner] Implement in `runner/src/executor/mod.rs` and `process.rs`.
-- [ ] T049 [P] [server] Tests first, `server/tests/check_mode.rs`: check run and check converge
+- [X] T049 [P] [server] Tests first, `server/tests/check_mode.rs`: check run and check converge
   write no `host_revisions`, drift or rollback point; policy with `check: false` doesn't match a
   check run; listed with `check`.
-- [ ] T050 [server] `runs.check_mode` through `create_run`/`create_converge`, `Assign.check`,
+  Note: three tests: a check run (`Assign.check` true, `RunInfo.check`, no `host_revisions`) then the same job for real (one revision); a check converge (every step a check run, every `Assign` checked, no revision); a priority-1 policy with `check: false` then `check: true`, upserted over the wire, flips which of a check or real run needs the catch-all approval. The server has no drift or rollback-point tables; `host_revisions` is the only write and is the one asserted.
+- [X] T050 [server] `runs.check_mode` through `create_run`/`create_converge`, `Assign.check`,
   `finished()` skips revision writes; policy matching on `check`.
+  Note: `create_converge` already stored `check_mode`. `NewRun.check` → `runs.check_mode`; `plan()` uses `policy::resolve_check`; `queue::assign` reads `check_mode` into `Assign.check`; `host_revision` returns early for a check run. `PreviewRunStart.check` no longer refuses `check_unsupported`, and its summary starts "Check (ansible-playbook --check --diff, changes nothing)". Protocol: `PolicySpec.check?` and `PolicyInfo.check?` (`Option<bool>`, optional) so policies can be set and listed on `check`. A check converge covers nothing (US4 coverage skips `check_mode` converges).
 - [ ] T051 [P] [web] Check toggles (Start dialog, converge preview), `check` badges in every run
   list; `s068/check-mode.spec.ts`.
 
