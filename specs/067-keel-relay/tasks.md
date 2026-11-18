@@ -427,18 +427,29 @@ Playwright `s067`, `server/tests/relays.rs`).
     adds next to the spec 066 warnings. It names at most 10 hosts, then "and N more". The tests
     are `relays::run_warnings` in `server/tests/relays.rs` and the wording in unit tests. No
     test drives the full run preview.
-- [ ] T033 [P] [US3] Add the fake backend `web/tests/support/fake-relays.ts`, which serves zones,
+- [X] T033 [P] [US3] Add the fake backend `web/tests/support/fake-relays.ts`, which serves zones,
   relays, link keys, reach and events for the commands above.
-- [ ] T034 [US3] Update `web/src/features/hosts/`:
+  - `FakeRelays(backend, hosts, workspace?)` scripts zones, relays and placements, and
+    `setState` pushes `RelayChanged`, `HostState` and `HostReachChanged` together. Preview texts
+    mirror the server's. It also answers `PreviewRunStart` with the relay-host warning.
+- [X] T034 [US3] Update `web/src/features/hosts/`:
   - `reach.ts`, with grouping helpers and reach text, plus Vitest tests;
   - `HostsPage.tsx`, grouped by zone with `direct` first, relay chips (an icon and colour for
     state; RTT and streams at ≥ 768 px), and a Path column below state and above versions;
   - an inspector "Change zone" action through preview/confirm.
-- [ ] T035 [US3] Add `web/src/features/settings/RelaysTab.tsx` and `relays-store.ts`, registered
+  - Done in `reach.ts` (tested in `tests/unit/reach.test.ts`), `ZoneParts.tsx` and
+    `HostsPage.tsx`. Grouping turns on only once the workspace has a zone or a zoned host, so a
+    workspace without relays keeps the single "Hosts" table. The inspector shows zone and current
+    path; the last path and its advisory peer are not on the wire, so they are not shown.
+- [X] T035 [US3] Add `web/src/features/settings/RelaysTab.tsx` and `relays-store.ts`, registered
   in `tabs.ts` and lazy-loaded. It shows Keel's relay-link key with a copy button, labelled
   "Add this to `keel_relay_hub_keys`", the zones list, and the relays list with
   Register/Edit/Revoke dialogs per contracts/ui.md.
-- [ ] T036 [US3] Playwright `web/tests/e2e/s067/hosts-relays.spec.ts` and `relays-tab.spec.ts`:
+  - The tab is offered to instance admins and workspace admins. A workspace admin manages zones
+    and relays but does not see the link key (the Register preview carries its line). A
+    quarantined relay shows its reason and Release. Its "Learn more" links point at the hosts
+    guide until the relays guide lands (T049).
+- [X] T036 [US3] Playwright `web/tests/e2e/s067/hosts-relays.spec.ts` and `relays-tab.spec.ts`:
   - grouping and paths;
   - a relay going unreachable flips only its zone;
   - register with a fingerprint preview;
@@ -447,6 +458,10 @@ Playwright `s067`, `server/tests/relays.rs`).
   - the run preview warning.
 
   Run with `--project=s067`.
+  - 11 tests in `hosts-relays.spec.ts` and `relays-tab.spec.ts` on a shared `scene.ts`. They also
+    cover phone-width chips, Change zone, quarantine release, zones and the workspace-admin view.
+    The tab lists in `settings-system.spec.ts` and `s066/settings-workspace.spec.ts` now include
+    Relays; those specs were not run here.
 
 ## Phase 6: User Story 4, more than one relay per zone (P2)
 
