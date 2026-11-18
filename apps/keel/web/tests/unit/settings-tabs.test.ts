@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { canSeeSettings, resolveTab, showsSettings, visibleTabs } from '@/features/settings/tabs'
 import type { Me, MeGrant } from '@/protocol/wire'
 
-const ALL = ['workspace', 'hosts', 'enrollment', 'tokens', 'identity', 'system']
+const ALL = ['workspace', 'hosts', 'relays', 'enrollment', 'tokens', 'identity', 'system']
 
 function user(grants: Partial<MeGrant>[]): Me {
   return {
@@ -33,9 +33,9 @@ describe('settings tabs', () => {
     expect(canSeeSettings('owner')).toBe(true)
     expect(showsSettings('user', user([]), 'ws1')).toBe(false)
   })
-  it('a ws_admin of the current workspace sees Workspace and Hosts, and the nav entry (spec 066 R10, 055 T148)', () => {
+  it('a ws_admin of the current workspace sees Workspace, Hosts and Relays, and the nav entry (spec 066 R10, 055 T148, 067 US3)', () => {
     const me = user([{ workspace: 'ws1', role: 'ws_admin' }])
-    expect(visibleTabs('user', me, 'ws1')).toEqual(['workspace', 'hosts'])
+    expect(visibleTabs('user', me, 'ws1')).toEqual(['workspace', 'hosts', 'relays'])
     expect(showsSettings('user', me, 'ws1')).toBe(true)
     expect(visibleTabs('user', me, 'ws2')).toEqual([])
     expect(showsSettings('user', me, null)).toBe(false)

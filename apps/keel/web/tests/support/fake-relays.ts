@@ -59,10 +59,13 @@ export class FakeRelays {
   private seq = 0
   private readonly backend: FakeBackend
   private readonly hosts: FakeHosts
+  /** The workspace `zone(...)` and `relay(...)` create in. */
+  private readonly workspace: string
 
-  constructor(backend: FakeBackend, hosts: FakeHosts) {
+  constructor(backend: FakeBackend, hosts: FakeHosts, workspace = WORKSPACE) {
     this.backend = backend
     this.hosts = hosts
+    this.workspace = workspace
     const types = [
       'ListZones',
       'PreviewZoneCreate',
@@ -87,7 +90,7 @@ export class FakeRelays {
   // --- Scripting ------------------------------------------------------------------------------
 
   zone(name: string, description = ''): ZoneInfo {
-    const z: ZoneInfo = { id: `zone-${name}`, workspace: WORKSPACE, name, description, hosts: 0, relays: 0 }
+    const z: ZoneInfo = { id: `zone-${name}`, workspace: this.workspace, name, description, hosts: 0, relays: 0 }
     this.zones = [...this.zones, z]
     return this.counted(z)
   }
@@ -95,7 +98,7 @@ export class FakeRelays {
   relay(name: string, zone: string, over: Partial<RelayInfo> = {}): RelayInfo {
     const r: RelayInfo = {
       id: `relay-${name}`,
-      workspace: WORKSPACE,
+      workspace: this.workspace,
       zone: this.zoneByName(zone).id,
       name,
       dial_address: `${name}.example.net:7444`,

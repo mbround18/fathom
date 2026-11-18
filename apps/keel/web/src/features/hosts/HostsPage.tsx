@@ -6,6 +6,10 @@
  * Spec 066 T053: Add host (into the repository inventory, then enroll), each host's inventory
  * status, its age key, and Propose sops recipient for a workspace admin when no `.sops.yaml` rule
  * names that key yet.
+ *
+ * Spec 067 US3 (T034): once the workspace has zones, hosts are grouped by zone (`direct` first),
+ * each group headed by its relays as chips; the Path column says how each host reaches Keel; the
+ * inspector shows the host's zone and path, with Change zone for a workspace admin.
  */
 import { DesktopTowerIcon, DoorOpenIcon, KeyIcon, PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Checkbox } from '@companion/ui'
@@ -34,7 +38,7 @@ import {
   useSearchParam,
   type Column,
 } from '@companion/ui/kit'
-import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { CurrentWorkspace } from '@/app/WorkspacePicker'
@@ -42,6 +46,7 @@ import { useCurrentWorkspace } from '@/app/workspace-store'
 import { keyInRules } from '@/features/repository/catalog'
 import { ChangeOutcomeView } from '@/features/repository/ChangeOutcomeView'
 import { useCatalog } from '@/features/repository/store'
+import { useRelays } from '@/features/settings/relays-store'
 import { useGovernance } from '@/features/teams/store'
 import type { ChangeOutcome, HostInfo, HostStatus } from '@/protocol/wire'
 
@@ -49,8 +54,10 @@ import { AddHostDialog } from './AddHostDialog'
 import { useAddHost } from './add-host-store'
 import { EnrollDialog } from './EnrollDialog'
 import { useEnroll } from './enroll-store'
+import { groupHosts, hasZones } from './reach'
 import { useHosts } from './store'
 import { canAdminister, canOperate, useWorkspaces } from './workspaces'
+import { HostZone, PathCell, ZoneHeader } from './ZoneParts'
 
 const JoinRequestsTab = lazy(() => import('./JoinRequestsTab'))
 
@@ -198,6 +205,7 @@ function HostDetailPanel() {
       </div>
       {detail && (
         <div className="flex min-w-0 flex-col gap-2 p-3">
+          <HostZone host={detail.host} />
           <AgeKey host={detail.host} />
           <h3 className={LABEL}>Runs outside Keel</h3>
           <SectionIntro guide={{ guide: 'hosts', anchor: 'hosts-in-the-list' }}>
@@ -382,6 +390,9 @@ export default function HostsPage() {
   const failed = useHosts((s) => s.failed)
   const load = useHosts((s) => s.load)
   const me = useSession((s) => s.me)
+  const zones = useRelays((s) => s.zones.value)
+  const relays = useRelays((s) => s.relays.value)
+  const loadRelays = useRelays((s) => s.load)
   const mintedCount = useEnroll((s) => s.mintedCount)
   const current = useCurrentWorkspace()
   const tab = hostsTab(useSearchParam('tab'))
@@ -392,6 +403,11 @@ export default function HostsPage() {
   useEffect(() => {
     if (catalogId !== null && primary !== null) loadCatalog({ id: catalogId, primary_binding: primary })
   }, [catalogId, primary, loadCatalog])
+  // Zones and relays group the list and name each host's path (spec 067). A server that answers
+  // neither leaves the list as it was.
+  useEffect(() => {
+    if (workspace !== null) loadRelays(workspace)
+  }, [workspace, loadRelays])
   // Profiles already in use here, offered as chips in the Enroll dialog.
   const suggestions = useMemo(
     () => [...new Set(['base', ...hosts.flatMap((h) => h.profiles)])].sort(),
@@ -422,12 +438,13 @@ export default function HostsPage() {
         ),
       },
       { key: 'state', header: 'State', cell: (h) => <StateBadge state={h.state} /> },
+      { key: 'path', header: 'Path', cell: (h) => <PathCell host={h} relays={relays ?? []} /> },
       { key: 'profiles', header: 'Profiles', tip: <TermTip term="profile" />, cell: (h) => <span className="font-mono">{h.profiles.join(', ')}</span> },
       { key: 'runner', header: 'Runner', cell: (h) => h.runner_version ?? '—' },
       { key: 'ansible', header: 'Ansible', cell: (h) => h.ansible_version ?? '—' },
       { key: 'seen', header: 'Last seen', cell: (h) => <span className="tabular-nums">{h.last_seen_at ?? '—'}</span> },
     ],
-    [show],
+    [show, relays],
   )
 
   // A token just minted may be for this workspace: re-read so a pending host shows up.
@@ -441,66 +458,99 @@ export default function HostsPage() {
   // Revoking a host needs Administer (keel-server hosts.rs), more than enrolling one.
   const canRevoke = workspace !== null && canAdminister(me, workspace)
 
+  const grouped = hasZones(zones ?? [], hosts)
+  const groups = grouped ? groupHosts(hosts, zones ?? [], relays ?? [], changedOnly) : []
+  const empty = loaded ? (
+    <NoMatch
+      what="hosts"
+      onClear={() => {
+        setChangedOnly(false)
+      }}
+    />
+  ) : (
+    <LoadState loading label="Loading hosts…" />
+  )
+
   const list = (workspace: string) => (
     <div className="flex min-w-0 flex-col gap-3">
-          {failed && (
-            <LoadFailed
-              what="hosts"
-              refusal={failed}
-              onRetry={() => {
-                load(workspace)
-              }}
-            />
-          )}
-          {guided && <NoHosts workspace={workspace} canAct={variant === 'guided'} />}
-          {!failed && !guided && (
+      {failed && (
+        <LoadFailed
+          what="hosts"
+          refusal={failed}
+          onRetry={() => {
+            load(workspace)
+          }}
+        />
+      )}
+      {guided && <NoHosts workspace={workspace} canAct={variant === 'guided'} />}
+      {!failed && !guided && (
+        <>
+          {grouped ? (
             <>
-              <DataTable
-                label="Hosts"
-                filter={<ChangedFilter />}
-                columns={columns}
-                rows={hosts}
-                rowKey={(h) => h.id}
-                selected={(h) => h.id === opened}
-                rowData={(h) => ({
-                  'data-host-state': h.state,
-                  'data-host-changed-outside': String(h.changed_outside),
-                  'data-inventory-status': h.inventory_status,
-                })}
-                actions={(h) =>
-                  canRevoke &&
-                  h.state !== 'revoked' && (
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      className="text-status-err"
-                      aria-label={`Revoke ${h.inventory_name}`}
-                      onClick={() => {
-                        revoke(h.id)
-                      }}
-                    >
-                      Revoke
-                    </Button>
-                  )
-                }
-                empty={
-                  loaded ? (
-                    <NoMatch
-                      what="hosts"
-                      onClear={() => {
-                        setChangedOnly(false)
-                      }}
-                    />
+              <ChangedFilter />
+              {groups.map((g) => (
+                <section
+                  key={g.id ?? 'direct'}
+                  aria-labelledby={`zone-${g.id ?? 'direct'}`}
+                  data-zone={g.name}
+                  className="flex min-w-0 flex-col gap-2"
+                >
+                  <ZoneHeader group={g} headingId={`zone-${g.id ?? 'direct'}`} />
+                  {g.hosts.length === 0 ? (
+                    <p data-pane-state="empty" className="border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
+                      No hosts in this zone yet. Move one here from its inspector.
+                    </p>
                   ) : (
-                    <LoadState loading label="Loading hosts…" />
-                  )
-                }
-              />
-              <HostDetailPanel />
+                    table(`Hosts in ${g.name}`, g.hosts, empty)
+                  )}
+                </section>
+              ))}
+              {groups.length === 0 && empty}
             </>
+          ) : (
+            table('Hosts', hosts, empty, <ChangedFilter />)
           )}
+          <HostDetailPanel />
+        </>
+      )}
     </div>
   )
+
+  function table(label: string, rows: HostInfo[], none: ReactNode, filter?: ReactNode) {
+    return (
+      <DataTable
+        label={label}
+        filter={filter}
+        columns={columns}
+        rows={rows}
+        rowKey={(h) => h.id}
+        selected={(h) => h.id === opened}
+        rowData={(h) => ({
+          'data-host-state': h.state,
+          'data-host-changed-outside': String(h.changed_outside),
+          'data-inventory-status': h.inventory_status,
+          'data-host-path': h.reach.kind,
+        })}
+        actions={(h) =>
+          canRevoke &&
+          h.state !== 'revoked' && (
+            <Button
+              variant="ghost"
+              size="xs"
+              className="text-status-err"
+              aria-label={`Revoke ${h.inventory_name}`}
+              onClick={() => {
+                revoke(h.id)
+              }}
+            >
+              Revoke
+            </Button>
+          )
+        }
+        empty={none}
+      />
+    )
+  }
 
   return (
     <Page name="hosts" labelledBy="hosts-title">

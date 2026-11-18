@@ -12,6 +12,14 @@ export const DIRECT = 'direct'
 /** How a reach reads: `ok` connected, `quiet` disconnected, `warn` its relay is down, `err` no way in. */
 export type ReachTone = 'ok' | 'quiet' | 'warn' | 'err'
 
+/** Each tone's text colour. */
+export const TONE: Record<ReachTone, string> = {
+  ok: 'text-status-ok',
+  quiet: 'text-muted-foreground',
+  warn: 'text-status-warn',
+  err: 'text-status-err',
+}
+
 function relayName(id: string, relays: readonly RelayInfo[]): string {
   return relays.find((r) => r.id === id)?.name ?? 'a relay'
 }

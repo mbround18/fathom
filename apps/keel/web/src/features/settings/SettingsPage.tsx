@@ -7,7 +7,7 @@
  * Changes go through the governance confirm dialog; a Roll from Tokens opens the Enroll dialog's
  * result step, so both are mounted here.
  */
-import { CertificateIcon, GearSixIcon, HardDrivesIcon, IdentificationCardIcon, KeyIcon, ShieldStarIcon, StackIcon } from '@phosphor-icons/react'
+import { CertificateIcon, GearSixIcon, HardDrivesIcon, IdentificationCardIcon, KeyIcon, ShareNetworkIcon, ShieldStarIcon, StackIcon } from '@phosphor-icons/react'
 import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 import { EmptyState, LoadState, navigate, Page, PageHeader, Tabs, type Params } from '@companion/ui/kit'
 
@@ -23,10 +23,12 @@ import { TokensTab } from './TokensTab'
 import { WorkspaceTab } from './WorkspaceTab'
 
 const HostsTab = lazy(() => import('./HostsTab'))
+const RelaysTab = lazy(() => import('./RelaysTab'))
 
 const ICON: Record<SettingsTab, ReactNode> = {
   workspace: <StackIcon aria-hidden />,
   hosts: <HardDrivesIcon aria-hidden />,
+  relays: <ShareNetworkIcon aria-hidden />,
   enrollment: <CertificateIcon aria-hidden />,
   tokens: <KeyIcon aria-hidden />,
   identity: <IdentificationCardIcon aria-hidden />,
@@ -41,6 +43,12 @@ function Panel({ tab }: { tab: SettingsTab }) {
       return (
         <Suspense fallback={<LoadState loading label="Loading…" />}>
           <HostsTab />
+        </Suspense>
+      )
+    case 'relays':
+      return (
+        <Suspense fallback={<LoadState loading label="Loading…" />}>
+          <RelaysTab />
         </Suspense>
       )
     case 'enrollment':
