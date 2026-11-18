@@ -4,3 +4,12 @@ packages:
   - packages/*
   - apps/depths/web
   - apps/keel/web
+
+# `pnpm audit` advisories accepted on purpose (the cargo-deny equivalent is deny.toml). Each needs
+# the reason it does not reach a shipped artifact.
+auditConfig:
+  ignoreGhsas:
+    # picomatch ReDoS (2026-11-17), no patched release. Reached only through vite and
+    # @tailwindcss/vite at build time, globbing our own source tree; nothing ships picomatch.
+    # Drop this once picomatch > 4.0.7 is out, or when @tailwindcss/vite moves to devDependencies.
+    - GHSA-fc5q-39xc-vjpf
