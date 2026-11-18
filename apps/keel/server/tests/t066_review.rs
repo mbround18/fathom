@@ -248,7 +248,6 @@ async fn t066_f2_join_frame_is_read_past_the_rate_limit() {
 /// Secure: a stream that has not authenticated as a runner (or finished enroll/join) is closed
 /// at `auth_deadline`.
 #[tokio::test]
-#[ignore = "T066 finding: fails today"]
 async fn t066_f3_bare_key_session_outlives_auth_deadline() {
     let Some((h, zone)) = harness("t066_f3").await else {
         return;

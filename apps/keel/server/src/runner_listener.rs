@@ -53,6 +53,12 @@ use crate::serve::AppState;
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(30);
 /// A renew-only connection closes after this long idle.
 const RENEW_IDLE: Duration = Duration::from_secs(60);
+/// The longest an enroll or join session lives, whatever it is doing: one request and one
+/// answer, then the connection closes (spec 067 T066 F3). Over a relay the auth deadline
+/// applies as well, since neither counts as an authenticated runner.
+const NON_RUNNER_LIFETIME: Duration = Duration::from_secs(60);
+/// How long a finished session has to flush its last frame before the connection is dropped.
+const CLOSE_GRACE: Duration = Duration::from_secs(5);
 /// The host certificate is re-issued after this long.
 const HOST_CERT_REFRESH: Duration = Duration::from_secs(24 * 3600);
 /// The most `allowed_profiles` a host may claim.
@@ -200,9 +206,13 @@ impl std::fmt::Display for RunnerPath {
 pub struct Service {
     app: AppState,
     path: RunnerPath,
-    /// Signalled once the connection authenticated and asked for its subsystem
-    /// ([`serve_relayed`]'s deadline).
+    /// Signalled once an authenticated runner (or a renew-only host) asked for its subsystem,
+    /// which lifts [`serve_relayed`]'s deadline. Enroll and join never signal it: they stay
+    /// under the deadline until they end (T066 F3).
     started: Option<Arc<Notify>>,
+    /// Signalled when the subsystem ended, which ends the connection: one subsystem per
+    /// connection, never an idle session left open behind it.
+    done: Arc<Notify>,
 }
 
 impl Service {
@@ -215,11 +225,77 @@ impl Service {
             tracing::info!(path = %self.path, reason, detail, "runner connection refused");
         }
     }
+
+    /// Lifts [`serve_relayed`]'s deadline: an authenticated runner or renewing host.
+    fn start(&self) {
+        if let Some(started) = &self.started {
+            started.notify_one();
+        }
+    }
+
+    /// Serves the subsystem; `true` once it is over, `false` while it lives on elsewhere (an
+    /// attached runner session, which the run hub owns).
+    async fn serve_access(
+        &self,
+        access: Access,
+        key: KeyData,
+        stream: russh::ChannelStream<Msg>,
+    ) -> bool {
+        match access {
+            Access::JoinOnly => {
+                let join = crate::join::serve(&self.app, &key, &self.path, stream);
+                let _ = tokio::time::timeout(NON_RUNNER_LIFETIME, join).await;
+            }
+            Access::EnrollOnly => {
+                let _ = tokio::time::timeout(NON_RUNNER_LIFETIME, self.enroll(&key, stream)).await;
+            }
+            Access::RenewOnly { host_id } => {
+                self.start();
+                if let Ok(host) = Uuid::parse_str(&host_id) {
+                    renew_only(&self.app, host, stream).await;
+                }
+            }
+            Access::Runner(identity) => {
+                self.start();
+                let Ok(host) = Uuid::parse_str(&identity.runner_id) else {
+                    return true;
+                };
+                let path = self.path.clone();
+                let Err(e) =
+                    crate::queue::attach_on(self.app.clone(), host, stream, path.clone()).await
+                else {
+                    return false;
+                };
+                if path.relay().is_some() {
+                    self.refused("runner_session_refused", &format!("{host}: {e}"));
+                } else {
+                    tracing::warn!(host = %host, %path, error = %e, "runner session refused");
+                }
+            }
+        }
+        true
+    }
+
+    async fn enroll(&self, key: &KeyData, stream: russh::ChannelStream<Msg>) {
+        // One relay can front any number of peers: its enrollments are rate-limited (T062). A
+        // refused one closes the stream before a frame is read.
+        if !self
+            .app
+            .relay_live
+            .attempt(&self.path, RelayAttempt::Enroll)
+        {
+            return;
+        }
+        if let Err(reason) = enroll(&self.app, key, stream).await {
+            self.refused("enroll_refused", reason.as_str());
+        }
+    }
 }
 
 impl SubsystemService for Service {
     async fn serve(&self, _access: Access, _stream: russh::ChannelStream<Msg>) {
         // Without the authenticated key nothing can be checked: drop the stream.
+        self.done.notify_one();
     }
 
     async fn serve_with_key(
@@ -228,45 +304,8 @@ impl SubsystemService for Service {
         key: KeyData,
         stream: russh::ChannelStream<Msg>,
     ) {
-        if let Some(started) = &self.started {
-            started.notify_one();
-        }
-        match access {
-            Access::JoinOnly => crate::join::serve(&self.app, &key, &self.path, stream).await,
-            Access::EnrollOnly => {
-                // One relay can front any number of peers: its enrollments are rate-limited
-                // (T062). A refused one closes the stream before a frame is read.
-                if !self
-                    .app
-                    .relay_live
-                    .attempt(&self.path, RelayAttempt::Enroll)
-                {
-                    return;
-                }
-                if let Err(reason) = enroll(&self.app, &key, stream).await {
-                    self.refused("enroll_refused", reason.as_str());
-                }
-            }
-            Access::RenewOnly { host_id } => {
-                if let Ok(host) = Uuid::parse_str(&host_id) {
-                    renew_only(&self.app, host, stream).await;
-                }
-            }
-            Access::Runner(identity) => {
-                let Ok(host) = Uuid::parse_str(&identity.runner_id) else {
-                    return;
-                };
-                let path = self.path.clone();
-                if let Err(e) =
-                    crate::queue::attach_on(self.app.clone(), host, stream, path.clone()).await
-                {
-                    if path.relay().is_some() {
-                        self.refused("runner_session_refused", &format!("{host}: {e}"));
-                    } else {
-                        tracing::warn!(host = %host, %path, error = %e, "runner session refused");
-                    }
-                }
-            }
+        if self.serve_access(access, key, stream).await {
+            self.done.notify_one();
         }
     }
 }
@@ -774,22 +813,41 @@ pub async fn serve_connection<S>(
 ) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    let done = Arc::new(Notify::new());
     let authority = Arc::new(Authority { app: app.clone() });
     let service = Arc::new(Service {
         app,
         path,
         started: None,
+        done: Arc::clone(&done),
     });
     let handler = KeelSshHandler::new(authority, service);
-    if let Ok(session) = russh::server::run_stream(config, stream, handler).await {
-        let _ = session.await;
+    if let Ok(mut session) = russh::server::run_stream(config, stream, handler).await {
+        let handle = session.handle();
+        tokio::select! {
+            _ = &mut session => {}
+            () = done.notified() => close(&mut session, &handle).await,
+        }
     }
+}
+
+/// Closes a session whose subsystem ended, letting it flush its last frame for at most
+/// [`CLOSE_GRACE`].
+async fn close<F: Future + Unpin>(session: &mut F, handle: &russh::server::Handle) {
+    let _ = handle
+        .disconnect(
+            russh::Disconnect::ByApplication,
+            "session ended".into(),
+            String::new(),
+        )
+        .await;
+    let _ = tokio::time::timeout(CLOSE_GRACE, session).await;
 }
 
 /// How a relayed runner stream ended ([`serve_relayed`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamEnd {
-    /// The runner authenticated and was served.
+    /// The runner authenticated and was served, or an enroll or join ended in time.
     Served,
     /// The stream ended before the runner authenticated: a refused key or certificate, a
     /// failed handshake, or a hang-up.
@@ -801,6 +859,9 @@ pub enum StreamEnd {
 /// [`serve_connection`] for a stream a relay carries (spec 067 T060): the runner must complete
 /// the SSH handshake, authenticate and ask for its subsystem within `deadline` of the stream
 /// opening, or the stream is closed. A stream that opens and idles costs Keel a bounded time.
+///
+/// Enroll and join never lift the deadline (T066 F3): a bare key's session, which any key can
+/// open, must have asked and been answered within it. Every session ends with its subsystem.
 pub async fn serve_relayed<S>(
     app: AppState,
     config: Arc<russh::server::Config>,
@@ -813,11 +874,13 @@ where
 {
     let by = tokio::time::Instant::now() + deadline;
     let started = Arc::new(Notify::new());
+    let done = Arc::new(Notify::new());
     let authority = Arc::new(Authority { app: app.clone() });
     let service = Arc::new(Service {
         app,
         path,
         started: Some(Arc::clone(&started)),
+        done: Arc::clone(&done),
     });
     let handler = KeelSshHandler::new(authority, service);
     // `run_stream` waits for the peer's SSH id; dropping it on the deadline drops the stream.
@@ -828,16 +891,23 @@ where
             Ok(Err(_)) => return StreamEnd::Unauthenticated,
             Err(_) => return StreamEnd::AuthDeadline,
         };
+    let handle = session.handle();
     tokio::select! {
         biased;
         () = started.notified() => {
-            let _ = session.await;
+            tokio::select! {
+                _ = &mut session => {}
+                () = done.notified() => close(&mut session, &handle).await,
+            }
+            StreamEnd::Served
+        }
+        () = done.notified() => {
+            close(&mut session, &handle).await;
             StreamEnd::Served
         }
         _ = &mut session => StreamEnd::Unauthenticated,
         () = tokio::time::sleep_until(by) => {
-            let _ = session
-                .handle()
+            let _ = handle
                 .disconnect(
                     russh::Disconnect::ByApplication,
                     "authentication deadline".into(),
