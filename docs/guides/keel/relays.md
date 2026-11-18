@@ -164,6 +164,13 @@ open a kind of connection it isn't allowed, or send a message Keel doesn't expec
 any of them, Keel **quarantines** it: it drops the relay's connection and every host session it
 carries, records why, and stops dialling it.
 
+A wrong host key counts only once Keel has connected to the relay with the key you registered.
+Until then, anyone between Keel and the relay could present a different key, so Keel treats it as
+a lost connection instead: the relay shows as unreachable with a host key mismatch, Keel keeps
+retrying with backoff, and the audit log records the mismatch (at most once a minute per relay,
+with a count). If you change a relay's host key, Keel has to connect with the new key before a
+mismatch quarantines it again.
+
 A quarantined relay shows its reason in **Settings → Relays**. Find out what happened on the
 relay's host first. Then choose **Release**: the preview shows the reason, when it happened, and
 the refusals since. Confirm with your passkey, and Keel dials the relay again.

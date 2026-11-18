@@ -57,6 +57,7 @@ Unique partial index: one `active` row. Created on first start when none exists.
 | `revoked_at` | `timestamptz` null | Set once, never cleared. A revoked relay is shown, never dialled. |
 | `quarantined_at` | `timestamptz` null | Set when the relay commits a protocol violation (tasks T059). It is not dialled until an owner releases it (step-up), which clears this and the reason. |
 | `quarantine_reason` | `text` null | Code of the violation, e.g. `host_key_mismatch`, `forbidden_channel`, `forbidden_request`, `bad_frame`. |
+| `host_key_verified_at` | `timestamptz` null | Migration 0021 (T066 F7). When the pinned `host_key` first completed an authenticated link (Keel's link key accepted, `Hello` naming the key). Cleared when `host_key` changes. Until it is set, a host-key mismatch is a lost link, not a quarantine. |
 
 Live state (`connecting`, `connected`, `unreachable`, last RTT, version, stream count, last
 error, `since`) is **in memory** in the relay supervisor, not in the table: it changes every

@@ -348,10 +348,19 @@ side, and anything an honest relay never does takes the relay out of service.
     refusal detail is capped.
   - **F6 fixed**: a quarantine is held in memory until its database write lands. `sync` honours
     it, so the relay is not redialled, and retries the write.
-  - **F7 not changed**, by direction. It is an **open owner question**. Anyone on the network
-    path who presents a wrong host key quarantines the relay until a human releases it, which is
-    availability abuse by design. Options: rate-limit host-key quarantines, or quarantine only when
-    a mismatch follows authenticated data (and treat a pre-auth mismatch as a lost link).
+  - **F7 fixed** (owner decision 2026-11-17, "quarantine after auth only"). Anyone on the
+    network path could present a wrong host key and quarantine the relay until a human released
+    it. "After auth" is now persisted per relay as `relays.host_key_verified_at` (migration
+    0021): set the first time a link with the pinned key authenticates and the relay's `Hello`
+    names that key, and cleared when an owner changes the host key, so a restart of Keel does
+    not reopen the hole. Before that, a mismatch is a lost link: backoff and redial, live state
+    `unreachable` with the mismatch as `last_error`, `relay.state` audited once per change, and
+    `relay.refused { reason: host_key_mismatch }` coalesced per relay per minute with a `count`
+    (logged once per window). After it, a mismatch is a real key swap and still quarantines.
+    Tests: `hostile_relay.rs` (pre-auth is a lost link), `t066_review.rs` `t066_f7_*` (after
+    auth quarantines, across a fresh supervisor; a flood is one refusal row; a changed key must
+    verify again), `relay_supervisor.rs`. No web change: the existing state and last-error
+    fields show it.
   - **Relay binary**:
     - A carried stream idle for `LINK_INACTIVITY` (120 s) is now closed.
     - "A newer link replaces the old one" is unchanged. Only a key in `hub_keys`, so Keel

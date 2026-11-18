@@ -19,9 +19,12 @@ dialled from the relay to Keel, or from Keel to a runner.
 - **Algorithms**: keel-exec's lists (`server_preferred` on the relay, `client_preferred` on Keel).
   Ed25519 only, `curve25519-sha256`, AEAD ciphers, strict KEX, no compression.
 - **Relay host key**: a plain Ed25519 key (no certificate). Keel accepts exactly the key pasted
-  for that relay (`relays.host_key`); any other key ends the handshake, is audited as
-  `relay.refused { reason: "host_key_mismatch", fingerprint }`, and the relay is **quarantined**
-  (see "Keel never trusts the relay" below).
+  for that relay (`relays.host_key`); any other key ends the handshake. Once that pinned key has
+  completed an authenticated link (`relays.host_key_verified_at`, T066 F7), a mismatch
+  **quarantines** the relay (see "Keel never trusts the relay" below). Before then it is a lost
+  link, backed off and audited as `relay.refused { reason: "host_key_mismatch" }` (coalesced,
+  the detail names the presented fingerprint): anyone on the network path can present a wrong
+  key, and must not be able to take a relay out of service.
 - **Keel auth**: user `keel`, public-key auth with the active relay-link key. The relay accepts
   only keys in its `hub_keys` file; any other user name or key is refused after the usual
   rejection delay. Password, keyboard-interactive and host-based auth are not offered.
@@ -137,7 +140,7 @@ reconnect loop still running:
 | inject bytes before the runner's version banner | inner handshake fails |
 | open a `forwarded-tcpip` channel with no runner behind it and attempt auth | gets `EnrollOnly` at best, enroll without a valid token is refused and audited |
 | open `direct-tcpip`, `session`, `x11`; send `tcpip-forward`; send `exec` | refused, link dropped, relay quarantined, audited |
-| present a host key other than the pinned one | handshake refused, relay quarantined, audited |
+| present a host key other than the pinned one | handshake refused, audited; relay quarantined once its pinned key has authenticated, otherwise a lost link with backoff (T066 F7) |
 | send an unknown control frame or an oversized frame | link and every carried stream closed, relay quarantined, audited |
 | `CacheGet` outside the manifest | `CacheMiss`, audited (not a violation: Keel sends `CacheGet`, the relay never does) |
 | open 10 000 channels, or hold channels open without authenticating | refused beyond Keel's caps, idle ones closed after 10 s; Keel memory bounded; audit rows coalesced; direct runners unaffected |
@@ -152,7 +155,7 @@ Owner decisions of 2026-11-17 (tasks T059–T066). The relay host is treated as 
   can put it back. Keel drops the link and every carried stream, records `relays.quarantined_at`
   and its reason, and audits `relay.quarantine`. The supervisor stops dialling the relay until
   `PreviewRelayRelease` (workspace admin, step-up). Quarantine triggers:
-  - a wrong host key;
+  - a wrong host key, once the pinned key has authenticated (before that, a lost link: T066 F7);
   - a forbidden channel;
   - a global or channel request;
   - an unknown, oversized or out-of-order frame;
