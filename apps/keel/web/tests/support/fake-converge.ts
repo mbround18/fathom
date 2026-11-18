@@ -127,11 +127,11 @@ export class FakeConverge {
   }
 
   private push(e: ConvergeEvent): void {
-    this.backend.push(e as unknown as Event)
+    this.backend.push(e)
   }
 
   private reply(...events: ConvergeEvent[]): Event[] {
-    return events as unknown as Event[]
+    return events
   }
 
   private issue(plan: ConvergePlan, retry_of: string | null): Event[] {
