@@ -557,6 +557,21 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
   - `restart: ${RESTART_POLICY:-no}` on every service.
 
   Walk through the quickstart §2 steps by hand and record the results in this file under T047.
+  - File written: an overlay on `compose.yaml`. `keel` joins `hub`; `keel-db` stays on the
+    internal `db`. `hub` and `spoke` are both `internal: true`, so the runner has no route out at
+    all. The relay and runner images are scenario fixtures built with `dockerfile_inline` from
+    the release directory (`make keel keel-runner-release`, `RUNNER_DIST_OUT`), checked against
+    its `SHA256SUMS`, not new Dockerfile targets: relays and runners are host services. The runner
+    uses `systemd-socket-activate --accept --inetd` in place of `keel-executor.socket`.
+    `relay.toml` is an inline compose config; `hub_keys` is read from a mounted directory
+    (`KEEL_RELAY_HUB_DIR`, default `apps/keel/relay-scenario/hub`, git-ignored), because the
+    relay exits 78 without it. So the relay key comes from `run --rm relay key` before the
+    relay starts, rather than `exec` as quickstart §2 sketches.
+  - Verified: `docker compose -f compose.yaml -f compose.relay.yaml config` resolves; `relay` is
+    on `hub` and `spoke`, `runner` on `spoke` only, and every service has
+    `restart: ${RESTART_POLICY:-no}`. No image was built and nothing was started.
+  - **Pending: the hand walkthrough** (main session). Not yet checked: the images build, the
+    executor runs under `systemd-socket-activate`, and the Expected list in quickstart §2.
 - [ ] T048 Add `keel-relay` to the release build that produces `keel-runner`: the same checksums
   file, x86_64 and aarch64 (`apps/keel/Makefile`, release scripts).
 - [ ] T049 [P] Write `docs/guides/keel/relays.md`, covering:

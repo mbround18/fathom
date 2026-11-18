@@ -1,0 +1,138 @@
+# Keel relay scenario (spec 067 T047, quickstart.md §2): an overlay on compose.yaml that puts a
+# relay and a runner on a spoke network Keel cannot be reached from. Manual, before real hosts.
+#
+#   make keel keel-runner-release   # the release files both images below are built from
+#   C="docker compose -f apps/keel/compose.yaml -f apps/keel/compose.relay.yaml"
+#   $C build relay runner && $C up -d keel
+#
+# Networks:
+#   hub    keel and relay. Keel dials the relay's link port here; nothing dials Keel.
+#   spoke  relay and runner. The runner reaches Keel only through the relay.
+# Both are internal (no route out), so the runner cannot reach Keel's published ports either.
+# keel-db stays on compose.yaml's internal `db` network, which only keel shares.
+#
+# The relay and runner images are scenario fixtures, not published images: relays and runners are
+# host services (docs/guides/keel/relays.md). Both are built from the release directory
+# (RUNNER_DIST_OUT, default target/keel-runner-release), so they run the same static binaries
+# hosts download, for the build machine's architecture.
+#
+# Steps (quickstart.md §2):
+#   1. `$C run --rm relay key` prints the relay's public line (generating its host key in the
+#      relay-state volume). Paste it in Settings → Relays: register "spoke-1" in zone "spoke",
+#      dial address relay:7832.
+#   2. Copy Keel's relay-link key line from Settings → Relays into
+#      $KEEL_RELAY_HUB_DIR/hub_keys (default apps/keel/relay-scenario/hub/hub_keys). The relay
+#      exits 78 on a missing or empty hub_keys, so do this before starting it.
+#   3. Put the fixture trust files (policy.toml, host_ca.pub, …) in $KEEL_RELAY_TRUST_DIR and an
+#      enrollment token in the runner's state volume (/var/lib/keel-runner/enroll-token). The
+#      runner verifies Keel's certificate for keel.test, so KEEL_RUNNER_HOST_NAMES must list it.
+#   4. `$C up -d relay runner`, then follow quickstart.md §2 "Expected".
+#
+# Tear down with `docker compose … down`. Remove the relay-* volumes by name if wanted; never
+# compose.yaml's keel-data or keel-db unless they are this scenario's own.
+
+services:
+  keel:
+    environment:
+      # The runner verifies Keel's host certificate for this name, whatever address it dialled.
+      KEEL_RUNNER_HOST_NAMES: ${KEEL_RUNNER_HOST_NAMES:-keel.test}
+      KEEL_RELAYS: "true"
+      KEEL_RELAY_HEALTH_INTERVAL: ${KEEL_RELAY_HEALTH_INTERVAL:-30s}
+    networks:
+      - hub
+
+  relay:
+    image: keel-relay-scenario:local
+    build:
+      context: ${RUNNER_DIST_OUT:-../../target/keel-runner-release}
+      dockerfile_inline: |
+        FROM debian:trixie-slim
+        ARG TARGETARCH
+        COPY . /release
+        RUN set -eu; \
+            case "$$TARGETARCH" in amd64) arch=x86_64 ;; arm64) arch=aarch64 ;; \
+              *) echo "no keel-relay for $$TARGETARCH" >&2; exit 1 ;; esac; \
+            cd /release && sha256sum --check --quiet SHA256SUMS; \
+            install -m 0755 "/release/$$arch/keel-relay" /usr/local/bin/keel-relay; \
+            rm -rf /release; \
+            groupadd --system keel-relay; \
+            useradd --system --gid keel-relay --home-dir /var/lib/keel-relay keel-relay; \
+            install -d -o keel-relay -g keel-relay -m 0700 /var/lib/keel-relay
+        USER keel-relay
+        ENTRYPOINT ["/usr/local/bin/keel-relay"]
+        CMD ["serve"]
+    restart: ${RESTART_POLICY:-no}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    configs:
+      - source: relay-toml
+        target: /etc/keel-relay/relay.toml
+    volumes:
+      # A directory, so a missing hub_keys file is not created as a directory by Docker. It holds
+      # one OpenSSH public line per Keel relay-link key (what keel_relay_hub_keys writes on hosts).
+      - ${KEEL_RELAY_HUB_DIR:-./relay-scenario/hub}:/etc/keel-relay/hub:ro
+      # The relay's own Ed25519 host key, generated on first `serve` or `key`.
+      - relay-state:/var/lib/keel-relay
+    networks:
+      - hub
+      - spoke
+
+  runner:
+    image: keel-runner-scenario:local
+    build:
+      context: ${RUNNER_DIST_OUT:-../../target/keel-runner-release}
+      dockerfile_inline: |
+        FROM debian:trixie-slim
+        ARG TARGETARCH
+        RUN apt-get update \
+            && apt-get install -y --no-install-recommends python3 python3-venv systemd \
+            && rm -rf /var/lib/apt/lists/*
+        COPY . /release
+        RUN set -eu; \
+            case "$$TARGETARCH" in amd64) arch=x86_64 ;; arm64) arch=aarch64 ;; \
+              *) echo "no keel-runner for $$TARGETARCH" >&2; exit 1 ;; esac; \
+            cd /release && sha256sum --check --quiet SHA256SUMS; \
+            install -m 0755 "/release/$$arch/keel-runner" "/release/$$arch/keel-executor" /usr/local/bin/; \
+            python3 -m venv /opt/keel-runner/venv; \
+            /opt/keel-runner/venv/bin/pip install --no-cache-dir --require-hashes \
+              -r /release/requirements.txt; \
+            install -d /opt/keel-runner/venv/share/keel/callback; \
+            tar -xzf /release/keel_events.tar.gz -C /opt/keel-runner/venv/share/keel/callback; \
+            rm -rf /release; \
+            install -d -m 0755 /run/keel-runner
+        # No systemd in the container: systemd-socket-activate stands in for keel-executor.socket
+        # (one keel-executor per connection, the connection on fd 0, as Accept=yes gives it).
+        ENTRYPOINT ["/bin/sh", "-c", "systemd-socket-activate --accept --inetd -l /run/keel-runner/executor.sock /usr/local/bin/keel-executor & exec /usr/local/bin/keel-runner"]
+    restart: ${RESTART_POLICY:-no}
+    environment:
+      # The verified name, never dialled; the relay is the only address the runner dials.
+      KEEL_RUNNER_SERVER: keel.test:7831
+      KEEL_RUNNER_DIAL: relay:7831
+    volumes:
+      - ${KEEL_RELAY_TRUST_DIR:-./relay-scenario/trust}:/etc/keel-runner/trust:ro
+      - runner-state:/var/lib/keel-runner
+      - executor-state:/var/lib/keel-executor
+    networks:
+      - spoke
+
+configs:
+  relay-toml:
+    content: |
+      link_listen = "0.0.0.0:7832"
+      runner_listen = "0.0.0.0:7831"
+      hub_keys = "/etc/keel-relay/hub/hub_keys"
+
+networks:
+  # keel and relay: Keel dials the relay's link port. No route out.
+  hub:
+    internal: true
+  # relay and runner: the spoke. No route out, and no route to Keel.
+  spoke:
+    internal: true
+
+volumes:
+  relay-state:
+  runner-state:
+  executor-state:

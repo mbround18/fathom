@@ -60,3 +60,5 @@ node_modules/
 # Keel dev compose: local settings and secrets (TLS cert/key, master key)
 apps/keel/.env
 apps/keel/secrets/
+# Keel relay scenario (compose.relay.yaml): hub_keys and the fixture trust files
+apps/keel/relay-scenario/
