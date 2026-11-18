@@ -312,7 +312,8 @@ side, and anything an honest relay never does takes the relay out of service.
   allocate more than the frame cap, or accept anything the strict parser would refuse. Put them
   in `exec/relay.rs` tests, `relay/tests/` and `runner/tests/queries.rs`.
   *Done for the control frames, `Hello`, `relay.toml` and `hub_keys` (`keel-exec/tests/relay_props.rs`,
-  `relay/tests/props.rs`). The query frames and `queries.toml` are still owed: add them with US5.*
+  `relay/tests/props.rs`). The query frames and `queries.toml` landed with US5 (ebeddf8f) in
+  `keel-exec/tests/query_props.rs` and `runner/tests/query_props.rs`.*
 - [X] T065 [US2] **Relay sandbox** in `relay/systemd/keel-relay.service`:
   - the runner unit's hardening, plus `CapabilityBoundingSet=` and `AmbientCapabilities=`
     (empty);
@@ -515,12 +516,17 @@ no shell and no tunnel.
 **Independent test**: ask a host behind a relay for an allowed unit's state and its disk health,
 and get answers. Ask for a unit outside `queries.toml`, and get a refusal audited on both sides.
 
-- [ ] T039 [P] [US5] Add `Query { query_id, kind, params, asked_by }`, `QueryAnswer { query_id,
+- [X] T039 [P] [US5] Add `Query { query_id, kind, params, asked_by }`, `QueryAnswer { query_id,
   answer }` and `QueryRefused { query_id, reason }` to `exec/frames.rs`.
   - `reason` is one of `not_allowed`, `bad_params`, `unavailable`, `too_large` or `busy`.
   - Wire them into `Frame::name`, `subsystem` and `may_be_sent_by`.
   - Add round-trip tests.
-- [ ] T040 [P] [US5] Test first, `runner/tests/queries.rs`:
+  - Done (67d6985c): also `ReadSmart`/`Smart` on the executor socket only, `CAP_QUERY_V1`
+    (`query-v1`, beside `CAP_MANIFEST_V068`), `MAX_QUERY_ANSWER` (64 KiB) and
+    `MAX_QUERIES_IN_FLIGHT` (4); `invalid_answer` is Keel's own refusal for a contract breach.
+    Serde ignores extra keys on unit frames (`ReadSmart`, `Ping`, `ReadLedger`); harmless, as
+    they carry nothing.
+- [X] T040 [P] [US5] Test first, `runner/tests/queries.rs`:
   - parsing `queries.toml` with `deny_unknown_fields`;
   - a missing file refuses every query with `not_allowed`;
   - unit matching is exact or a trailing `*` on a literal prefix, with the unit matching
@@ -529,7 +535,9 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
     and at most 4096 bytes;
   - answers over 64 KiB are refused `too_large`, and a fifth query in flight is refused `busy`;
   - an assertion that the `systemctl` invocation is an argv array with `--` before the unit.
-- [ ] T041 [US5] Implement `runner/src/queries.rs`, which loads
+  - Done (1318a3ae), plus symlink escapes below an allowed path, a hostile `params` map, and the
+    query log never holding the answer.
+- [X] T041 [US5] Implement `runner/src/queries.rs`, which loads
   `/etc/keel-runner/trust/queries.toml` and answers each kind per contracts/relay.md:
   - `facts` and `applied_revision` from data the runner already has;
   - `unit_state` with `systemctl show --property=LoadState,ActiveState,SubState,
@@ -541,7 +549,11 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
   Append each query to `/var/lib/keel-runner/queries.log` as JSON lines, rotated at 1 MiB
   keeping 3. Advertise `capabilities: ["query-v1"]` in `Hello`. Dispatch in
   `runner/src/runner/session.rs` without blocking run frames.
-- [ ] T042 [US5] Implement `server/src/host_queries.rs`:
+  - Done (1318a3ae) in `runner/src/runner/queries.rs`. `queries.toml` is read fresh per query; a
+    missing or invalid file refuses all. `systemctl` runs with an empty environment; paths are
+    re-checked after resolving symlinks. SMART comes from the executor's `ReadSmart`, which
+    picks the disks itself (no parameter reaches it).
+- [X] T042 [US5] Implement `server/src/host_queries.rs`:
   - `AskHost` refuses early when the host is offline or lacks `query-v1` (`no_capability`), and
     otherwise inserts into `host_queries` and sends `Query` through the run hub (`queue.rs`);
   - a 15 s timeout gives `timeout`, and the answer, refusal or timeout updates the row and pushes
@@ -552,10 +564,19 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
     the insert.
 
   Test it in `server/tests/host_queries.rs`, both direct and through a relay.
-- [ ] T043 [US5] Add `web/src/features/hosts/QueriesPanel.tsx` in the host inspector, with kind
+  - Done (ce69e3ad protocol, 5f035ebe server). No migration: `host_queries` is in
+    `0017_relays.sql`. `HostQueries` carries `query_v1` (`null` when not connected) so the panel
+    can say "too old" before anyone asks. Early refusals (`disconnected`, `no_capability`) store
+    a settled row and are returned, not pushed. A reply that breaks the contract is settled
+    `refused` with `invalid_answer` or `too_large`; a late or foreign reply is ignored.
+    `RunSettings.query_timeout` defaults to 15 s. 8 tests, direct and via a relay.
+- [X] T043 [US5] Add `web/src/features/hosts/QueriesPanel.tsx` in the host inspector, with kind
   picker, parameter field, Ask, and answers newest first with time, asker and outcome. A host
   without `query-v1` shows "runner too old for queries". Add Vitest, and Playwright
   `web/tests/e2e/s067/queries.spec.ts` for answered, refused and too old.
+  - Done (9b879bb9): `queries.ts` (pure logic, `tests/unit/queries.test.ts`), `queries-store.ts`,
+    `QueriesPanel.tsx`; fake backend `tests/support/fake-queries.ts`. The spec also covers
+    viewers (list, no form) and the client-side parameter check.
 
 ## Phase 8: Release-file cache (FR-010, MAY), blocked on plan D1
 
@@ -572,7 +593,7 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
 
 ## Phase 9: Polish, packaging and cross-cutting
 
-- [ ] T046 [P] Add the OTel spans `relay.link` (relay id, state), `relay.stream` (relay id and
+- [X] T046 [P] Add the OTel spans `relay.link` (relay id, state), `relay.stream` (relay id and
   byte counts, never contents) and `host.query` (kind, outcome) in `server/src/relays.rs`,
   `server/src/host_queries.rs` and `relay/src/forward.rs`.
 
@@ -584,7 +605,10 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
     `relay.stream.end`, never contents. On the relay, `relay.id` is its key fingerprint.
   - The relay binary has no OTel exporter, so its span reaches only its own log subscriber.
 
-  Remaining: `host.query` waits for US5 (`host_queries.rs` is not built yet).
+  - `host.query` is one span per query in `server/src/host_queries.rs` (5f035ebe), carrying
+    `host.query.kind` and `host.query.outcome`; never params or the answer.
+
+  Done.
 - [ ] T047 [P] Add `apps/keel/compose.relay.yaml` per quickstart.md §2:
   - networks `hub` and `spoke`, with `relay` on both and `runner` on `spoke` only;
   - `restart: ${RESTART_POLICY:-no}` on every service.
@@ -632,9 +656,10 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
 
   Also add an architecture note to `CONTRIBUTING.md`.
   - Done. The guide also covers the Path texts, rotating the relay-link key, the workspace
-    binding, quarantine and Release, revoke, and the run-preview warning. Its "Queries" section
-    only says they are coming, since US5 is not built; `queries.toml` is not described yet, and
-    the release cache (Phase 8) is not mentioned. Update both when they land.
+    binding, quarantine and Release, revoke, and the run-preview warning. The release cache
+    (Phase 8) is not mentioned yet; add it when it lands.
+  - "Queries" rewritten with US5: the kinds, outcomes, `queries.toml` (format, missing file
+    refuses all, unit and path rules), the Ansible variable, limits and the host's query log.
   - `relays` added to `GUIDE_SLUGS` and the guides README. The Relays tab's three "Learn more"
     links now point at `relays#paste-the-keys`, `relays#zones` and `relays#register-a-relay`.
   - CONTRIBUTING.md gained "Keel relays" under "Workspace layout".

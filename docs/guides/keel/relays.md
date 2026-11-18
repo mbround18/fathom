@@ -199,6 +199,66 @@ until it is back. A second relay in the zone, listed in `keel_runner_dial`, avoi
 
 ## Queries
 
-Coming soon: asking hosts typed questions, such as a unit's state or a disk's health, the same way
-whether they are connected directly or through a relay. Each host will answer only the questions
-its trust files allow.
+You can ask a host a typed question from its panel on the Hosts page, under **Queries**: pick a
+kind, fill in its unit or path if it takes one, and select **Ask**. The question goes over the
+host's existing session, so it works the same whether the host is connected directly or through a
+relay. Answers are listed newest first with who asked, when, and the outcome; open **Answer** to
+read the JSON. Operators and admins can ask; viewers can read the list.
+
+| Kind | Takes | Answers with |
+|---|---|---|
+| Facts | nothing | hostname, OS, kernel, architecture, uptime, runner and Ansible versions |
+| Applied revision | nothing | the runner's ledger head and bases |
+| Unit state | a unit, like `nginx.service` | load, active and sub state, and since when |
+| Free space | an absolute path, like `/var/lib` | total, free and available bytes, free inodes |
+| Disk health | nothing | each mount's device, filesystem, read-only flag and errors, and SMART status when `smartctl` is installed |
+
+A question ends in one of these outcomes:
+
+- **answered**: the host answered.
+- **refused**: the host would not answer, with the reason, such as "not allowed by the host's
+  queries.toml", "bad parameter", "answer too large" or "host busy, try again".
+- **no answer in time**: nothing came back within 15 seconds.
+- **host not connected**: the host was offline, or dropped before it answered.
+- **runner too old for queries**: the host's `keel-runner` predates queries. The panel says so in
+  place of the form; upgrade the runner to ask it.
+
+Each host keeps its newest 200 questions. Every question is recorded in Keel's audit log as
+`host.query`, with the kind, parameter and outcome but never the answer.
+
+### Allow questions with `queries.toml`
+
+A host answers only what `/etc/keel-runner/trust/queries.toml` allows. **Without that file, the
+host refuses every question.** An invalid file (an unknown key or kind, a bad unit or path) also
+refuses every question, so a typo never widens what is allowed. The file is read for each
+question, so a change applies at once without restarting the runner.
+
+```toml
+# Which kinds this host answers. Leave a kind out to refuse it.
+kinds = ["facts", "applied_revision", "unit_state", "disk_health", "path_free"]
+
+# Units "Unit state" may name: an exact name, or a literal prefix followed by one *.
+units = ["k3s.service", "longhorn-*"]
+
+# Paths "Free space" may name: the path itself or anything below it.
+paths = ["/", "/var/lib/longhorn"]
+```
+
+- A unit name may use only letters, digits and `@ . _ : -`, up to 256 characters. `longhorn-*`
+  allows `longhorn-manager.service` but not `longhorn.service`.
+- Paths must be absolute and normalised: no `.` or `..` parts, no empty parts, no trailing `/`,
+  at most 4096 bytes. A path that leads outside the allowed ones through a symbolic link is
+  refused.
+- Nothing in a question reaches a shell. The runner calls `systemctl show` with the unit as a
+  separate argument, reads free space directly, and never reads a file that a question names.
+
+If you manage hosts with the `keel_runner` Ansible role, set `keel_runner_queries` (`kinds`,
+`units`, `paths`) and the role writes this file for you; leave it unset and the file is removed.
+
+### Limits and the host's own log
+
+- An answer may be at most 64 KiB; a larger one is refused "answer too large".
+- A host works on at most 4 questions at once; a fifth is refused "host busy, try again".
+- The runner also logs every question to `/var/lib/keel-runner/queries.log`, one JSON line each
+  with the time, kind, parameter, who asked and the outcome, never the answer. The log rotates at
+  1 MiB and keeps 3 files.
