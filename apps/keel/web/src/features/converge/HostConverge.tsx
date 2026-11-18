@@ -30,7 +30,7 @@ export function ConvergeCell({ host }: { host: HostInfo }) {
   const steps = useConverge((s) => (c ? s.views[c.run_id]?.hosts.find((h) => h.host_id === host.id)?.steps : undefined))
   if (!c) return null
   return (
-    <Link to={`/runs/${c.run_id}`} data-host-converge={c.state} className={`${LINK} text-xs ${TONE[c.state]}`}>
+    <Link to={`/runs/${c.run_id}`} data-host-converge={c.state} className={`${LINK} text-xs whitespace-nowrap ${TONE[c.state]}`}>
       {hostConvergeText(c, steps)}
     </Link>
   )

@@ -26,7 +26,8 @@ import { finished, retryableSteps, stepLabel, toneClass, viewMatrix } from './de
 import { StepIcon } from './StepIcon'
 import { useConverge } from './store'
 
-function Cell({ step, host }: { step: ConvergeStepView; host: string }) {
+/** `card`: the phone's list, where the state's words sit at the row's end at every width. */
+function Cell({ step, host, card = false }: { step: ConvergeStepView; host: string; card?: boolean }) {
   const label = stepLabel(step.state)
   return (
     <Link
@@ -37,11 +38,11 @@ function Cell({ step, host }: { step: ConvergeStepView; host: string }) {
       className={`${LINK} flex min-w-0 items-center gap-1.5 no-underline`}
     >
       <StepIcon state={step.state} />
-      <span className="flex min-w-0 flex-col">
+      <span className={`flex min-w-0 ${card ? 'flex-1 items-baseline justify-between gap-2' : 'flex-col'}`}>
         <span className={`font-mono break-all text-foreground ${step.state === 'skipped' ? 'line-through' : ''}`}>
           {step.job}
         </span>
-        <span aria-hidden className={`hidden text-[11px] lg:inline ${toneClass(step.state)}`}>
+        <span aria-hidden className={`text-[11px] ${card ? 'shrink-0' : 'hidden lg:inline'} ${toneClass(step.state)}`}>
           {label}
         </span>
       </span>
@@ -58,14 +59,15 @@ function Matrix({ view }: { view: ConvergeView }) {
       </h2>
       {/* ≥ 640 px: the matrix. */}
       <div className="hidden overflow-x-auto sm:block">
-        <table aria-label="Converge" className="w-full text-xs">
+        {/* Sized to its steps, so a short plan reads left to right instead of spreading across the page. */}
+        <table aria-label="Converge" className="text-xs">
           <thead>
             <tr className="border-b border-border text-left">
-              <th scope="col" className={`${LABEL} py-1 pr-3`}>
+              <th scope="col" className={`${LABEL} py-1 pr-6`}>
                 Host
               </th>
               {positions.map((p) => (
-                <th key={p} scope="col" className={`${LABEL} py-1 pr-3 tabular-nums`}>
+                <th key={p} scope="col" className={`${LABEL} py-1 pr-6 tabular-nums`}>
                   Step {p}
                 </th>
               ))}
@@ -74,12 +76,12 @@ function Matrix({ view }: { view: ConvergeView }) {
           <tbody>
             {rows.map((row) => (
               <tr key={row.host_id} data-converge-host={row.host} data-host-state={row.state} className="border-b border-border/50 align-top">
-                <th scope="row" className="py-1.5 pr-3 text-left font-medium">
+                <th scope="row" className="py-1.5 pr-6 text-left font-medium">
                   {row.host}
                   <span className="block text-[11px] font-normal text-muted-foreground first-letter:uppercase">{row.state}</span>
                 </th>
                 {row.cells.map((cell, i) => (
-                  <td key={positions[i]} className="py-1.5 pr-3">
+                  <td key={positions[i]} className="py-1.5 pr-6">
                     {cell ? <Cell step={cell} host={row.host} /> : <span className="text-muted-foreground">—</span>}
                   </td>
                 ))}
@@ -99,7 +101,7 @@ function Matrix({ view }: { view: ConvergeView }) {
             <ol aria-label={`Steps on ${h.host}`} className="mt-1 flex flex-col gap-1 text-xs">
               {h.steps.map((s) => (
                 <li key={s.position}>
-                  <Cell step={s} host={h.host} />
+                  <Cell step={s} host={h.host} card />
                 </li>
               ))}
             </ol>
