@@ -137,6 +137,7 @@ async fn accept(h: &Harness, request: Uuid, name: &str, profiles: &[&str]) -> Ve
             request,
             inventory_name: HostName::new(name).expect("name"),
             profiles: host_profiles(profiles),
+            auto_converge: None,
         })
         .await;
     let Some(Event::Preview(p)) = out.first() else {

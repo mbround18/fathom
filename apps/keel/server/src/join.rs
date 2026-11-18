@@ -896,6 +896,7 @@ pub async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
             request,
             inventory_name,
             profiles,
+            auto_converge,
         } => {
             let profiles: Vec<String> = profiles.0.iter().map(|p| p.as_str().to_owned()).collect();
             preview_accept(
@@ -904,6 +905,7 @@ pub async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
                 request,
                 inventory_name.as_str().to_owned(),
                 profiles,
+                auto_converge.unwrap_or(true),
             )
             .await
         }
@@ -1056,6 +1058,7 @@ async fn preview_accept(
     request: Uuid,
     name: String,
     profiles: Vec<String>,
+    auto_converge: bool,
 ) -> Vec<Event> {
     const ACTION: &str = "preview_join_accept";
     let ws = match request_facts(app, request).await {
@@ -1076,7 +1079,7 @@ async fn preview_accept(
         Ok((_, fp)) => fp,
         Err(e) => return e,
     };
-    let summary = format!(
+    let mut summary = format!(
         "Accept the join request from the host with key {fp} as {name}, with profiles {}. Its \
          runner gets its certificate the next time it asks.",
         if profiles.is_empty() {
@@ -1085,6 +1088,9 @@ async fn preview_accept(
             profiles.join(", ")
         }
     );
+    if auto_converge && app.cfg.converge {
+        summary.push_str(" Keel then converges it to its profiles.");
+    }
     let affected = vec![name.clone()];
     let op = pending(move |app, caller| async move {
         if let Err(d) = recheck(&caller, ACTION, Capability::Operate, ws) {
@@ -1098,7 +1104,11 @@ async fn preview_accept(
             &caller,
             ws,
             request,
-            Decided::Accept { name, profiles },
+            Decided::Accept {
+                name,
+                profiles,
+                auto_converge,
+            },
         )
         .await
     });
@@ -1156,8 +1166,14 @@ async fn preview_reject(
 }
 
 enum Decided {
-    Accept { name: String, profiles: Vec<String> },
-    Reject { comment: Option<String> },
+    Accept {
+        name: String,
+        profiles: Vec<String>,
+        auto_converge: bool,
+    },
+    Reject {
+        comment: Option<String>,
+    },
 }
 
 async fn decide(
@@ -1167,6 +1183,8 @@ async fn decide(
     request: Uuid,
     decided: Decided,
 ) -> Vec<Event> {
+    // The host an accepted request created, to converge once its row is committed.
+    let mut converge = None;
     let result: Result<Option<JoinRequestInfo>, sqlx::Error> = async {
         let mut tx = app.db.begin().await?;
         type Row = (String, String, String, Vec<String>, bool);
@@ -1184,7 +1202,11 @@ async fn decide(
             return Ok(None);
         }
         match decided {
-            Decided::Accept { name, profiles } => {
+            Decided::Accept {
+                name,
+                profiles,
+                auto_converge,
+            } => {
                 let host = Uuid::now_v7();
                 sqlx::query(
                     "insert into hosts (id, workspace_id, inventory_name, ssh_key_fingerprint, \
@@ -1232,10 +1254,14 @@ async fn decide(
                             "inventory_name": name,
                             "profiles": profiles,
                             "fingerprint": fp,
+                            "auto_converge": auto_converge,
                         }),
                     },
                 )
                 .await?;
+                if auto_converge {
+                    converge = Some(host);
+                }
             }
             Decided::Reject { comment } => {
                 sqlx::query(
@@ -1269,6 +1295,13 @@ async fn decide(
     .await;
     match result {
         Ok(Some(request)) => {
+            // Spec 068 US2 scenario 3 (T034): converge the accepted host to the profiles chosen
+            // here, after the acceptance committed. A failure is logged and leaves it accepted.
+            if let Some(host) = converge
+                && let Err(err) = crate::converge::on_enrolled(app, host).await
+            {
+                tracing::error!(%host, error = %err, "converge on join acceptance failed");
+            }
             app.repos.push(
                 ws,
                 Event::JoinRequestDecided {

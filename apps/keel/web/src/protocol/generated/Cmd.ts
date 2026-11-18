@@ -89,7 +89,12 @@ changed_outside: boolean | null, } } | { "type": "GetHost", "data": { host: stri
  * Converge the host to its profiles once it enrolls (spec 068 US2, when `KEEL_CONVERGE`
  * is on). Absent means yes.
  */
-auto_converge?: boolean, } } | { "type": "PreviewHostRevoke", "data": { host: string, } } | { "type": "PreviewHostProfiles", "data": HostProfilesChange } | { "type": "ListProfileSuggestions", "data": { workspace: string, host_id?: string, } } | { "type": "DismissProfileSuggestion", "data": { host_id: string, profile: string, action: SuggestionAction, } } | { "type": "GetSshCa" } | { "type": "PreviewSshCaRotate", "data": { kind: SshCaKind, } } | { "type": "ListJoinRequests", "data": { workspace: string, state: JoinRequestState | null, } } | { "type": "PreviewJoinAccept", "data": { request: string, inventory_name: HostName, profiles: HostProfiles, } } | { "type": "PreviewJoinReject", "data": { request: string, comment: JoinComment | null, } } | { "type": "GetJoinToken", "data": { workspace: string, } } | { "type": "PreviewJoinTokenIssue", "data": { workspace: string, 
+auto_converge?: boolean, } } | { "type": "PreviewHostRevoke", "data": { host: string, } } | { "type": "PreviewHostProfiles", "data": HostProfilesChange } | { "type": "ListProfileSuggestions", "data": { workspace: string, host_id?: string, } } | { "type": "DismissProfileSuggestion", "data": { host_id: string, profile: string, action: SuggestionAction, } } | { "type": "GetSshCa" } | { "type": "PreviewSshCaRotate", "data": { kind: SshCaKind, } } | { "type": "ListJoinRequests", "data": { workspace: string, state: JoinRequestState | null, } } | { "type": "PreviewJoinAccept", "data": { request: string, inventory_name: HostName, profiles: HostProfiles, 
+/**
+ * Whether Keel converges the host to `profiles` once accepted (spec 068 FR-006, when
+ * converge is on). Absent means yes, as for `PreviewHostEnroll`.
+ */
+auto_converge?: boolean, } } | { "type": "PreviewJoinReject", "data": { request: string, comment: JoinComment | null, } } | { "type": "GetJoinToken", "data": { workspace: string, } } | { "type": "PreviewJoinTokenIssue", "data": { workspace: string, 
 /**
  * 1 to 365.
  */

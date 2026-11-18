@@ -159,12 +159,20 @@ that host's rest; retry resumes.
 - [X] T033 [server] `auto_converge` on enrollment create/view (`server/src/enrollments`/settings);
   `converge::on_enrolled` called after `runner_listener.rs` `enrol()` commits.
   Note: There is no enrollment-settings object: `auto_converge` lives on the token. `PreviewHostEnroll` gains `auto_converge?: boolean` (absent = true, so old clients keep converging), stored in `host_enrollments.auto_converge` (migration 0019) and shown as `EnrollmentInfo.auto_converge`; a rolled token copies the old one's choice; the host-add proposal path passes true. `converge::on_enrolled` runs after `enroll_key` commits: it tries the workspace's active bindings oldest first (by id) and makes one converge from the first whose plan gives the host a step; otherwise it audits `converge.enroll_skipped` (reason `no_plan` or `no_binding`, context per binding code/message). Errors are logged and never undo the enrollment. New audit actor `Actor::Enroll` keyed `system:enroll`. The "host page says why" part of US2 scenario 4 is only the audit entry here; nothing on `HostView` yet. `converge::create` now takes an actor and an optional user instead of a `Caller`.
-- [ ] T034 [server] Hook `on_enrolled` into join-request acceptance. **Blocked on 067 D3
+- [X] T034 [server] Hook `on_enrolled` into join-request acceptance. **Blocked on 067 D3
   (T058).**
   Note (c068-server2): still blocked. `join.rs` and migration 0018 (067 D3) are absent from this
   branch. `converge::on_enrolled(app, host)` is public and treats a host with no
   `host_enrollments` row as auto-converge on, so acceptance only needs to call it after its
   transaction commits.
+  Note (c068-finish): done. The choice comes from the acceptance, not the join token:
+  `PreviewJoinAccept` gains `auto_converge?: boolean` (absent = true, like `PreviewHostEnroll`).
+  A join token is workspace-wide and reusable, while acceptance is the per-host decision where the
+  operator also picks the profiles (US2 scenario 3). The choice is recorded in the `join_accepted`
+  audit context; no migration (`on_enrolled` is called directly once the decide transaction
+  commits, errors logged, never undoing the acceptance). The preview summary says Keel will
+  converge it when the choice is on and converge is enabled. Tests: `tests/converge.rs`
+  `join_acceptance_*`. Deferred: a checkbox in `JoinRequestsTab.tsx` (it omits the field, so yes).
 - [X] T035 [P] [web] "Converge after enrollment" checkbox with the planned steps in Settings →
   Enrollment and Add host; `s068/enroll-auto-converge.spec.ts`.
   Done: the checkbox in the enroll dialog (default on; unticked sends `auto_converge: false`).
@@ -330,7 +338,7 @@ that host's rest; retry resumes.
   T014 can start with T005.
 - US1 (Phase 3) needs Phase 2. US2, US3 and US4 need US1's server tasks T018–T022. US5–US8 need
   only Phase 2 and can run in parallel with US1.
-- T034 waits for 067 D3. T045/T068 wait for runners on 068 (research R4) and the ansible delta adding `debian` to the ceilings (Q1, decided 2026-11-17).
+- T045/T068 wait for runners on 068 (research R4) and the ansible delta adding `debian` to the ceilings (Q1, decided 2026-11-17).
 - T070 after every agent branch is merged; T071 after T069.
 
 ## Parallel opportunities

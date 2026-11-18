@@ -719,3 +719,137 @@ async fn enroll_plan_failure_keeps_the_enrollment() {
     assert_eq!(context["bindings"][0]["code"], "no_steps");
     f.h.finish().await;
 }
+
+// ---- spec 068 US2 scenario 3: converge on join acceptance (T034) -------------------------------
+
+/// Lists `name` in the pinned `prod` revision, has a fresh runner key ask to join as `name`
+/// (ceiling debian, keel-node), and accepts it with profile `keel-node` and `auto_converge`.
+/// Returns the new host's id.
+async fn join(f: &Fixture, name: &str, auto_converge: Option<bool>) -> Uuid {
+    use keel_exec::ca::{CaKind, SshCa};
+    use keel_protocol::{HostName, HostProfiles, ProfileName};
+    use keel_server::join::{JoinAttempt, JoinOutcome, join_key};
+    use keel_server::runner_listener::RunnerPath;
+
+    keel_server::hosts::bootstrap(&f.h.app)
+        .await
+        .expect("ssh bootstrap");
+    keel_server::join::bootstrap(&f.h.app)
+        .await
+        .expect("join bootstrap");
+    sqlx::query(
+        "insert into inventory_hosts (revision_id, host, groups) \
+         select r.id, $2, '{}' from inventory_revisions r \
+         join inventories i on i.id = r.inventory_id \
+         where i.workspace_id = $1 and i.name = 'prod'",
+    )
+    .bind(f.h.workspace)
+    .bind(name)
+    .execute(&f.h.db.owner)
+    .await
+    .expect("inventory host");
+    let (_, out) =
+        f.h.confirm(Cmd::PreviewJoinTokenIssue {
+            workspace: f.h.workspace,
+            expires_in_days: 30,
+            inventory_name: None,
+            profiles: None,
+        })
+        .await;
+    let token = match out.as_slice() {
+        [
+            Event::Confirmed { .. },
+            Event::JoinTokenSecret { token, .. },
+        ] => token.0.clone(),
+        other => panic!("issue: {other:?}"),
+    };
+    let key = SshCa::generate(CaKind::Runner)
+        .expect("key")
+        .key_data()
+        .clone();
+    let allowed = vec!["debian".to_owned(), "keel-node".to_owned()];
+    let attempt = JoinAttempt {
+        token: &token,
+        inventory_name: name,
+        allowed_profiles: &allowed,
+        require_signed: false,
+        hostname: name,
+        os: "Debian GNU/Linux 13 (trixie)",
+        arch: "x86_64",
+        runner_version: "0.1.0",
+    };
+    let path = RunnerPath::Direct {
+        peer: Some("203.0.113.7:40000".parse().expect("peer")),
+    };
+    let JoinOutcome::Pending(request) = join_key(&f.h.app, &key, &attempt, &path)
+        .await
+        .expect("join")
+    else {
+        panic!("expected a pending join request");
+    };
+    let (_, out) =
+        f.h.confirm(Cmd::PreviewJoinAccept {
+            request,
+            inventory_name: HostName::new(name).expect("name"),
+            profiles: HostProfiles(vec![ProfileName::new("keel-node").expect("profile")]),
+            auto_converge,
+        })
+        .await;
+    match out.as_slice() {
+        [
+            Event::Confirmed { .. },
+            Event::JoinRequestDecided { request },
+        ] => request.host.expect("accepted into a host"),
+        other => panic!("accept: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn join_acceptance_starts_a_converge_as_system_enroll() {
+    let Some(f) = Fixture::new("converge_join", false).await else {
+        return;
+    };
+    let host = join(&f, "node-2", None).await;
+    let runs = converges_of(&f, host).await;
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    let (run, state, by) = &runs[0];
+    assert_eq!(state, "queued");
+    assert_eq!(*by, None, "no user started it");
+    let (actor,): (String,) = sqlx::query_as(
+        "select actor from audit_event where action = 'converge.create' \
+         and target->>'run' = $1",
+    )
+    .bind(run.to_string())
+    .fetch_one(&f.h.db.owner)
+    .await
+    .expect("audit");
+    assert_eq!(actor, "system:enroll");
+    let jobs: Vec<String> = f.steps(*run).await.into_iter().map(|s| s.2).collect();
+    assert_eq!(jobs, vec!["debian".to_owned(), "keel-node".to_owned()]);
+    let (kept,): (serde_json::Value,) = sqlx::query_as(
+        "select context->'auto_converge' from audit_event where action = 'join_accepted' \
+         and target->>'host' = $1",
+    )
+    .bind(host.to_string())
+    .fetch_one(&f.h.db.owner)
+    .await
+    .expect("acceptance audited");
+    assert_eq!(kept, serde_json::json!(true));
+    f.h.finish().await;
+}
+
+#[tokio::test]
+async fn join_acceptance_without_auto_converge_makes_none() {
+    let Some(f) = Fixture::new("converge_join_off", false).await else {
+        return;
+    };
+    let host = join(&f, "node-2", Some(false)).await;
+    assert!(converges_of(&f, host).await.is_empty());
+    let (state,): (String,) = sqlx::query_as("select state from hosts where id = $1")
+        .bind(host)
+        .fetch_one(&f.h.db.owner)
+        .await
+        .expect("accepted");
+    assert_eq!(state, "offline");
+    f.h.finish().await;
+}

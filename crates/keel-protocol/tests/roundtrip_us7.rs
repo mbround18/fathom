@@ -295,6 +295,13 @@ fn join_commands() {
             request: id(7),
             inventory_name: HostName::new("web-9").unwrap(),
             profiles: profiles(&["web"]),
+            auto_converge: None,
+        },
+        Cmd::PreviewJoinAccept {
+            request: id(7),
+            inventory_name: HostName::new("web-9").unwrap(),
+            profiles: profiles(&["web"]),
+            auto_converge: Some(false),
         },
         Cmd::PreviewJoinReject {
             request: id(7),

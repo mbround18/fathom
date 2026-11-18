@@ -667,6 +667,11 @@ pub enum Cmd {
         request: Uuid,
         inventory_name: HostName,
         profiles: HostProfiles,
+        /// Whether Keel converges the host to `profiles` once accepted (spec 068 FR-006, when
+        /// converge is on). Absent means yes, as for `PreviewHostEnroll`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        auto_converge: Option<bool>,
     },
     /// `Preview`; `Confirm` rejects the request and replies `JoinRequestDecided`.
     PreviewJoinReject {
