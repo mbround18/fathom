@@ -174,10 +174,10 @@ export function StartRunDialog({ job, onClose }: { job: JobInfo | null; onClose:
       data-start-run
       footer={
         <>
-          <Button size="sm" variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" type="submit" form="start-run">
+          <Button type="submit" form="start-run">
             <PlayIcon aria-hidden />
             Review run
           </Button>

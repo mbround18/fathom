@@ -252,7 +252,7 @@ export function ConvergePreview() {
       data-converge-preview={plan ? 'plan' : 'loading'}
       footer={
         <>
-          <Button variant="outline" onClick={close}>
+          <Button variant="ghost" onClick={close}>
             Cancel
           </Button>
           <Button

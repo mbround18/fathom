@@ -7,7 +7,7 @@
  */
 import { PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
-import { LABEL } from '@companion/ui/kit'
+import { H3, LABEL } from '@companion/ui/kit'
 import { useId, useState, type SyntheticEvent } from 'react'
 
 import { contextProblem, MAX_TIMEOUT_MIN, MIN_TIMEOUT_MIN, timeoutText } from '@/features/runs/run-068'
@@ -57,7 +57,7 @@ export function RequiredChecks({ binding, canAct }: { binding: BindingInfo; canA
   return (
     <section aria-labelledby={`${id}-title`} data-required-checks className="flex min-w-0 flex-col gap-2">
       <div className="flex min-w-0 flex-col gap-0.5">
-        <h3 id={`${id}-title`} className={LABEL}>
+        <h3 id={`${id}-title`} className={H3}>
           Required checks
         </h3>
         <span className="text-xs text-muted-foreground">
@@ -116,7 +116,7 @@ export function RequiredChecks({ binding, canAct }: { binding: BindingInfo; canA
                   setContext(e.target.value)
                 }}
               />
-              <Button type="submit" size="sm" variant="outline" disabled={unsupported}>
+              <Button type="submit" variant="outline" disabled={unsupported}>
                 <PlusIcon aria-hidden />
                 Require
               </Button>
@@ -154,7 +154,7 @@ export function RequiredChecks({ binding, canAct }: { binding: BindingInfo; canA
                     setMinutes(e.target.value)
                   }}
                 />
-                <Button type="submit" size="sm" variant="outline" disabled={!timeoutChanged}>
+                <Button type="submit" variant="outline" disabled={!timeoutChanged}>
                   Save
                 </Button>
               </div>

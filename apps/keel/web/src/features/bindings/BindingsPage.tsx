@@ -13,7 +13,7 @@ import {
   FIELD,
   Field as FormField,
   H2,
-  LABEL,
+  H3,
   Link,
   LINK,
   LoadFailed,
@@ -270,7 +270,7 @@ function Detail({ binding, canSync, canAct }: { binding: BindingInfo; canSync: b
           </ul>
         )}
         <div className="flex min-w-0 flex-col gap-2">
-          <h3 className={LABEL}>Jobs at {short(binding.last_commit)}</h3>
+          <h3 className={H3}>Jobs at {short(binding.last_commit)}</h3>
           <DataTable<JobSummary>
             label="Jobs"
             rows={jobs}
@@ -304,7 +304,6 @@ function Detail({ binding, canSync, canAct }: { binding: BindingInfo; canSync: b
               </select>
             </Field>
             <Button
-              size="sm"
               variant="outline"
               disabled={!grant}
               onClick={() =>
