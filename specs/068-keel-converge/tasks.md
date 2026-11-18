@@ -142,8 +142,11 @@ that host's rest; retry resumes.
 - [X] T029 [P] [web] `fake-converge.ts` and `s068/converge-preview.spec.ts`,
   `s068/converge-page.spec.ts` (360 px and 1280 px, keyboard confirm).
 - [X] T030 [web] Vitest for the matrix/state derivations in `features/converge/`.
-- [ ] T031 [web] Impeccable pass over the preview, converge page and Hosts column, and the
+- [X] T031 [web] Impeccable pass over the preview, converge page and Hosts column, and the
   screens around them; fix what it finds.
+  Done: phone cards show each step's state in words (icon-only before); the desktop matrix sizes
+  to its steps instead of spreading across the page; the Hosts converge cell no longer wraps
+  mid-phrase. The preview passed as is.
 
 ## Phase 4: User Story 2, new hosts converge on enrollment (P1)
 
@@ -162,8 +165,11 @@ that host's rest; retry resumes.
   branch. `converge::on_enrolled(app, host)` is public and treats a host with no
   `host_enrollments` row as auto-converge on, so acceptance only needs to call it after its
   transaction commits.
-- [ ] T035 [P] [web] "Converge after enrollment" checkbox with the planned steps in Settings →
+- [X] T035 [P] [web] "Converge after enrollment" checkbox with the planned steps in Settings →
   Enrollment and Add host; `s068/enroll-auto-converge.spec.ts`.
+  Done: the checkbox in the enroll dialog (default on; unticked sends `auto_converge: false`).
+  Add host gets a note only, because `PreviewHostAdd` has no `auto_converge`. No wire carries
+  the enrollment plan, so the checkbox names the profiles rather than listing the steps.
 
 ## Phase 5: User Story 3, edit a host's profiles, with suggestions (P1)
 
@@ -184,11 +190,16 @@ that host's rest; retry resumes.
   pinned inventory's groups; `ProfileSuggestionsChanged`; `DismissProfileSuggestion`; span
   `profile.suggest`.
   Note: Suggestions are refreshed after every applied sync with a valid manifest, moved or not, from the hosts' groups in the latest valid revision of each inventory the manifest's jobs use; never fails the sync. A dismissed row keeps its dismissal while its groups are unchanged (SQL equality, the same rule as `still_dismissed`); a suggestion this binding no longer makes is deleted, so leaving and rejoining a group brings it back. `ProfileSuggestionsChanged { binding_id, hosts }` is pushed only when a host's open suggestions changed. `ListProfileSuggestions` takes a required `workspace` (contract had only `host_id?`); `DismissProfileSuggestion` replies `ProfileSuggestions` for the host and audits `profile_suggestion.dismissed`. `HostInfo.suggestions` is now the open count.
-- [ ] T040 [P] [web] Host page Profiles card (chips, ceiling, outside-ceiling marker, editor with
+- [X] T040 [P] [web] Host page Profiles card (chips, ceiling, outside-ceiling marker, editor with
   preview and step-up), suggestions list, Hosts suggestion dot; `s068/host-profiles.spec.ts`,
   `s068/suggestions.spec.ts`.
-- [ ] T041 [web] Impeccable pass over the Profiles card and suggestions, and the host page around
+  Done: `HostProfiles.tsx` and `profiles-store.ts`, with the fake in
+  `tests/support/fake-profiles.ts`. Converge being off is detected from `feature_disabled`
+  (SystemInfo has no flag).
+- [X] T041 [web] Impeccable pass over the Profiles card and suggestions, and the host page around
   them.
+  Done: chips at 360 px keep "outside ceiling" whole; the outside-ceiling note no longer repeats
+  the chips; the Hosts Profiles cell wraps between names, not inside them.
 
 ## Phase 6: User Story 4, narrow jobs and path triggers without double work (P2)
 
