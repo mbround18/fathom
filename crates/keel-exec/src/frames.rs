@@ -181,6 +181,55 @@ pub struct SecretItem {
 /// session without it (`runner_too_old`).
 pub const CAP_MANIFEST_V068: &str = "manifest-v068";
 
+/// The `Hello` capability a runner advertises once it answers typed host queries (spec 067 US5):
+/// `Query` → `QueryAnswer` | `QueryRefused`. Keel sends no `Query` to a session without it.
+pub const CAP_QUERY_V1: &str = "query-v1";
+
+/// The largest `QueryAnswer.answer`, serialised. A runner refuses a bigger answer `too_large`;
+/// Keel refuses to store one.
+pub const MAX_QUERY_ANSWER: usize = 64 * 1024;
+
+/// How many queries one session may have in flight; a fifth is refused `busy`.
+pub const MAX_QUERIES_IN_FLIGHT: usize = 4;
+
+/// Why a runner refused a host query (contracts/relay.md, runner additions 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryRefusal {
+    /// The kind, unit or path is not in `queries.toml`, or the file is missing or invalid.
+    NotAllowed,
+    /// A parameter is missing, unexpected or malformed.
+    BadParams,
+    /// The host could not answer (the unit manager, the executor or the path is not there).
+    Unavailable,
+    /// The answer would be over [`MAX_QUERY_ANSWER`] bytes.
+    TooLarge,
+    /// [`MAX_QUERIES_IN_FLIGHT`] queries are already being answered.
+    Busy,
+}
+
+impl QueryRefusal {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            QueryRefusal::NotAllowed => "not_allowed",
+            QueryRefusal::BadParams => "bad_params",
+            QueryRefusal::Unavailable => "unavailable",
+            QueryRefusal::TooLarge => "too_large",
+            QueryRefusal::Busy => "busy",
+        }
+    }
+}
+
+/// One whole disk's SMART verdict, as the executor reads it (`ReadSmart` → `Smart`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SmartDisk {
+    /// The kernel name under `/sys/block`, e.g. `sda` or `nvme0n1`.
+    pub name: String,
+    /// `smartctl`'s overall health verdict; `None` when it gave none.
+    pub smart_passed: Option<bool>,
+}
+
 /// `SecretItem.kind` for a value set as an environment variable (spec 068 `jobs.<j>.env`).
 pub const SECRET_KIND_ENV_VAR: &str = "env_var";
 
@@ -423,6 +472,27 @@ pub enum Frame {
     },
     Ping,
     Pong,
+    /// S → R (spec 067 US5). `kind` is a query kind name (`facts`, `applied_revision`,
+    /// `unit_state`, `disk_health`, `path_free`); a kind the runner does not know is refused
+    /// `not_allowed`, not a protocol error. `params` holds the one parameter, if any (`unit` or
+    /// `path`). `asked_by` is the Keel user's label, for the host's query log.
+    Query {
+        query_id: String,
+        kind: String,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        params: BTreeMap<String, String>,
+        asked_by: String,
+    },
+    /// R → S. `answer` is a JSON object of at most [`MAX_QUERY_ANSWER`] bytes serialised.
+    QueryAnswer {
+        query_id: String,
+        answer: serde_json::Value,
+    },
+    /// R → S.
+    QueryRefused {
+        query_id: String,
+        reason: QueryRefusal,
+    },
 
     // ---- local executor socket only ----
     /// Network side → executor: report the ledger head and per-job bases (for `Hello`).
@@ -431,6 +501,15 @@ pub enum Frame {
     Ledger {
         ledger_head: Option<String>,
         bases: Vec<Base>,
+    },
+    /// Network side → executor: the SMART verdict of each whole disk (`disk_health`). Carries
+    /// nothing: the executor picks the disks itself from `/sys/block`.
+    ReadSmart,
+    /// Executor → network side: the answer to `ReadSmart`. `installed` is false when `smartctl`
+    /// is not installed, and `disks` is then empty.
+    Smart {
+        installed: bool,
+        disks: Vec<SmartDisk>,
     },
 }
 
@@ -463,6 +542,11 @@ impl Frame {
             Frame::Pong => "Pong",
             Frame::ReadLedger => "ReadLedger",
             Frame::Ledger { .. } => "Ledger",
+            Frame::Query { .. } => "Query",
+            Frame::QueryAnswer { .. } => "QueryAnswer",
+            Frame::QueryRefused { .. } => "QueryRefused",
+            Frame::ReadSmart => "ReadSmart",
+            Frame::Smart { .. } => "Smart",
         }
     }
 
@@ -473,7 +557,9 @@ impl Frame {
             Frame::JoinRequest { .. } | Frame::JoinPending { .. } | Frame::JoinRejected { .. } => {
                 Some(Subsystem::Join)
             }
-            Frame::ReadLedger | Frame::Ledger { .. } => None,
+            Frame::ReadLedger | Frame::Ledger { .. } | Frame::ReadSmart | Frame::Smart { .. } => {
+                None
+            }
             _ => Some(Subsystem::Runner),
         }
     }
@@ -489,7 +575,10 @@ impl Frame {
             | Frame::Log { .. }
             | Frame::Finished { .. }
             | Frame::OutsideRuns { .. }
-            | Frame::ReadLedger => Direction::RunnerToServer,
+            | Frame::QueryAnswer { .. }
+            | Frame::QueryRefused { .. }
+            | Frame::ReadLedger
+            | Frame::ReadSmart => Direction::RunnerToServer,
             Frame::Enrolled { .. }
             | Frame::JoinPending { .. }
             | Frame::JoinRejected { .. }
@@ -501,7 +590,9 @@ impl Frame {
             | Frame::Approvals { .. }
             | Frame::Cancel { .. }
             | Frame::OutsideRunsAck { .. }
-            | Frame::Ledger { .. } => Direction::ServerToRunner,
+            | Frame::Query { .. }
+            | Frame::Ledger { .. }
+            | Frame::Smart { .. } => Direction::ServerToRunner,
             Frame::RenewCert {} | Frame::Ping | Frame::Pong => Direction::Both,
         }
     }
@@ -600,7 +691,11 @@ impl fmt::Debug for Frame {
                 .field("bases", bases)
                 .field("age_recipient", age_recipient)
                 .field("capabilities", capabilities),
-            Frame::RenewCert {} | Frame::Ping | Frame::Pong | Frame::ReadLedger => &mut d,
+            Frame::RenewCert {}
+            | Frame::Ping
+            | Frame::Pong
+            | Frame::ReadLedger
+            | Frame::ReadSmart => &mut d,
             Frame::Cert { cert } => d.field("cert", cert),
             Frame::Krl { bytes } => d.field("bytes", &Len(bytes.len())),
             Frame::Assign {
@@ -683,6 +778,26 @@ impl fmt::Debug for Frame {
             Frame::OutsideRunsAck { through } => d.field("through", through),
             Frame::Ledger { ledger_head, bases } => {
                 d.field("ledger_head", ledger_head).field("bases", bases)
+            }
+            Frame::Query {
+                query_id,
+                kind,
+                params,
+                asked_by,
+            } => d
+                .field("query_id", query_id)
+                .field("kind", kind)
+                .field("params", params)
+                .field("asked_by", asked_by),
+            // The answer by size only: logs carry no host details.
+            Frame::QueryAnswer { query_id, answer } => d
+                .field("query_id", query_id)
+                .field("answer", &Len(answer.to_string().len())),
+            Frame::QueryRefused { query_id, reason } => {
+                d.field("query_id", query_id).field("reason", reason)
+            }
+            Frame::Smart { installed, disks } => {
+                d.field("installed", installed).field("disks", disks)
             }
         };
         d.finish()

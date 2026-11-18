@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use keel_exec::codec::{self, CodecError, MAX_FRAME_LEN};
 use keel_exec::events::HostStats;
 use keel_exec::frames::{
-    Approval, Base, Direction, Frame, LogStream, MAX_OUTSIDE_RUNS, OutsideRun, Peer, Refusal,
-    SecretItem, Subsystem,
+    Approval, Base, CAP_QUERY_V1, Direction, Frame, LogStream, MAX_OUTSIDE_RUNS, OutsideRun, Peer,
+    QueryRefusal, Refusal, SecretItem, SmartDisk, Subsystem,
 };
 
 fn outside_run() -> OutsideRun {
@@ -200,6 +200,34 @@ fn every_frame() -> Vec<Frame> {
                 commit: "c".repeat(40),
             }],
         },
+        Frame::Query {
+            query_id: "0190f0a0-0000-7000-8000-0000000000aa".into(),
+            kind: "unit_state".into(),
+            params: BTreeMap::from([("unit".to_owned(), "k3s.service".to_owned())]),
+            asked_by: "ada".into(),
+        },
+        Frame::Query {
+            query_id: "0190f0a0-0000-7000-8000-0000000000ab".into(),
+            kind: "facts".into(),
+            params: BTreeMap::new(),
+            asked_by: "ada".into(),
+        },
+        Frame::QueryAnswer {
+            query_id: "0190f0a0-0000-7000-8000-0000000000aa".into(),
+            answer: serde_json::json!({"load": "loaded", "active": "active", "sub": "running", "since": null}),
+        },
+        Frame::QueryRefused {
+            query_id: "0190f0a0-0000-7000-8000-0000000000ab".into(),
+            reason: QueryRefusal::NotAllowed,
+        },
+        Frame::ReadSmart,
+        Frame::Smart {
+            installed: true,
+            disks: vec![SmartDisk {
+                name: "nvme0n1".into(),
+                smart_passed: Some(true),
+            }],
+        },
     ]
 }
 
@@ -233,22 +261,24 @@ fn every_frame_names_a_direction_and_a_subsystem() {
             "JoinRequest" | "JoinPending" | "JoinRejected" => {
                 assert_eq!(frame.subsystem(), Some(Subsystem::Join))
             }
-            "ReadLedger" | "Ledger" => assert_eq!(frame.subsystem(), None, "local socket only"),
+            "ReadLedger" | "Ledger" | "ReadSmart" | "Smart" => {
+                assert_eq!(frame.subsystem(), None, "local socket only")
+            }
             _ => assert_eq!(frame.subsystem(), Some(Subsystem::Runner), "{name}"),
         }
         let dir = frame.direction();
         match name {
             "Hello" | "Started" | "Refused" | "Event" | "Log" | "Finished" | "Enroll"
-            | "JoinRequest" | "OutsideRuns" => {
+            | "JoinRequest" | "OutsideRuns" | "QueryAnswer" | "QueryRefused" => {
                 assert_eq!(dir, Direction::RunnerToServer, "{name}")
             }
             "Assign" | "Pack" | "Secrets" | "Approvals" | "Cancel" | "Krl" | "Cert"
-            | "Enrolled" | "JoinPending" | "JoinRejected" | "OutsideRunsAck" => {
+            | "Enrolled" | "JoinPending" | "JoinRejected" | "OutsideRunsAck" | "Query" => {
                 assert_eq!(dir, Direction::ServerToRunner, "{name}")
             }
             "RenewCert" | "Ping" | "Pong" => assert_eq!(dir, Direction::Both, "{name}"),
-            "ReadLedger" => assert_eq!(dir, Direction::RunnerToServer),
-            "Ledger" => assert_eq!(dir, Direction::ServerToRunner),
+            "ReadLedger" | "ReadSmart" => assert_eq!(dir, Direction::RunnerToServer),
+            "Ledger" | "Smart" => assert_eq!(dir, Direction::ServerToRunner),
             other => panic!("unexpected frame {other}"),
         }
     }
@@ -734,4 +764,88 @@ fn hello_capabilities_are_optional_on_the_wire() {
         Frame::Hello { capabilities, .. } if capabilities == &["query.facts", "query.unit_state"]
     ));
     assert_eq!(serde_json::to_value(&frame).unwrap(), new);
+}
+
+#[test]
+fn query_frames_have_the_contract_shape_and_refuse_unknowns() {
+    assert_eq!(CAP_QUERY_V1, "query-v1");
+    let json = codec::encode_body(&Frame::Query {
+        query_id: "q".into(),
+        kind: "path_free".into(),
+        params: BTreeMap::from([("path".to_owned(), "/var".to_owned())]),
+        asked_by: "ada".into(),
+    })
+    .unwrap();
+    assert_eq!(
+        std::str::from_utf8(&json).unwrap(),
+        r#"{"frame":"Query","query_id":"q","kind":"path_free","params":{"path":"/var"},"asked_by":"ada"}"#
+    );
+    // No params: omitted, and read back as empty.
+    let json = codec::encode_body(&Frame::Query {
+        query_id: "q".into(),
+        kind: "facts".into(),
+        params: BTreeMap::new(),
+        asked_by: "ada".into(),
+    })
+    .unwrap();
+    assert!(!std::str::from_utf8(&json).unwrap().contains("params"));
+
+    for (reason, wire) in [
+        (QueryRefusal::NotAllowed, "not_allowed"),
+        (QueryRefusal::BadParams, "bad_params"),
+        (QueryRefusal::Unavailable, "unavailable"),
+        (QueryRefusal::TooLarge, "too_large"),
+        (QueryRefusal::Busy, "busy"),
+    ] {
+        assert_eq!(reason.as_str(), wire);
+        let json = codec::encode_body(&Frame::QueryRefused {
+            query_id: "q".into(),
+            reason,
+        })
+        .unwrap();
+        assert!(
+            std::str::from_utf8(&json)
+                .unwrap()
+                .contains(&format!(r#""reason":"{wire}""#))
+        );
+    }
+
+    // Unknown fields, a non-string param and an unknown reason are refused.
+    for bad in [
+        r#"{"frame":"Query","query_id":"q","kind":"facts","asked_by":"a","shell":"id"}"#,
+        r#"{"frame":"Query","query_id":"q","kind":"facts","params":{"unit":1},"asked_by":"a"}"#,
+        r#"{"frame":"QueryRefused","query_id":"q","reason":"nope"}"#,
+        r#"{"frame":"Smart","installed":true,"disks":[{"name":"sda","smart_passed":true,"x":1}]}"#,
+    ] {
+        assert!(serde_json::from_str::<Frame>(bad).is_err(), "{bad}");
+    }
+
+    // Only Keel asks, only the runner answers.
+    let ask = Frame::Query {
+        query_id: "q".into(),
+        kind: "facts".into(),
+        params: BTreeMap::new(),
+        asked_by: "a".into(),
+    };
+    assert!(ask.may_be_sent_by(Peer::Server) && !ask.may_be_sent_by(Peer::Runner));
+    let answer = Frame::QueryAnswer {
+        query_id: "q".into(),
+        answer: serde_json::json!({}),
+    };
+    assert!(answer.may_be_sent_by(Peer::Runner) && !answer.may_be_sent_by(Peer::Server));
+    assert_eq!(answer.subsystem(), Some(Subsystem::Runner));
+    assert_eq!(Frame::ReadSmart.subsystem(), None);
+}
+
+#[test]
+fn a_query_answer_debug_shows_its_size_not_its_content() {
+    let shown = format!(
+        "{:?}",
+        Frame::QueryAnswer {
+            query_id: "q".into(),
+            answer: serde_json::json!({"hostname": "secret-box"}),
+        }
+    );
+    assert!(!shown.contains("secret-box"), "{shown}");
+    assert!(shown.contains("bytes"), "{shown}");
 }
