@@ -599,7 +599,8 @@ const HOST_COLUMNS: &str = "h.id, h.workspace_id, h.inventory_name, h.state, h.a
      h.require_signed, h.runner_version, h.ansible_version, h.enrolled_at, h.last_seen_at, \
      h.revoked_at, array(select p.name from host_profiles hp join profiles p \
        on p.id = hp.profile_id where hp.host_id = h.id order by p.name) as profiles, \
-     h.python_version, h.override_quorum, h.ledger_head, h.changed_outside, h.age_recipient";
+     h.python_version, h.override_quorum, h.ledger_head, h.changed_outside, h.age_recipient, \
+     h.zone_id, h.last_path";
 
 #[derive(sqlx::FromRow)]
 struct HostRow {
@@ -620,11 +621,29 @@ struct HostRow {
     ledger_head: Option<String>,
     changed_outside: bool,
     age_recipient: Option<String>,
+    zone_id: Option<Uuid>,
+    last_path: Option<serde_json::Value>,
 }
 
 impl HostRow {
-    fn info(&self, listing: &crate::repo_catalog::Listing) -> HostInfo {
+    /// The wire view. `relays` are the workspace's ([`crate::relays::relay_infos`]), for the
+    /// host's derived reach (spec 067 T031).
+    fn info(
+        &self,
+        app: &AppState,
+        listing: &crate::repo_catalog::Listing,
+        relays: &[keel_protocol::RelayInfo],
+    ) -> HostInfo {
+        let path = app.runs.path(self.id);
+        let reach = crate::relays::derive_reach(
+            path.as_ref(),
+            self.zone_id,
+            crate::relays::last_relay(self.last_path.as_ref()),
+            relays,
+        );
         HostInfo {
+            zone: self.zone_id,
+            reach,
             id: self.id,
             workspace: self.workspace_id,
             inventory_name: self.inventory_name.clone(),
@@ -666,7 +685,11 @@ async fn list(
     .fetch_all(&app.db)
     .await?;
     let listing = crate::repo_catalog::listing(&app.db, workspace).await?;
-    Ok(rows.iter().map(|r| r.info(&listing)).collect())
+    let relays = crate::relays::relay_infos(app, workspace).await?;
+    Ok(rows
+        .iter()
+        .map(|r| r.info(app, &listing, &relays))
+        .collect())
 }
 
 async fn detail(app: &AppState, host: Uuid) -> Result<Option<HostDetail>, sqlx::Error> {
@@ -694,9 +717,10 @@ async fn detail(app: &AppState, host: Uuid) -> Result<Option<HostDetail>, sqlx::
     .await?;
     let outside_runs = crate::outside::newest(&app.db, host).await?;
     let listing = crate::repo_catalog::listing(&app.db, row.workspace_id).await?;
+    let relays = crate::relays::relay_infos(app, row.workspace_id).await?;
     Ok(Some(HostDetail {
         outside_runs,
-        host: row.info(&listing),
+        host: row.info(app, &listing, &relays),
         python_version: row.python_version.clone(),
         override_quorum: row.override_quorum.and_then(|q| u32::try_from(q).ok()),
         ledger_head: row.ledger_head.clone(),
@@ -715,7 +739,7 @@ async fn detail(app: &AppState, host: Uuid) -> Result<Option<HostDetail>, sqlx::
     }))
 }
 
-async fn host_event(app: &AppState, host: Uuid) -> Vec<Event> {
+pub(crate) async fn host_event(app: &AppState, host: Uuid) -> Vec<Event> {
     match detail(app, host).await {
         Ok(Some(d)) => vec![Event::Host(d)],
         Ok(None) => not_found("host"),

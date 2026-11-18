@@ -212,6 +212,22 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::PreviewHostAdd { .. }
         | Cmd::PreviewSopsRecipient { .. }
         | Cmd::PreviewJobPropose { .. } => Ok(()),
+        // Zones, relays and the relay-link key (spec 067 US3): each handler checks the
+        // workspace capability, or instance admin for the link key.
+        Cmd::ListZones { .. }
+        | Cmd::PreviewZoneCreate { .. }
+        | Cmd::PreviewZoneUpdate { .. }
+        | Cmd::PreviewZoneRemove { .. }
+        | Cmd::PreviewHostZone { .. }
+        | Cmd::ListRelays { .. }
+        | Cmd::PreviewRelayRegister { .. }
+        | Cmd::PreviewRelayUpdate { .. }
+        | Cmd::PreviewRelayRevoke { .. }
+        | Cmd::PreviewRelayRelease { .. }
+        | Cmd::GetRelayLinkKeys
+        | Cmd::PreviewRelayLinkKeyRotate
+        | Cmd::PreviewRelayLinkKeyActivate { .. }
+        | Cmd::PreviewRelayLinkKeyRetire { .. } => Ok(()),
         // Settings, enrolments, admin tokens and the System workspace (spec 060): sessions
         // only; the handlers check instance admin or owner.
         Cmd::GetSettings
@@ -536,6 +552,21 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         other @ (Cmd::PreviewHostAdd { .. }
         | Cmd::PreviewSopsRecipient { .. }
         | Cmd::PreviewJobPropose { .. }) => crate::proposals::handle(app, req, other).await,
+        // Zones, relays and the relay-link key (spec 067 US3).
+        other @ (Cmd::ListZones { .. }
+        | Cmd::PreviewZoneCreate { .. }
+        | Cmd::PreviewZoneUpdate { .. }
+        | Cmd::PreviewZoneRemove { .. }
+        | Cmd::PreviewHostZone { .. }
+        | Cmd::ListRelays { .. }
+        | Cmd::PreviewRelayRegister { .. }
+        | Cmd::PreviewRelayUpdate { .. }
+        | Cmd::PreviewRelayRevoke { .. }
+        | Cmd::PreviewRelayRelease { .. }
+        | Cmd::GetRelayLinkKeys
+        | Cmd::PreviewRelayLinkKeyRotate
+        | Cmd::PreviewRelayLinkKeyActivate { .. }
+        | Cmd::PreviewRelayLinkKeyRetire { .. }) => crate::zones::handle(app, req, other).await,
     };
     events
         .into_iter()

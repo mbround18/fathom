@@ -713,6 +713,14 @@ where
             state: keel_protocol::HostStatus::Online,
         },
     );
+    // Spec 067 T031: connected, and how; no lookup needed.
+    app.repos.push(
+        workspace,
+        Event::HostReachChanged {
+            host,
+            reach: crate::relays::derive_reach(Some(&path), None, None, &[]),
+        },
+    );
     tracing::info!(host = %host, %path, "runner connected");
     let app2 = app.clone();
     tokio::spawn(async move {
@@ -1381,6 +1389,7 @@ async fn disconnected(app: &AppState, host: Uuid) {
                 state: keel_protocol::HostStatus::Offline,
             },
         );
+        crate::relays::push_host_reach(app, host).await;
     }
     match result {
         Ok(rows) => {

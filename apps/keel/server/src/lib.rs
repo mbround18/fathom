@@ -58,3 +58,4 @@ pub mod repository;
 
 // Relays and zones (spec 067)
 pub mod relays;
+pub mod zones;

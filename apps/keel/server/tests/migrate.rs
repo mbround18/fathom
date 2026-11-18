@@ -296,8 +296,10 @@ async fn relay_tables_constraints_and_grants() {
         "unknown kind"
     );
     exec("delete from host_queries").await.expect("prune");
+    // 0020: keel_app may remove a zone, but never one a host or relay still points at.
+    let err = exec("delete from zones").await.unwrap_err();
+    assert!(err.to_string().contains("foreign key"), "{err}");
     for sql in [
-        "delete from zones",
         "delete from relays",
         "delete from relay_link_keys",
         "truncate host_queries",

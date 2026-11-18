@@ -19,6 +19,7 @@ use keel_exec::relay::{
     self, CacheMissReason, Frame, LINK_USER, LinkClientPolicy, LinkViolation, RELAY_SUBSYSTEM,
     RunnerChannel, ViolationSink, link_client_config,
 };
+use keel_protocol::{self as wire, Event};
 use russh::client::{AuthResult, Handle};
 use russh::keys::ssh_key::LineEnding;
 use russh::keys::ssh_key::public::KeyData;
@@ -135,13 +136,15 @@ fn public_line(key: &PrivateKey) -> Result<String, RelayKeyError> {
     public.to_openssh().map_err(key_error)
 }
 
-/// Generates a key, seals and stores it as active, and audits it. The caller holds the lock and
-/// has made sure no active key exists.
+/// Generates a key, seals and stores it (`active`, or `pending` for a rotation) and audits it.
+/// The caller holds the lock and, for `active`, has made sure no active key exists. Returns the
+/// new key's fingerprint.
 async fn create(
     conn: &mut PgConnection,
     master: &crate::seal::MasterKey,
     actor: &Actor,
-) -> Result<(), RelayKeyError> {
+    active: bool,
+) -> Result<String, RelayKeyError> {
     let key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).map_err(key_error)?;
     let id = Uuid::now_v7();
     let pem = key.to_openssh(LineEnding::LF).map_err(key_error)?;
@@ -150,12 +153,14 @@ async fn create(
     let fingerprint = keel_exec::ca::fingerprint(key.public_key().key_data());
     sqlx::query(
         "insert into relay_link_keys (id, public_key, fingerprint, sealed_private_key, state, \
-         activated_at) values ($1, $2, $3, $4, 'active', now())",
+         activated_at) values ($1, $2, $3, $4, \
+         case when $5 then 'active' else 'pending' end, case when $5 then now() end)",
     )
     .bind(id)
     .bind(public_line(&key)?)
     .bind(&fingerprint)
     .bind(sealed)
+    .bind(active)
     .execute(&mut *conn)
     .await?;
     audit::record(
@@ -167,11 +172,14 @@ async fn create(
             target: json!({ "relay_link_key": id }),
             decision: Decision::Allowed,
             reason: None,
-            context: json!({ "fingerprint": fingerprint }),
+            context: json!({
+                "fingerprint": fingerprint,
+                "state": if active { "active" } else { "pending" },
+            }),
         },
     )
     .await?;
-    Ok(())
+    Ok(fingerprint)
 }
 
 /// Makes the relay-link key if none is active, and loads it.
@@ -208,7 +216,7 @@ pub async fn ensure(
             .fetch_one(&mut *tx)
             .await?;
     if n == 0 {
-        create(&mut tx, master, &Actor::System).await?;
+        create(&mut tx, master, &Actor::System, true).await?;
     }
     tx.commit().await?;
     Ok(())
@@ -265,6 +273,12 @@ pub const ACTION_REFUSED: &str = "relay.refused";
 pub const ACTION_REVOKE: &str = "relay.revoke";
 /// The audit action for releasing a quarantined relay (T027, T059).
 pub const ACTION_RELEASE: &str = "relay.release";
+/// The audit action for editing a relay (spec 067 US3).
+pub const ACTION_UPDATE: &str = "relay.update";
+/// The audit action for activating a pending relay-link key (spec 067 US3).
+pub const ACTION_KEY_ACTIVATE: &str = "relay_link_key.activate";
+/// The audit action for retiring a pending relay-link key (spec 067 US3).
+pub const ACTION_KEY_RETIRE: &str = "relay_link_key.retire";
 
 /// The longest `dial_address` accepted (the column's check).
 const MAX_DIAL_ADDRESS: usize = 300;
@@ -306,6 +320,10 @@ pub enum RegisterError {
     NameTaken,
     /// Another relay already pins this host key.
     HostKeyTaken,
+    /// Update only: no such relay in the workspace.
+    Relay,
+    /// Update only: the relay is revoked, and a revoked relay is never changed.
+    Revoked,
     Db(sqlx::Error),
 }
 
@@ -321,6 +339,8 @@ impl std::fmt::Display for RegisterError {
             Self::Host => f.write_str("no such host in this workspace"),
             Self::NameTaken => f.write_str("a relay of that name exists in this workspace"),
             Self::HostKeyTaken => f.write_str("another relay already has that host key"),
+            Self::Relay => f.write_str("no such relay"),
+            Self::Revoked => f.write_str("the relay is revoked"),
             Self::Db(e) => write!(f, "database: {e}"),
         }
     }
@@ -444,31 +464,7 @@ pub async fn register_relay(
     actor: &Actor,
     r: &RelayRegistration<'_>,
 ) -> Result<RegisteredRelay, RegisterError> {
-    if !valid_name(r.name) {
-        return Err(RegisterError::Name);
-    }
-    check_dial_address(r.dial_address).map_err(RegisterError::DialAddress)?;
-    let (_, fingerprint) = parse_host_key(r.host_key).map_err(RegisterError::HostKey)?;
-    let zone: Option<(Uuid,)> =
-        sqlx::query_as("select id from zones where id = $1 and workspace_id = $2")
-            .bind(r.zone)
-            .bind(r.workspace)
-            .fetch_optional(&mut *conn)
-            .await?;
-    if zone.is_none() {
-        return Err(RegisterError::Zone);
-    }
-    if let Some(host) = r.host {
-        let found: Option<(Uuid,)> =
-            sqlx::query_as("select id from hosts where id = $1 and workspace_id = $2")
-                .bind(host)
-                .bind(r.workspace)
-                .fetch_optional(&mut *conn)
-                .await?;
-        if found.is_none() {
-            return Err(RegisterError::Host);
-        }
-    }
+    let fingerprint = check_registration(conn, r).await?;
     let id = Uuid::now_v7();
     sqlx::query(
         "insert into relays (id, workspace_id, zone_id, name, dial_address, host_key, \
@@ -504,6 +500,118 @@ pub async fn register_relay(
     )
     .await?;
     Ok(RegisteredRelay { id, fingerprint })
+}
+
+/// Edits relay `relay` of `r.workspace` in `conn`'s transaction (spec 067 US3): the same checks
+/// as [`register_relay`], then audits `relay.update` with what changed. The supervisor redials
+/// it on its next pass when the address or host key changed; [`LiveRelays::resync`] (after the
+/// commit) makes that immediate. A quarantine stays: editing a relay is not releasing it.
+///
+/// # Errors
+///
+/// As [`register_relay`]; [`RegisterError::Relay`] or [`RegisterError::Revoked`].
+pub async fn update_relay(
+    conn: &mut PgConnection,
+    actor: &Actor,
+    relay: Uuid,
+    r: &RelayRegistration<'_>,
+) -> Result<RegisteredRelay, RegisterError> {
+    type Before = (
+        Option<OffsetDateTime>,
+        Uuid,
+        String,
+        String,
+        String,
+        Option<Uuid>,
+    );
+    let before: Option<Before> = sqlx::query_as(
+        "select revoked_at, zone_id, name, dial_address, host_key_fingerprint, host_id \
+         from relays where id = $1 and workspace_id = $2 for update",
+    )
+    .bind(relay)
+    .bind(r.workspace)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((revoked, zone, name, dial, old_fp, host)) = before else {
+        return Err(RegisterError::Relay);
+    };
+    if revoked.is_some() {
+        return Err(RegisterError::Revoked);
+    }
+    let fingerprint = check_registration(conn, r).await?;
+    sqlx::query(
+        "update relays set zone_id = $2, name = $3, dial_address = $4, host_key = $5, \
+         host_key_fingerprint = $6, host_id = $7, updated_at = now() where id = $1",
+    )
+    .bind(relay)
+    .bind(r.zone)
+    .bind(r.name)
+    .bind(r.dial_address)
+    .bind(r.host_key.trim())
+    .bind(&fingerprint)
+    .bind(r.host)
+    .execute(&mut *conn)
+    .await?;
+    audit::record(
+        conn,
+        Entry {
+            actor,
+            action: ACTION_UPDATE,
+            workspace: Some(WorkspaceId(r.workspace)),
+            target: json!({ "relay": relay }),
+            decision: Decision::Allowed,
+            reason: None,
+            context: json!({
+                "before": {
+                    "name": name, "zone": zone, "dial_address": dial,
+                    "fingerprint": old_fp, "host": host,
+                },
+                "after": {
+                    "name": r.name, "zone": r.zone, "dial_address": r.dial_address,
+                    "fingerprint": fingerprint, "host": r.host,
+                },
+            }),
+        },
+    )
+    .await?;
+    Ok(RegisteredRelay {
+        id: relay,
+        fingerprint,
+    })
+}
+
+/// The checks [`register_relay`] and [`update_relay`] share (and their previews run). Returns
+/// the host key's fingerprint.
+pub(crate) async fn check_registration(
+    conn: &mut PgConnection,
+    r: &RelayRegistration<'_>,
+) -> Result<String, RegisterError> {
+    if !valid_name(r.name) {
+        return Err(RegisterError::Name);
+    }
+    check_dial_address(r.dial_address).map_err(RegisterError::DialAddress)?;
+    let (_, fingerprint) = parse_host_key(r.host_key).map_err(RegisterError::HostKey)?;
+    let zone: Option<(Uuid,)> =
+        sqlx::query_as("select id from zones where id = $1 and workspace_id = $2")
+            .bind(r.zone)
+            .bind(r.workspace)
+            .fetch_optional(&mut *conn)
+            .await?;
+    if zone.is_none() {
+        return Err(RegisterError::Zone);
+    }
+    if let Some(host) = r.host {
+        let found: Option<(Uuid,)> =
+            sqlx::query_as("select id from hosts where id = $1 and workspace_id = $2")
+                .bind(host)
+                .bind(r.workspace)
+                .fetch_optional(&mut *conn)
+                .await?;
+        if found.is_none() {
+            return Err(RegisterError::Host);
+        }
+    }
+    Ok(fingerprint)
 }
 
 // ---- revoke and release (T027) ---------------------------------------------------------------
@@ -604,8 +712,8 @@ pub async fn revoke_relay(
 /// `relay.release` (with the reason it was quarantined for) in one transaction; the supervisor
 /// then dials it again.
 ///
-/// TODO(spec 067 US3): the `ReleaseRelay` protocol command, its preview (what tripped the
-/// quarantine, from the `relay.quarantine` row) and the step-up gate call this.
+/// `PreviewRelayRelease` ([`crate::zones`], spec 067 US3) calls this after its preview and
+/// step-up.
 ///
 /// # Errors
 ///
@@ -648,6 +756,509 @@ pub async fn release_relay(
     tx.commit().await?;
     app.relay_live.resync();
     Ok(())
+}
+
+// ---- relay-link key rotation (spec 067 US3, T030) -------------------------------------------
+
+/// Why a relay-link key rotation step changed nothing.
+#[derive(Debug)]
+pub enum LinkKeyError {
+    /// Rotate: a pending key exists already; activate or retire it first.
+    PendingExists,
+    /// Activate or retire: no pending key has that fingerprint.
+    NotPending,
+    Key(RelayKeyError),
+}
+
+impl std::fmt::Display for LinkKeyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PendingExists => f.write_str("a new relay-link key is already pending"),
+            Self::NotPending => f.write_str("no pending relay-link key has that fingerprint"),
+            Self::Key(e) => e.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for LinkKeyError {}
+
+impl From<RelayKeyError> for LinkKeyError {
+    fn from(e: RelayKeyError) -> Self {
+        Self::Key(e)
+    }
+}
+
+impl From<sqlx::Error> for LinkKeyError {
+    fn from(e: sqlx::Error) -> Self {
+        Self::Key(RelayKeyError::Db(e))
+    }
+}
+
+async fn lock_link_keys(conn: &mut PgConnection) -> Result<(), sqlx::Error> {
+    sqlx::query("select pg_advisory_xact_lock(hashtext('keel_relay_link_keys'))")
+        .execute(conn)
+        .await?;
+    Ok(())
+}
+
+fn master(app: &AppState) -> Result<std::sync::Arc<crate::seal::MasterKey>, LinkKeyError> {
+    app.repos
+        .master_key
+        .clone()
+        .ok_or(LinkKeyError::Key(RelayKeyError::NoMasterKey))
+}
+
+/// Starts a rotation: a new `pending` relay-link key, audited `relay_link_key.create`. Keel
+/// keeps dialling with the active key until the pending one is activated, so an owner can add
+/// the new public line to every relay's `hub_keys` first. Returns its fingerprint.
+///
+/// # Errors
+///
+/// [`LinkKeyError::PendingExists`], no master key, or the database.
+pub async fn rotate_link_key(app: &AppState, actor: &Actor) -> Result<String, LinkKeyError> {
+    let master = master(app)?;
+    let mut tx = app.db.begin().await?;
+    lock_link_keys(&mut tx).await?;
+    let (n,): (i64,) =
+        sqlx::query_as("select count(*) from relay_link_keys where state = 'pending'")
+            .fetch_one(&mut *tx)
+            .await?;
+    if n > 0 {
+        return Err(LinkKeyError::PendingExists);
+    }
+    let fingerprint = create(&mut tx, &master, actor, false).await?;
+    tx.commit().await?;
+    Ok(fingerprint)
+}
+
+/// Activates the pending key `fingerprint`: the active one is retired, the pending one becomes
+/// active (audited `relay_link_key.activate`), and this Keel dials with it from the next link
+/// on. Links already up stay up.
+///
+/// # Errors
+///
+/// [`LinkKeyError::NotPending`], no master key, a sealed key that does not open, or the
+/// database.
+pub async fn activate_link_key(
+    app: &AppState,
+    actor: &Actor,
+    fingerprint: &str,
+) -> Result<(), LinkKeyError> {
+    let master = master(app)?;
+    let mut tx = app.db.begin().await?;
+    lock_link_keys(&mut tx).await?;
+    let pending: Option<(Uuid,)> = sqlx::query_as(
+        "select id from relay_link_keys where fingerprint = $1 and state = 'pending'",
+    )
+    .bind(fingerprint)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((id,)) = pending else {
+        return Err(LinkKeyError::NotPending);
+    };
+    let retired: Vec<(String,)> = sqlx::query_as(
+        "update relay_link_keys set state = 'retired', retired_at = now() \
+         where state = 'active' returning fingerprint",
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    sqlx::query("update relay_link_keys set state = 'active', activated_at = now() where id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    audit::record(
+        &mut tx,
+        Entry {
+            actor,
+            action: ACTION_KEY_ACTIVATE,
+            workspace: None,
+            target: json!({ "relay_link_key": id }),
+            decision: Decision::Allowed,
+            reason: None,
+            context: json!({
+                "fingerprint": fingerprint,
+                "retired": retired.into_iter().map(|r| r.0).collect::<Vec<_>>(),
+            }),
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    app.relay_link.set(load(&app.db, &master).await?);
+    Ok(())
+}
+
+/// Abandons a rotation: the pending key `fingerprint` is retired (audited
+/// `relay_link_key.retire`). The active key cannot be retired; activating another retires it.
+///
+/// # Errors
+///
+/// [`LinkKeyError::NotPending`] or the database.
+pub async fn retire_link_key(
+    app: &AppState,
+    actor: &Actor,
+    fingerprint: &str,
+) -> Result<(), LinkKeyError> {
+    let mut tx = app.db.begin().await?;
+    lock_link_keys(&mut tx).await?;
+    let row: Option<(Uuid,)> = sqlx::query_as(
+        "update relay_link_keys set state = 'retired', retired_at = now() \
+         where fingerprint = $1 and state = 'pending' returning id",
+    )
+    .bind(fingerprint)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((id,)) = row else {
+        return Err(LinkKeyError::NotPending);
+    };
+    audit::record(
+        &mut tx,
+        Entry {
+            actor,
+            action: ACTION_KEY_RETIRE,
+            workspace: None,
+            target: json!({ "relay_link_key": id }),
+            decision: Decision::Allowed,
+            reason: None,
+            context: json!({ "fingerprint": fingerprint }),
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// The relay-link keys, public halves only: active first, then pending, then the newest
+/// retired ones.
+///
+/// # Errors
+///
+/// The database.
+pub async fn link_keys(db: &PgPool) -> Result<Vec<wire::RelayLinkKey>, sqlx::Error> {
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        "select fingerprint, public_key, state from relay_link_keys order by \
+         case state when 'active' then 0 when 'pending' then 1 else 2 end, created_at desc \
+         limit 20",
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(fingerprint, public_line, state)| wire::RelayLinkKey {
+            fingerprint,
+            public_line,
+            state: match state.as_str() {
+                "active" => wire::RelayLinkKeyState::Active,
+                "pending" => wire::RelayLinkKeyState::Pending,
+                _ => wire::RelayLinkKeyState::Retired,
+            },
+        })
+        .collect())
+}
+
+// ---- wire views and derived reach (spec 067 US3, T029, T031) --------------------------------
+
+/// How often an RTT, version or stream-count change alone is broadcast per relay (a state
+/// change always is).
+pub const DETAIL_PUSH_INTERVAL: Duration = Duration::from_secs(30);
+
+#[derive(sqlx::FromRow)]
+struct InfoRow {
+    id: Uuid,
+    workspace_id: Uuid,
+    zone_id: Uuid,
+    name: String,
+    dial_address: String,
+    host_key_fingerprint: String,
+    host_id: Option<Uuid>,
+    revoked_at: Option<OffsetDateTime>,
+    quarantined_at: Option<OffsetDateTime>,
+    quarantine_reason: Option<String>,
+}
+
+const fn wire_state(s: RelayState) -> wire::RelayState {
+    match s {
+        RelayState::Connecting => wire::RelayState::Connecting,
+        RelayState::Connected => wire::RelayState::Connected,
+        RelayState::Unreachable => wire::RelayState::Unreachable,
+        RelayState::Quarantined => wire::RelayState::Quarantined,
+    }
+}
+
+/// A relay row and its live state as the wire shows them. Revoked wins; with no live state (no
+/// supervisor yet, or relays off) a quarantined row reads `quarantined` and any other
+/// `connecting`.
+fn wire_info(row: InfoRow, live: Option<RelayLive>) -> Option<wire::RelayInfo> {
+    let name = wire::ZoneName::new(row.name).ok()?;
+    let ts = crate::bindings::ts;
+    let live = live.filter(|_| row.revoked_at.is_none());
+    let (state, since) = match (&row.revoked_at, &live, &row.quarantine_reason) {
+        (Some(at), _, _) => (wire::RelayState::Revoked, Some(ts(*at))),
+        (None, Some(l), _) => (wire_state(l.state), Some(ts(l.since))),
+        (None, None, Some(_)) => (wire::RelayState::Quarantined, row.quarantined_at.map(ts)),
+        (None, None, None) => (wire::RelayState::Connecting, None),
+    };
+    let last_error = live
+        .as_ref()
+        .and_then(|l| l.last_error.clone())
+        .or_else(|| {
+            (state == wire::RelayState::Quarantined)
+                .then(|| row.quarantine_reason.clone())
+                .flatten()
+        });
+    Some(wire::RelayInfo {
+        id: row.id,
+        workspace: row.workspace_id,
+        zone: row.zone_id,
+        name,
+        dial_address: row.dial_address,
+        host_key_fingerprint: row.host_key_fingerprint,
+        host: row.host_id,
+        state,
+        since,
+        rtt_ms: live
+            .as_ref()
+            .and_then(|l| l.rtt_ms)
+            .map(|r| u32::try_from(r).unwrap_or(u32::MAX)),
+        version: live.as_ref().and_then(|l| l.version.clone()),
+        streams: live.as_ref().map(|l| l.streams),
+        last_error,
+        revoked_at: row.revoked_at.map(ts),
+    })
+}
+
+/// Every relay of `workspace` as `ListRelays` shows it: the rows, with live state. Revoked
+/// ones are listed last.
+///
+/// # Errors
+///
+/// The database.
+pub async fn relay_infos(
+    app: &AppState,
+    workspace: Uuid,
+) -> Result<Vec<wire::RelayInfo>, sqlx::Error> {
+    let rows: Vec<InfoRow> = sqlx::query_as(
+        "select id, workspace_id, zone_id, name, dial_address, host_key_fingerprint, host_id, \
+         revoked_at, quarantined_at, quarantine_reason from relays where workspace_id = $1 \
+         order by revoked_at is not null, name",
+    )
+    .bind(workspace)
+    .fetch_all(&app.db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|r| {
+            let live = app.relay_live.get(r.id);
+            wire_info(r, live)
+        })
+        .collect())
+}
+
+/// The relay a host's `last_path` came through, if it came through one.
+#[must_use]
+pub fn last_relay(last_path: Option<&serde_json::Value>) -> Option<Uuid> {
+    let p = last_path?;
+    if p.get("kind")?.as_str()? != "relay" {
+        return None;
+    }
+    p.get("relay")?.as_str()?.parse().ok()
+}
+
+/// A host's reach (data-model.md, "Derived reach"), from its session (`connected`), its zone
+/// (`None`: direct), the relay of its last session, and its workspace's relays:
+///
+/// 1. connected: how;
+/// 2. a direct zone, or a zone with a connected relay: `disconnected` (a path exists);
+/// 3. its last session came over a relay now revoked: `relay_revoked`;
+/// 4. no non-revoked relay in its zone: `no_path`;
+/// 5. a relay of its zone is still connecting: `disconnected`;
+/// 6. otherwise every relay of its zone is unreachable or quarantined: `relay_unreachable`.
+#[must_use]
+pub fn derive_reach(
+    connected: Option<&RunnerPath>,
+    zone: Option<Uuid>,
+    last_relay: Option<Uuid>,
+    relays: &[wire::RelayInfo],
+) -> wire::HostReach {
+    use wire::{HostReach, RelayState as S};
+    if let Some(path) = connected {
+        let path = match path.relay() {
+            Some(relay) => wire::RunnerPath::Relay { relay },
+            None => wire::RunnerPath::Direct,
+        };
+        return HostReach::Connected { path };
+    }
+    let Some(zone) = zone else {
+        return HostReach::Disconnected;
+    };
+    let serving: Vec<&wire::RelayInfo> = relays
+        .iter()
+        .filter(|r| r.zone == zone && r.state != S::Revoked)
+        .collect();
+    if serving.iter().any(|r| r.state == S::Connected) {
+        return HostReach::Disconnected;
+    }
+    if let Some(last) = last_relay
+        && relays.iter().any(|r| r.id == last && r.state == S::Revoked)
+    {
+        return HostReach::RelayRevoked { relay: last };
+    }
+    if serving.is_empty() {
+        return HostReach::NoPath;
+    }
+    if serving.iter().any(|r| r.state == S::Connecting) {
+        return HostReach::Disconnected;
+    }
+    HostReach::RelayUnreachable {
+        relays: serving.iter().map(|r| r.id).collect(),
+    }
+}
+
+/// Every host of `workspace` that is not revoked, with its reach given `relays` (the
+/// workspace's, from [`relay_infos`]).
+///
+/// # Errors
+///
+/// The database.
+pub async fn workspace_reach(
+    app: &AppState,
+    workspace: Uuid,
+    relays: &[wire::RelayInfo],
+) -> Result<Vec<(Uuid, wire::HostReach)>, sqlx::Error> {
+    let rows: Vec<(Uuid, Option<Uuid>, Option<serde_json::Value>)> = sqlx::query_as(
+        "select id, zone_id, last_path from hosts where workspace_id = $1 \
+         and state <> 'revoked'",
+    )
+    .bind(workspace)
+    .fetch_all(&app.db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(host, zone, last)| {
+            let path = app.runs.path(host);
+            let reach = derive_reach(path.as_ref(), zone, last_relay(last.as_ref()), relays);
+            (host, reach)
+        })
+        .collect())
+}
+
+/// Pushes `HostReachChanged` for `host` to its workspace: its runner just connected or
+/// disconnected (T031). A failure is logged; the next `ListHosts` has the truth.
+pub async fn push_host_reach(app: &AppState, host: Uuid) {
+    let result = async {
+        let row: Option<(Uuid, Option<Uuid>, Option<serde_json::Value>)> =
+            sqlx::query_as("select workspace_id, zone_id, last_path from hosts where id = $1")
+                .bind(host)
+                .fetch_optional(&app.db)
+                .await?;
+        let Some((ws, zone, last)) = row else {
+            return Ok(());
+        };
+        let relays = relay_infos(app, ws).await?;
+        let path = app.runs.path(host);
+        let reach = derive_reach(path.as_ref(), zone, last_relay(last.as_ref()), &relays);
+        app.repos.push(ws, Event::HostReachChanged { host, reach });
+        Ok::<_, sqlx::Error>(())
+    }
+    .await;
+    if let Err(e) = result {
+        tracing::warn!(host = %host, error = %e, "pushing a host's reach failed");
+    }
+}
+
+/// Pushes `RelayChanged` for every [`RelayChange`] the supervisor broadcasts, and
+/// `HostReachChanged` for each host of that workspace whose reach differs from the last one
+/// pushed (T031). Runs for the supervisor's life.
+async fn publish(app: AppState, mut changes: broadcast::Receiver<RelayChange>) {
+    let mut pushed: HashMap<Uuid, wire::HostReach> = HashMap::new();
+    loop {
+        let change = match changes.recv().await {
+            Ok(c) => c,
+            Err(broadcast::error::RecvError::Lagged(n)) => {
+                tracing::warn!(missed = n, "relay changes lagged");
+                continue;
+            }
+            Err(broadcast::error::RecvError::Closed) => return,
+        };
+        let ws = change.workspace;
+        let result = async {
+            let relays = relay_infos(&app, ws).await?;
+            if let Some(info) = relays.iter().find(|r| r.id == change.relay) {
+                app.repos.push(ws, Event::RelayChanged(info.clone()));
+            }
+            for (host, reach) in workspace_reach(&app, ws, &relays).await? {
+                if pushed.get(&host) != Some(&reach) {
+                    pushed.insert(host, reach.clone());
+                    app.repos.push(ws, Event::HostReachChanged { host, reach });
+                }
+            }
+            Ok::<_, sqlx::Error>(())
+        }
+        .await;
+        if let Err(e) = result {
+            tracing::warn!(relay = %change.relay, error = %e, "pushing a relay change failed");
+        }
+    }
+}
+
+// ---- run preview warning (spec 067 US3, T032) -----------------------------------------------
+
+/// The longest list of dependent hosts a warning names.
+const WARN_HOSTS: usize = 10;
+
+/// The warning for a run that targets `relay_host`, which runs `relay`, the only relay of a
+/// zone whose hosts `dependents` the run also targets.
+#[must_use]
+pub fn relay_dependency_warning(relay: &str, relay_host: &str, dependents: &[String]) -> String {
+    let mut names = dependents
+        .iter()
+        .take(WARN_HOSTS)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    if dependents.len() > WARN_HOSTS {
+        names.push_str(&format!(" and {} more", dependents.len() - WARN_HOSTS));
+    }
+    format!(
+        "This run includes {relay_host}, which runs relay {relay}, the only relay for \
+         {names}. If the run restarts or breaks the relay, those hosts lose their path to Keel \
+         and their part of the run is lost. Consider running {relay_host} separately."
+    )
+}
+
+/// The [`relay_dependency_warning`]s for a run of `workspace` reaching `targets`: one per
+/// non-revoked relay whose host is a target and which is the only non-revoked relay of a zone
+/// that holds other targets.
+///
+/// # Errors
+///
+/// The database.
+pub async fn run_warnings(
+    db: &PgPool,
+    workspace: Uuid,
+    targets: &[Uuid],
+) -> Result<Vec<String>, sqlx::Error> {
+    if targets.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows: Vec<(String, String, Vec<String>)> = sqlx::query_as(
+        "select r.name, rh.inventory_name, \
+           array_agg(h.inventory_name order by h.inventory_name) \
+         from relays r \
+         join hosts rh on rh.id = r.host_id \
+         join hosts h on h.zone_id = r.zone_id and h.id = any($2) and h.id <> r.host_id \
+         where r.workspace_id = $1 and r.revoked_at is null and r.host_id = any($2) \
+           and not exists (select 1 from relays o where o.zone_id = r.zone_id \
+             and o.revoked_at is null and o.id <> r.id) \
+         group by r.id, r.name, rh.inventory_name order by r.name",
+    )
+    .bind(workspace)
+    .bind(targets)
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .iter()
+        .map(|(relay, host, deps)| relay_dependency_warning(relay, host, deps))
+        .collect())
 }
 
 // ---- live state (T020) ----------------------------------------------------------------------
@@ -724,11 +1335,14 @@ struct LiveInner {
     /// The supervisor keeping this state, so code holding only [`AppState`] can stop a link,
     /// note a refusal or rate-limit an attempt. Weak: the supervisor owns the app state.
     supervisor: RwLock<Weak<Supervisor>>,
+    /// When each relay's change was last broadcast, to throttle detail-only changes.
+    sent: Mutex<HashMap<Uuid, Instant>>,
 }
 
 /// Every supervised relay's [`RelayLive`], shared through [`AppState::relay_live`]. Readers
 /// (`ListRelays`, a host's reach) take snapshots; the WebSocket subscribes to
-/// [`RelayChange`]s, sent on every state change (not on each RTT or stream-count update).
+/// [`RelayChange`]s, sent on every state change, and on an RTT, version or stream-count change
+/// at most every [`DETAIL_PUSH_INTERVAL`].
 #[derive(Clone)]
 pub struct LiveRelays {
     inner: Arc<LiveInner>,
@@ -743,6 +1357,7 @@ impl Default for LiveRelays {
                 changes,
                 resync: Notify::new(),
                 supervisor: RwLock::new(Weak::new()),
+                sent: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -846,7 +1461,8 @@ impl LiveRelays {
     }
 
     /// Applies `f` to a relay's state (creating it as `connecting`); a state change resets
-    /// `since` and is broadcast.
+    /// `since` and is broadcast. Any other change (RTT, version, streams, error) is broadcast
+    /// only if nothing was for this relay in the last [`DETAIL_PUSH_INTERVAL`].
     fn update(&self, relay: Uuid, workspace: Uuid, f: impl FnOnce(&mut RelayLive)) {
         let changed = {
             let Ok(mut m) = self.inner.map.write() else {
@@ -855,10 +1471,23 @@ impl LiveRelays {
             let entry = m
                 .entry(relay)
                 .or_insert_with(|| (workspace, RelayLive::new(RelayState::Connecting)));
-            let before = entry.1.state;
+            let before = entry.1.clone();
             f(&mut entry.1);
-            (entry.1.state != before).then(|| {
+            let now = Instant::now();
+            let Ok(mut sent) = self.inner.sent.lock() else {
+                return;
+            };
+            let due = if entry.1.state != before.state {
                 entry.1.since = OffsetDateTime::now_utc();
+                true
+            } else {
+                entry.1 != before
+                    && sent
+                        .get(&relay)
+                        .is_none_or(|t| now.duration_since(*t) >= DETAIL_PUSH_INTERVAL)
+            };
+            due.then(|| {
+                sent.insert(relay, now);
                 entry.1.clone()
             })
         };
@@ -878,6 +1507,9 @@ impl LiveRelays {
             .write()
             .ok()
             .and_then(|mut m| m.remove(&relay));
+        if let Ok(mut sent) = self.inner.sent.lock() {
+            sent.remove(&relay);
+        }
         if let Some((workspace, _)) = removed {
             let _ = self.inner.changes.send(RelayChange {
                 relay,
@@ -1157,6 +1789,8 @@ struct Link {
 struct Supervisor {
     shared: Arc<Shared>,
     links: Mutex<HashMap<Uuid, Link>>,
+    /// Pushes relay changes and host reach to the WebSocket ([`publish`], T031).
+    publisher: JoinHandle<()>,
 }
 
 impl Supervisor {
@@ -1171,6 +1805,7 @@ impl Supervisor {
 
 impl Drop for Supervisor {
     fn drop(&mut self) {
+        self.publisher.abort();
         if let Ok(links) = self.links.lock() {
             for link in links.values() {
                 link.task.abort();
@@ -1203,6 +1838,7 @@ impl RelaySupervisor {
             pending: Mutex::new(HashMap::new()),
         };
         let live = app.relay_live.clone();
+        let publisher = tokio::spawn(publish(app.clone(), live.subscribe()));
         let inner = Arc::new(Supervisor {
             shared: Arc::new(Shared {
                 app,
@@ -1212,6 +1848,7 @@ impl RelaySupervisor {
                 attempts: Mutex::new(HashMap::new()),
             }),
             links: Mutex::new(HashMap::new()),
+            publisher,
         });
         if let Ok(mut sup) = live.inner.supervisor.write() {
             *sup = Arc::downgrade(&inner);
@@ -2117,5 +2754,163 @@ mod tests {
         live.remove(relay);
         assert_eq!(rx.try_recv().unwrap().live, None);
         assert!(live.get(relay).is_none());
+    }
+
+    #[test]
+    fn detail_changes_push_at_most_every_interval() {
+        let live = LiveRelays::default();
+        let mut rx = live.subscribe();
+        let (relay, ws) = (Uuid::now_v7(), Uuid::now_v7());
+        live.update(relay, ws, |l| l.state = RelayState::Connected);
+        assert!(rx.try_recv().is_ok());
+        live.update(relay, ws, |l| l.streams = 2);
+        assert!(rx.try_recv().is_err(), "within the interval");
+        // Backdate the last push past the interval.
+        let old = Instant::now()
+            .checked_sub(DETAIL_PUSH_INTERVAL + Duration::from_secs(1))
+            .unwrap();
+        live.inner.sent.lock().unwrap().insert(relay, old);
+        live.update(relay, ws, |l| l.streams = 3);
+        assert_eq!(rx.try_recv().unwrap().live.unwrap().streams, 3);
+        // No change at all is never pushed, however long ago the last push was.
+        live.inner.sent.lock().unwrap().insert(relay, old);
+        live.update(relay, ws, |_| {});
+        assert!(rx.try_recv().is_err());
+        // A state change always is.
+        live.update(relay, ws, |l| l.state = RelayState::Unreachable);
+        assert!(rx.try_recv().is_ok());
+    }
+
+    fn info(zone: Uuid, state: wire::RelayState) -> wire::RelayInfo {
+        wire::RelayInfo {
+            id: Uuid::now_v7(),
+            workspace: Uuid::nil(),
+            zone,
+            name: wire::ZoneName::new("r").unwrap(),
+            dial_address: "relay.dmz:7832".into(),
+            host_key_fingerprint: "SHA256:x".into(),
+            host: None,
+            state,
+            since: None,
+            rtt_ms: None,
+            version: None,
+            streams: None,
+            last_error: None,
+            revoked_at: None,
+        }
+    }
+
+    #[test]
+    fn reach_follows_the_precedence_table() {
+        use wire::{HostReach, RelayState as S};
+        let zone = Uuid::now_v7();
+        let other = Uuid::now_v7();
+        let up = info(zone, S::Connected);
+        let down = info(zone, S::Unreachable);
+        let quarantined = info(zone, S::Quarantined);
+        let dialling = info(zone, S::Connecting);
+        let revoked = info(zone, S::Revoked);
+        let elsewhere = info(other, S::Connected);
+
+        // 1. Connected: how.
+        let via = RunnerPath::Relay {
+            relay_id: up.id,
+            advisory_peer: None,
+        };
+        assert_eq!(
+            derive_reach(Some(&via), Some(zone), None, &[]),
+            HostReach::Connected {
+                path: wire::RunnerPath::Relay { relay: up.id }
+            }
+        );
+        assert_eq!(
+            derive_reach(Some(&RunnerPath::Direct { peer: None }), None, None, &[]),
+            HostReach::Connected {
+                path: wire::RunnerPath::Direct
+            }
+        );
+        // 2. Direct, or a zone with a connected relay: a path exists.
+        assert_eq!(
+            derive_reach(None, None, Some(revoked.id), &[revoked.clone()]),
+            HostReach::Disconnected
+        );
+        assert_eq!(
+            derive_reach(
+                None,
+                Some(zone),
+                Some(revoked.id),
+                &[up.clone(), revoked.clone()]
+            ),
+            HostReach::Disconnected
+        );
+        // 3. The last session's relay is revoked.
+        assert_eq!(
+            derive_reach(
+                None,
+                Some(zone),
+                Some(revoked.id),
+                &[down.clone(), revoked.clone()]
+            ),
+            HostReach::RelayRevoked { relay: revoked.id }
+        );
+        // 4. No non-revoked relay in the zone (another zone's relay does not count).
+        assert_eq!(
+            derive_reach(None, Some(zone), None, &[revoked.clone(), elsewhere]),
+            HostReach::NoPath
+        );
+        assert_eq!(derive_reach(None, Some(zone), None, &[]), HostReach::NoPath);
+        // 5. A relay is still connecting.
+        assert_eq!(
+            derive_reach(None, Some(zone), None, &[down.clone(), dialling]),
+            HostReach::Disconnected
+        );
+        // 6. Every relay is unreachable or quarantined.
+        assert_eq!(
+            derive_reach(None, Some(zone), None, &[down.clone(), quarantined.clone()]),
+            HostReach::RelayUnreachable {
+                relays: vec![down.id, quarantined.id]
+            }
+        );
+    }
+
+    #[test]
+    fn last_relay_reads_only_relay_paths() {
+        let r = Uuid::now_v7();
+        assert_eq!(
+            last_relay(Some(
+                &serde_json::json!({"kind": "relay", "relay": r, "peer": null})
+            )),
+            Some(r)
+        );
+        assert_eq!(
+            last_relay(Some(&serde_json::json!({"kind": "direct", "relay": r}))),
+            None
+        );
+        assert_eq!(
+            last_relay(Some(&serde_json::json!({"kind": "relay", "relay": "nope"}))),
+            None
+        );
+        assert_eq!(last_relay(None), None);
+        // What the listener writes reads back.
+        let path = RunnerPath::Relay {
+            relay_id: r,
+            advisory_peer: Some("10.0.0.5:4000".into()),
+        };
+        assert_eq!(last_relay(Some(&path.to_json())), Some(r));
+    }
+
+    #[test]
+    fn the_dependency_warning_names_the_relay_and_caps_the_hosts() {
+        let w = relay_dependency_warning("r1", "gw1", &["web1".into(), "web2".into()]);
+        assert_eq!(
+            w,
+            "This run includes gw1, which runs relay r1, the only relay for web1, web2. If the \
+             run restarts or breaks the relay, those hosts lose their path to Keel and their \
+             part of the run is lost. Consider running gw1 separately."
+        );
+        let many: Vec<String> = (0..13).map(|i| format!("h{i}")).collect();
+        let w = relay_dependency_warning("r1", "gw1", &many);
+        assert!(w.contains("h9 and 3 more."), "{w}");
+        assert!(!w.contains("h10"), "{w}");
     }
 }

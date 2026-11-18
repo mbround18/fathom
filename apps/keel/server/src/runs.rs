@@ -955,11 +955,17 @@ async fn preview_run_start(
         },
     );
     // Spec 066 FR-018: hosts that cannot decrypt the sops files the job reads. Warns only.
-    let warnings =
+    let mut warnings =
         match crate::repo_catalog::run_warnings(&app.db, ws, binding, &name, &affected).await {
             Ok(w) => w,
             Err(e) => return db_failed(&e),
         };
+    // Spec 067 T032 (R10): the run reaches a relay's host and the hosts behind that relay.
+    let targets: Vec<Uuid> = p.hosts.iter().map(|h| h.0).collect();
+    match crate::relays::run_warnings(&app.db, ws, &targets).await {
+        Ok(w) => warnings.extend(w),
+        Err(e) => return db_failed(&e),
+    }
     let op = pending(move |app, caller| async move {
         if let Err(d) = recheck(&caller, ACTION, Capability::Operate, ws) {
             return d;
