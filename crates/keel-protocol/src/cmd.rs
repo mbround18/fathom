@@ -30,7 +30,7 @@ use crate::host::{
 // Workspaces, the repository catalog and hosts (spec 066)
 use crate::repository::{ApiBase, ForgeProvider, HostGroups, RepositorySpec};
 // Zones and relays (spec 067)
-use crate::relay::{ZoneDescription, ZoneName};
+use crate::relay::{QueryKind, ZoneDescription, ZoneName};
 // Signed mode: review and signers (US8)
 use crate::governance::Label as SignerLabel;
 use crate::review::{
@@ -977,6 +977,27 @@ pub enum Cmd {
     /// `Preview` (instance admin, step-up) of retiring a pending key; `Confirm` replies
     /// `RelayLinkKeys`.
     PreviewRelayLinkKeyRetire { fingerprint: String },
+
+    // Host queries (spec 067 US5)
+    /// Asks `host`'s runner a read-only question: replies `HostQuery` (pending), then pushes
+    /// `HostQueryAnswered`. A host that is offline or whose runner lacks `query-v1` gets the
+    /// `HostQuery` with its outcome (`disconnected`, `no_capability`) at once. Workspace
+    /// `Operate`.
+    AskHost {
+        #[ts(type = "string")]
+        host: Uuid,
+        kind: QueryKind,
+        /// `unit` for `unit_state`, `path` for `path_free`; nothing for the others.
+        #[serde(default)]
+        params: std::collections::BTreeMap<String, String>,
+    },
+    /// `HostQueries`: `host`'s newest queries, at most `limit` (at most 200). View.
+    ListHostQueries {
+        #[ts(type = "string")]
+        host: Uuid,
+        #[serde(default)]
+        limit: Option<u32>,
+    },
 }
 
 /// The commands an API token may be scoped to, by [`Cmd::name`]: reads only, for now. Anything
@@ -1022,6 +1043,7 @@ pub const TOKEN_ACTIONS: &[&str] = &[
     // Zones and relays (spec 067)
     "list_zones",
     "list_relays",
+    "list_host_queries",
 ];
 
 impl Cmd {
@@ -1182,6 +1204,8 @@ impl Cmd {
             Cmd::PreviewRelayLinkKeyRotate => "preview_relay_link_key_rotate",
             Cmd::PreviewRelayLinkKeyActivate { .. } => "preview_relay_link_key_activate",
             Cmd::PreviewRelayLinkKeyRetire { .. } => "preview_relay_link_key_retire",
+            Cmd::AskHost { .. } => "ask_host",
+            Cmd::ListHostQueries { .. } => "list_host_queries",
         }
     }
 
@@ -1342,7 +1366,9 @@ impl Cmd {
             | Cmd::GetRelayLinkKeys
             | Cmd::PreviewRelayLinkKeyRotate
             | Cmd::PreviewRelayLinkKeyActivate { .. }
-            | Cmd::PreviewRelayLinkKeyRetire { .. } => false,
+            | Cmd::PreviewRelayLinkKeyRetire { .. }
+            | Cmd::AskHost { .. }
+            | Cmd::ListHostQueries { .. } => false,
         }
     }
 }

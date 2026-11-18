@@ -454,6 +454,18 @@ pub enum Event {
     },
     /// Pushed on a host query's answer, refusal or timeout.
     HostQueryAnswered(HostQuery),
+    /// Reply to `AskHost`: the query as asked (pending), or with its outcome when Keel could
+    /// not send it.
+    HostQuery(HostQuery),
+    /// Reply to `ListHostQueries`, newest first.
+    HostQueries {
+        #[ts(type = "string")]
+        host: Uuid,
+        items: Vec<HostQuery>,
+        /// Whether the host's connected runner answers queries (`query-v1`); `None` while it
+        /// is not connected.
+        query_v1: Option<bool>,
+    },
 }
 
 impl EventEnvelope {

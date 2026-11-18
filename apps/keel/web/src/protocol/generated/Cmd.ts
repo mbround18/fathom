@@ -31,6 +31,7 @@ import type { Pattern } from "./Pattern";
 import type { PolicySpec } from "./PolicySpec";
 import type { PreviewId } from "./PreviewId";
 import type { ProfileName } from "./ProfileName";
+import type { QueryKind } from "./QueryKind";
 import type { ReceiverProvider } from "./ReceiverProvider";
 import type { RecoveryCode } from "./RecoveryCode";
 import type { RepoPath } from "./RepoPath";
@@ -110,4 +111,8 @@ inventory: RepoPath | null, } } | { "type": "PreviewSopsRecipient", "data": { ho
 /**
  * The relay's `ssh-ed25519` host key line.
  */
-host_key: string, host: string | null, } } | { "type": "PreviewRelayUpdate", "data": { relay: string, zone: string, name: ZoneName, dial_address: string, host_key: string, host: string | null, } } | { "type": "PreviewRelayRevoke", "data": { relay: string, } } | { "type": "PreviewRelayRelease", "data": { relay: string, } } | { "type": "GetRelayLinkKeys" } | { "type": "PreviewRelayLinkKeyRotate" } | { "type": "PreviewRelayLinkKeyActivate", "data": { fingerprint: string, } } | { "type": "PreviewRelayLinkKeyRetire", "data": { fingerprint: string, } };
+host_key: string, host: string | null, } } | { "type": "PreviewRelayUpdate", "data": { relay: string, zone: string, name: ZoneName, dial_address: string, host_key: string, host: string | null, } } | { "type": "PreviewRelayRevoke", "data": { relay: string, } } | { "type": "PreviewRelayRelease", "data": { relay: string, } } | { "type": "GetRelayLinkKeys" } | { "type": "PreviewRelayLinkKeyRotate" } | { "type": "PreviewRelayLinkKeyActivate", "data": { fingerprint: string, } } | { "type": "PreviewRelayLinkKeyRetire", "data": { fingerprint: string, } } | { "type": "AskHost", "data": { host: string, kind: QueryKind, 
+/**
+ * `unit` for `unit_state`, `path` for `path_free`; nothing for the others.
+ */
+params: { [key in string]: string }, } } | { "type": "ListHostQueries", "data": { host: string, limit: number | null, } };

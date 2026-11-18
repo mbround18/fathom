@@ -277,3 +277,63 @@ fn host_info_without_zone_or_reach_still_parses() {
     assert_eq!(info.zone, None);
     assert_eq!(info.reach, HostReach::Disconnected);
 }
+
+#[test]
+fn host_query_commands_and_replies_round_trip() {
+    let v = round_trip(&Cmd::AskHost {
+        host: id(3),
+        kind: QueryKind::UnitState,
+        params: [("unit".to_owned(), "k3s.service".to_owned())].into(),
+    });
+    assert_eq!(
+        v,
+        json!({"type": "AskHost", "data": {"host": id(3), "kind": "unit_state", "params": {"unit": "k3s.service"}}})
+    );
+    // `params` may be left out for the kinds that take none.
+    let c: Cmd = serde_json::from_value(
+        json!({"type": "AskHost", "data": {"host": id(3), "kind": "facts"}}),
+    )
+    .unwrap();
+    assert!(matches!(c, Cmd::AskHost { ref params, .. } if params.is_empty()));
+    // A kind outside the fixed set is refused by the decoder.
+    assert!(
+        serde_json::from_value::<Cmd>(
+            json!({"type": "AskHost", "data": {"host": id(3), "kind": "shell"}})
+        )
+        .is_err()
+    );
+    round_trip(&Cmd::ListHostQueries {
+        host: id(3),
+        limit: Some(20),
+    });
+    let c: Cmd =
+        serde_json::from_value(json!({"type": "ListHostQueries", "data": {"host": id(3)}}))
+            .unwrap();
+    assert_eq!(c.name(), "list_host_queries");
+    assert!(TOKEN_ACTIONS.contains(&"list_host_queries"));
+    assert!(
+        !TOKEN_ACTIONS.contains(&"ask_host"),
+        "asking is not a token read"
+    );
+
+    let q = HostQuery {
+        id: id(20),
+        host: id(3),
+        kind: QueryKind::Facts,
+        params: json!({}),
+        asked_by: "owner".into(),
+        asked_at: "2026-11-17T10:00:00Z".into(),
+        outcome: None,
+        answer: None,
+        refusal: None,
+        answered_at: None,
+    };
+    let v = round_trip(&Event::HostQuery(q.clone()));
+    assert_eq!(v["type"], "HostQuery");
+    let v = round_trip(&Event::HostQueries {
+        host: id(3),
+        items: vec![q],
+        query_v1: Some(false),
+    });
+    assert_eq!(v["data"]["query_v1"], false);
+}
