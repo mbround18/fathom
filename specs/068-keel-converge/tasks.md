@@ -339,8 +339,13 @@ that host's rest; retry resumes.
   and a CONTRIBUTING note on the `converge_advance` trigger.
 - [ ] T068 (../ansible) Hand the whole contracts/ansible.md to the ansible session in the order
   of quickstart §4 (runners upgraded, ceilings, then manifest); record its confirmation of SC-002.
-- [ ] T069 [web] Impeccable pass over every 068 screen together (Hosts, host page, converge
-  preview and page, Start dialog, binding page, enrollment).
+- [X] T069 [web] Impeccable pass over every 068 screen together (Hosts, host page, converge
+  preview and page, Start dialog, binding page, enrollment). Done with 067's Queries panel:
+  Hosts columns no longer overlap at 1280 (fixed State/Converge widths, kit DataTable
+  `actionsWidth`, Converge cell wraps and shows "—" when empty); host and binding panel
+  sections take H3 with wider gaps between them; Last converge link carries its state tone;
+  Queries controls share one height and show a loading state; Require/Save/Grant match field
+  height; dialog Cancel is ghost everywhere and Start run uses default-size footer buttons.
 - [ ] T070 Main session only: `scripts/hygiene.sh`, then the full gate once on the combined
   branch (`scripts/ci.sh`); report wall time, slowest steps and delta vs the last pass.
 - [ ] T071 [web] Brochure screens last: add the converge preview, converge page and Profiles
