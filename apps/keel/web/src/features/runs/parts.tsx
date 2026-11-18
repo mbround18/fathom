@@ -8,7 +8,10 @@ import { useRuns } from './store'
 function tone(state: RunPhase | HostPhase): string {
   switch (state) {
     case 'succeeded':
+    case 'covered':
       return 'text-status-ok'
+    case 'waiting_checks':
+      return 'text-status-warn'
     case 'failed':
     case 'refused':
     case 'denied':
@@ -22,9 +25,14 @@ function tone(state: RunPhase | HostPhase): string {
   }
 }
 
+/** States whose code reads poorly with its underscores replaced (spec 068). */
+const WORD: Partial<Record<RunPhase | HostPhase, string>> = {
+  waiting_checks: 'waiting for checks',
+}
+
 /** A state, in words; `label` replaces them (spec 064: "Waiting · 1 of 2" for a held run). */
 export function StateBadge({ state, label }: { state: RunPhase | HostPhase; label?: string | null }) {
-  return <span className={`${STATUS} ${tone(state)}`}>{label ?? state.replace(/_/g, ' ')}</span>
+  return <span className={`${STATUS} ${tone(state)}`}>{label ?? WORD[state] ?? state.replace(/_/g, ' ')}</span>
 }
 
 export function ErrorLine() {

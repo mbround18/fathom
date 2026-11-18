@@ -9,13 +9,14 @@
  * RunPage renders this in place of the plain run view when the run's kind is `converge`.
  */
 import { ArrowClockwiseIcon, ArrowLeftIcon, StopIcon } from '@phosphor-icons/react'
-import { Badge, Button, Checkbox } from '@companion/ui'
+import { Button, Checkbox } from '@companion/ui'
 import { H2, LABEL, Link, LINK, LoadState, Page, PageHeader } from '@companion/ui/kit'
 import { useEffect, useId, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { canOperate } from '@/features/hosts/workspaces'
 import { ApprovalPanel, DecisionDialog } from '@/features/runs/ApprovalPanel'
+import { CheckBadge, RunChecks } from '@/features/runs/checks'
 import { ErrorLine, StateBadge } from '@/features/runs/parts'
 import { active, short } from '@/features/runs/store'
 import type { ConvergeStepView, ConvergeView, RunInfo } from '@/protocol/wire'
@@ -186,11 +187,7 @@ export default function ConvergePage({ run }: { run: RunInfo }) {
             <span data-run-state={run.state}>
               <StateBadge state={run.state} />
             </span>
-            {run.check && (
-              <Badge variant="outline" data-check-badge>
-                check
-              </Badge>
-            )}
+            <CheckBadge run={run} />
             <span className="font-mono">{short(run.commit)}</span>
             <span>inventory {run.inventory}</span>
           </span>
@@ -205,6 +202,7 @@ export default function ConvergePage({ run }: { run: RunInfo }) {
           .
         </p>
       )}
+      <RunChecks run={run} />
       <ApprovalPanel run={run} />
       {error && (
         <p role="alert" className="text-xs text-status-err">
