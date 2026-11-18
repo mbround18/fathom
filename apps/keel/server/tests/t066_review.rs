@@ -191,7 +191,6 @@ async fn t066_f1_zero_window_control_stalls_caps() {
 ///
 /// Secure: over budget, the join stream is closed before Keel reads (or buffers) a frame.
 #[tokio::test]
-#[ignore = "T066 finding: fails today"]
 async fn t066_f2_join_frame_is_read_past_the_rate_limit() {
     let Some((h, zone)) = harness("t066_f2").await else {
         return;

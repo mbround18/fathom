@@ -380,11 +380,11 @@ pub async fn enroll<S: AsyncRead + AsyncWrite + Unpin>(
     key: &KeyData,
     mut stream: S,
 ) -> Result<(), EnrollEnd> {
-    let frame =
-        match tokio::time::timeout(FIRST_FRAME_TIMEOUT, codec::read_frame(&mut stream)).await {
-            Ok(Ok(Some(f))) => f,
-            _ => return Err(EnrollEnd::NoFrame),
-        };
+    let read = codec::read_frame_capped(&mut stream, crate::join::FIRST_FRAME_MAX);
+    let frame = match tokio::time::timeout(FIRST_FRAME_TIMEOUT, read).await {
+        Ok(Ok(Some(f))) => f,
+        _ => return Err(EnrollEnd::NoFrame),
+    };
     if !Access::EnrollOnly.permits(&frame) {
         return Err(EnrollEnd::NoFrame);
     }

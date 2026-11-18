@@ -64,6 +64,9 @@ const RATE_WINDOW: Duration = Duration::from_secs(60);
 const RATE_SOURCES: usize = 10_000;
 /// How long a join connection has to send its frame.
 const FIRST_FRAME_TIMEOUT: Duration = Duration::from_secs(30);
+/// The largest join or enroll request read. A real one is a token, names and a few dozen
+/// profiles, well under this; the codec's 16 MiB cap is for `Pack` (spec 067 T066 F2).
+pub(crate) const FIRST_FRAME_MAX: usize = 64 * 1024;
 /// The most requests `ListJoinRequests` returns.
 const LIST_LIMIT: i64 = 500;
 /// The most `allowed_profiles` a host may claim.
@@ -543,6 +546,16 @@ pub async fn join_key(
     if !app.join.allow(&source_key(path), app.cfg.join_rate) {
         return Ok(JoinOutcome::Closed("rate_limited"));
     }
+    join_admitted(app, key, req, path).await
+}
+
+/// [`join_key`] once the rate limit admitted the attempt.
+async fn join_admitted(
+    app: &AppState,
+    key: &KeyData,
+    req: &JoinAttempt<'_>,
+    path: &RunnerPath,
+) -> Result<JoinOutcome, JoinError> {
     let fp = ca::fingerprint(key);
     let source = source_shown(path);
     let refuse = |workspace: Option<Uuid>, jti: Option<String>, why: &'static str| {
@@ -777,11 +790,17 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
     path: &RunnerPath,
     mut stream: S,
 ) {
-    let frame =
-        match tokio::time::timeout(FIRST_FRAME_TIMEOUT, codec::read_frame(&mut stream)).await {
-            Ok(Ok(Some(f))) => f,
-            _ => return,
-        };
+    // The rate limit comes before the frame is read, as enroll's does (T066 F2): a source
+    // over its budget cannot make Keel read (or buffer) anything.
+    if !app.join.allow(&source_key(path), app.cfg.join_rate) {
+        rate_limited(app, path);
+        return;
+    }
+    let read = codec::read_frame_capped(&mut stream, FIRST_FRAME_MAX);
+    let frame = match tokio::time::timeout(FIRST_FRAME_TIMEOUT, read).await {
+        Ok(Ok(Some(f))) => f,
+        _ => return,
+    };
     if !Access::JoinOnly.permits(&frame) {
         return;
     }
@@ -808,7 +827,7 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
         arch: &arch,
         runner_version: &runner_version,
     };
-    let reply = match join_key(app, key, &attempt, path).await {
+    let reply = match join_admitted(app, key, &attempt, path).await {
         Ok(JoinOutcome::Pending(id)) => Frame::JoinPending {
             request_id: id.to_string(),
         },
@@ -821,13 +840,7 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
             Frame::JoinRejected { reason }
         }
         Ok(JoinOutcome::Closed(reason)) => {
-            if reason == "rate_limited" && path.relay().is_some() {
-                // A relay's joins share one budget keyed on the relay (`source_key`, spec 067
-                // T062); hitting it is a coalesced `relay.refused`, logged once per window (T061).
-                app.relay_live.refused(path, "join_rate", "join");
-            } else {
-                tracing::info!(reason, %path, "join attempt refused");
-            }
+            tracing::info!(reason, %path, "join attempt refused");
             return;
         }
         Err(e) => {
@@ -836,6 +849,17 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
         }
     };
     let _ = codec::write_frame(&mut stream, &reply).await;
+}
+
+/// A join over its source's rate limit.
+fn rate_limited(app: &AppState, path: &RunnerPath) {
+    if path.relay().is_some() {
+        // A relay's joins share one budget keyed on the relay (`source_key`, spec 067 T062);
+        // hitting it is a coalesced `relay.refused`, logged once per window (T061).
+        app.relay_live.refused(path, "join_rate", "join");
+    } else {
+        tracing::info!(reason = "rate_limited", %path, "join attempt refused");
+    }
 }
 
 /// Whether `host`, which has no certificate yet, was let in by an accepted join request: its

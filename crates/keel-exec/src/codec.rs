@@ -56,6 +56,15 @@ pub async fn read_frame<R: AsyncRead + Unpin>(r: &mut R) -> Result<Option<Frame>
     read_capped(r, MAX_FRAME_LEN).await
 }
 
+/// [`read_frame`] with a smaller cap, for a stream whose first frame is small (an enroll or
+/// join request): a larger prefix is refused before any body byte is read.
+pub async fn read_frame_capped<R: AsyncRead + Unpin>(
+    r: &mut R,
+    max: usize,
+) -> Result<Option<Frame>, CodecError> {
+    read_capped(r, max.min(MAX_FRAME_LEN)).await
+}
+
 // The same framing for any frame type and cap (the relay control channel uses 1 MiB).
 
 pub(crate) fn encode_body_capped<T: Serialize>(
