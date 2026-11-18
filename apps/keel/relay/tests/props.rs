@@ -104,7 +104,10 @@ fn addrs() -> &'static Addrs {
 }
 
 const HUB_KEYS: &[(&str, Option<&str>)] = &[
-    ("\"/etc/keel-relay/hub_keys\"", Some("/etc/keel-relay/hub_keys")),
+    (
+        "\"/etc/keel-relay/hub_keys\"",
+        Some("/etc/keel-relay/hub_keys"),
+    ),
     ("\"/hub keys\"", Some("/hub keys")),
     ("\"hub_keys\"", Some("hub_keys")),
     ("\"\"", Some("")),

@@ -75,7 +75,12 @@ fn alloc_budget(input_len: usize) -> usize {
 /// Each frame's tag and exact field set (contracts/relay.md "Control subsystem").
 fn contract(tag: &str) -> Option<&'static [&'static str]> {
     Some(match tag {
-        "Hello" => &["version", "relay_key_fingerprint", "max_streams", "http_cache"],
+        "Hello" => &[
+            "version",
+            "relay_key_fingerprint",
+            "max_streams",
+            "http_cache",
+        ],
         "Ping" => &["seq"],
         "Pong" => &["seq", "version", "streams", "uptime_s"],
         "CacheGet" => &["req", "release", "path"],
@@ -90,9 +95,15 @@ fn contract(tag: &str) -> Option<&'static [&'static str]> {
 fn accepted_is_in_contract(body: &[u8], frame: &Frame) {
     let value: Value = serde_json::from_slice(body).expect("accepted, but not JSON");
     let obj = value.as_object().expect("accepted, but not an object");
-    let tag = obj["t"].as_str().expect("accepted, but `t` is not a string");
+    let tag = obj["t"]
+        .as_str()
+        .expect("accepted, but `t` is not a string");
     let fields = contract(tag).unwrap_or_else(|| panic!("accepted unknown tag {tag:?}"));
-    let keys: BTreeSet<&str> = obj.keys().map(String::as_str).filter(|k| *k != "t").collect();
+    let keys: BTreeSet<&str> = obj
+        .keys()
+        .map(String::as_str)
+        .filter(|k| *k != "t")
+        .collect();
     let want: BTreeSet<&str> = fields.iter().copied().collect();
     assert_eq!(keys, want, "accepted {tag} with other fields");
     if let Frame::CacheChunk { bytes, .. } = frame {
@@ -402,7 +413,9 @@ proptest! {
 
 #[test]
 fn an_empty_stream_is_a_clean_end() {
-    let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
     assert!(matches!(rt.block_on(read_frame(&mut &[][..])), Ok(None)));
 }
 
@@ -411,7 +424,9 @@ fn a_frame_announcing_the_full_cap_allocates_only_what_arrived() {
     // A peer that announces 1 MiB and sends a few bytes cannot make the reader reserve 1 MiB.
     let mut wire = (MAX_CONTROL_FRAME_LEN as u32).to_be_bytes().to_vec();
     wire.extend_from_slice(br#"{"t":"Ping","seq":1}"#);
-    let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
     let (result, largest) = largest_alloc(|| rt.block_on(read_frame(&mut wire.as_slice())));
     assert!(matches!(result, Err(CodecError::Truncated)), "{result:?}");
     // Above zero: the counter sees the reader's buffer, so the bound means something.

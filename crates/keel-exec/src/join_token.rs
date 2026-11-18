@@ -346,7 +346,10 @@ mod tests {
         let json = String::from_utf8(URL_SAFE_NO_PAD.decode(first).unwrap()).unwrap();
         assert_eq!(
             json,
-            format!(r#"{{"alg":"EdDSA","typ":"keel-join+jwt","kid":"{}"}}"#, key.kid())
+            format!(
+                r#"{{"alg":"EdDSA","typ":"keel-join+jwt","kid":"{}"}}"#,
+                key.kid()
+            )
         );
     }
 
@@ -404,9 +407,18 @@ mod tests {
         c.sub = "another-workspace".to_owned();
         let swapped = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&c).unwrap());
         parts[1] = &swapped;
-        assert_eq!(check(&parts.join("."), &key), Err(JoinTokenError::Signature));
+        assert_eq!(
+            check(&parts.join("."), &key),
+            Err(JoinTokenError::Signature)
+        );
         // Not a JWS at all.
-        for junk in ["", "a.b", "a.b.c.d", "é.é.é", &"a".repeat(MAX_TOKEN_LEN + 1)] {
+        for junk in [
+            "",
+            "a.b",
+            "a.b.c.d",
+            "é.é.é",
+            &"a".repeat(MAX_TOKEN_LEN + 1),
+        ] {
             assert!(check(junk, &key).is_err(), "{junk}");
         }
     }
@@ -423,12 +435,7 @@ mod tests {
         c.aud = "keel-web".to_owned();
         assert_eq!(check(&key.sign(&c), &key), Err(JoinTokenError::Audience));
         assert_eq!(
-            verify(
-                &token,
-                &[key.verifying_key()],
-                ISS,
-                NOW + DEFAULT_TTL_SECS
-            ),
+            verify(&token, &[key.verifying_key()], ISS, NOW + DEFAULT_TTL_SECS),
             Err(JoinTokenError::Expired)
         );
         let mut c = claims();
@@ -449,10 +456,12 @@ mod tests {
         let json: serde_json::Value =
             serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).unwrap()).unwrap();
         assert_eq!(json["keel.server"], "keel.test:7831");
-        assert!(json["keel.host_ca"]
-            .as_str()
-            .unwrap()
-            .starts_with("@cert-authority * ssh-ed25519 "));
+        assert!(
+            json["keel.host_ca"]
+                .as_str()
+                .unwrap()
+                .starts_with("@cert-authority * ssh-ed25519 ")
+        );
         assert_eq!(json["keel.origin"], ISS);
         assert_eq!(json["keel.rp_id"], "keel.test");
         assert_eq!(json["aud"], AUDIENCE);

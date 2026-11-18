@@ -231,7 +231,10 @@ impl Host {
     fn write_token(&self, pki: &Pki) {
         std::fs::write(
             self.state.join(TOKEN_FILE),
-            format!("keel-enroll-v1.{TOKEN_SECRET}.{}\n", pki.host_ca.fingerprint()),
+            format!(
+                "keel-enroll-v1.{TOKEN_SECRET}.{}\n",
+                pki.host_ca.fingerprint()
+            ),
         )
         .unwrap();
     }
@@ -966,7 +969,8 @@ async fn a_relay_answering_with_its_own_ssh_server_gets_no_auth_and_no_ledger() 
         Arc::clone(&named_hop.accepts),
     );
     the_loop_keeps_dialling(
-        s.host.runner(vec![bare_hop.addr.clone(), named_hop.addr.clone()]),
+        s.host
+            .runner(vec![bare_hop.addr.clone(), named_hop.addr.clone()]),
         move || a.load(Ordering::SeqCst).min(b.load(Ordering::SeqCst)),
         2,
     )
@@ -981,9 +985,15 @@ async fn a_relay_answering_with_its_own_ssh_server_gets_no_auth_and_no_ledger() 
             let up = hop.recording(i).up;
             let (msgs, encrypted) = client_messages(&up);
             assert!(only_key_exchange(&msgs), "{what}: {msgs:?}");
-            assert_eq!(encrypted, 0, "{what}: the runner sent encrypted bytes ({msgs:?})");
+            assert_eq!(
+                encrypted, 0,
+                "{what}: the runner sent encrypted bytes ({msgs:?})"
+            );
             assert!(!contains(&up, s.base.as_bytes()), "{what}: a base left");
-            assert!(!contains(&up, SEED_RUN.as_bytes()), "{what}: ledger bytes left");
+            assert!(
+                !contains(&up, SEED_RUN.as_bytes()),
+                "{what}: ledger bytes left"
+            );
             assert!(!contains(&up, ledger.as_bytes()), "{what}: the ledger left");
             assert!(!contains(&up, &cert_blob), "{what}: the certificate left");
         }
@@ -1149,7 +1159,7 @@ async fn rogue_session(s: TcpStream, mode: &Rogue) -> Seen {
         let i_c = w.packet().await?;
         let Rogue::Kex { cert, signer } = mode else {
             // Record what follows the offer until the runner hangs up or starts the exchange.
-            while w.packet().await? [0] != MSG_KEX_ECDH_INIT {}
+            while w.packet().await?[0] != MSG_KEX_ECDH_INIT {}
             return Ok(());
         };
         let init = w.packet().await?;
@@ -1337,7 +1347,10 @@ async fn an_algorithm_downgrade_is_refused_before_the_key_exchange() {
         assert_eq!(got.msgs.first(), Some(&MSG_KEXINIT), "{names}");
         assert!(
             !got.msgs.contains(&MSG_KEX_ECDH_INIT)
-                && got.msgs.iter().all(|m| matches!(*m, MSG_KEXINIT | MSG_DISCONNECT)),
+                && got
+                    .msgs
+                    .iter()
+                    .all(|m| matches!(*m, MSG_KEXINIT | MSG_DISCONNECT)),
             "{names}: {:?}",
             got.msgs
         );
