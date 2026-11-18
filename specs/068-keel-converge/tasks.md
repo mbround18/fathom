@@ -339,6 +339,15 @@ that host's rest; retry resumes.
   and a CONTRIBUTING note on the `converge_advance` trigger.
 - [ ] T068 (../ansible) Hand the whole contracts/ansible.md to the ansible session in the order
   of quickstart §4 (runners upgraded, ceilings, then manifest); record its confirmation of SC-002.
+  Handed over 2026-11-18. ../ansible: §5 ceilings + debian on main (9a61c06); branch
+  `keel-068-manifest` = 7a17a57 (keel-manifest-check knows 068 keys and covers rules), 4fe40ff
+  (provision `-e stack=` wins), 90af010 (§1–§4, §6, §7: held until "0 runners would refuse").
+  `keel_runner_queries` already exists (48cb22d, absent = refuse all). Open: the 068
+  server+runner release with SHA256SUMS (blocks the sha bump), then SC-002 once commit 3 lands.
+- [ ] T074 A `choice` (or any) param with no `default` is required at dispatch: today
+  `check_params` (apps/keel/server/src/runs.rs) only validates params that were sent, so an unset
+  `stack` reaches provision.yaml, whose own guard is the only refusal. Refuse `param_invalid`
+  ("param stack is required") at StartRun and in the Start dialog.
 - [X] T069 [web] Impeccable pass over every 068 screen together (Hosts, host page, converge
   preview and page, Start dialog, binding page, enrollment). Done with 067's Queries panel:
   Hosts columns no longer overlap at 1280 (fixed State/Converge widths, kit DataTable
