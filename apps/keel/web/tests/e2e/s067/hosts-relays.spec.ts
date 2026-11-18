@@ -25,8 +25,19 @@ test('hosts are grouped by zone, direct first, each with its path and its relays
   await expect(lab.getByRole('row', { name: /lab-2/ })).toContainText('via gw-lab')
   await expect(page.getByRole('table', { name: 'Hosts in dmz' }).getByRole('row', { name: /dmz-1/ })).toContainText('via gw-dmz')
 
-  // The Path column sits after State and before the versions.
-  await expect(lab.getByRole('columnheader')).toHaveText(['Name', 'State', 'Path', 'Profiles', 'Runner', 'Ansible', 'Last seen', /.*/])
+  // The Path column sits after State, ahead of 068's Converge column and the versions.
+  await expect(lab.getByRole('columnheader')).toHaveText([
+    /.*/,
+    'Name',
+    'State',
+    'Path',
+    'Converge',
+    'Profiles',
+    'Runner',
+    'Ansible',
+    'Last seen',
+    /.*/,
+  ])
 
   // Relay chips: state, and RTT and streams at desktop width.
   const chips = page.getByRole('list', { name: 'Relays for lab' })
@@ -106,6 +117,8 @@ test('a run that includes the only relay of a zone warns before it starts', asyn
   scene(backend)
   await page.goto('/repository?tab=jobs&item=debian')
   await page.getByRole('button', { name: 'Run', exact: true }).click()
+  // Spec 068's Start dialog comes first; the server's preview, with its warnings, follows it.
+  await page.getByRole('button', { name: 'Review run' }).click()
   const dialog = page.getByRole('dialog', { name: 'Run debian' })
   const warnings = dialog.getByRole('list', { name: 'Warnings' })
   await expect(warnings).toContainText('This run includes gate-1, which runs relay gw-lab, the only relay for lab-1, lab-2.')
