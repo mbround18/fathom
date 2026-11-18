@@ -246,12 +246,14 @@ that host's rest; retry resumes.
   `forge/` with recorded-fixture tests (`cargo test -p keel-forge statuses`); `Unsupported` for
   others.
   Note: signature is `commit_statuses(sha)` (adapters are already repo-bound, `RepoRef` lives in keel-forge); core state enum is `CommitStatusState` (no `Missing`: the server derives it); GitHub reads one page of 100 check runs.
-- [ ] T058 [P] [server] Tests first, `server/tests/required_checks.rs`: `waiting_checks →
+- [X] T058 [P] [server] Tests first, `server/tests/required_checks.rs`: `waiting_checks →
   queued` on all success; `checks_failed`; `checks_timeout`; preview refused on an unsupported
   forge; converges and runs both gated.
-- [ ] T059 [server] `server/src/checks.rs`: required-check commands (step-up), `waiting_checks`
+  Note: six tests against a fake forge whose commit statuses the test sets: refusals (`checks_unsupported` with no forge connection and on a forge without statuses, `invalid_context`, `too_many_contexts`, `invalid_timeout`, `no_change`); a run waits with `RunInfo.checks` showing pending/missing and nothing assigned, then queues and succeeds once all pass (`run.checks_passed` audited); checks come before approval (the approval window starts when they pass); a failure ends it `checks_failed` with hosts cancelled and the failing context audited; backdating past the timeout ends it `checks_timeout`; a converge waits too with every step blocked; a waiting run can be cancelled.
+- [X] T059 [server] `server/src/checks.rs`: required-check commands (step-up), `waiting_checks`
   at create, poller on the sync cadence, `run_check_states`, `RunChecksChanged`, span
   `checks.wait`.
+  Note: Deviations: the generic `Confirm` replaces the contract's `ConfirmRequiredChecks`; `PreviewRequiredChecks` also takes an optional `timeout_secs` (60..=86400). New `Event::RunChecksChanged { run_id, checks }` and `RunInfo.checks?`. The gate sits before review/approval/queue for both manual runs and converges (converge approval no longer goes straight to queued while checks are required); the post-checks state is derived from `review_groups`/`approvals_needed`, so no migration. Contexts are snapshotted on the run when it is made. Polling is its own 30 s loop (`checks::spawn_poller`), reading statuses once per (binding, commit); a forge read failure keeps the run waiting until its timeout. keel-core gained `waiting_checks -> cancelled` for user cancel and binding disable.
 - [ ] T060 [P] [web] Binding Required checks section; `waiting_checks` display with forge links;
   `s068/required-checks.spec.ts`.
 

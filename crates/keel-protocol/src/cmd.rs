@@ -82,6 +82,19 @@ pub enum Cmd {
         binding: Uuid,
         on: bool,
     },
+    /// `Preview` (step-up) of replacing the binding's required forge check contexts (spec 068
+    /// US7), and its check timeout when given. An empty list requires none. Refused
+    /// `checks_unsupported` when the workspace's forge cannot report commit statuses. Needs
+    /// `Administer` in the binding's workspace. `Confirm` replies `Binding`.
+    PreviewRequiredChecks {
+        #[ts(type = "string")]
+        binding_id: Uuid,
+        contexts: Vec<String>,
+        /// Seconds a run waits for the checks before it ends `checks_timeout` (60 to 86400).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        timeout_secs: Option<u32>,
+    },
     /// `Preview` listing the queued and pending runs it cancels (`binding_disabled`).
     PreviewBindingDisable {
         #[ts(type = "string")]
@@ -838,6 +851,7 @@ impl Cmd {
             Cmd::PreviewBindingCreate(_) => "preview_binding_create",
             Cmd::PreviewBindingUpdate(_) => "preview_binding_update",
             Cmd::PreviewSignedMode { .. } => "preview_signed_mode",
+            Cmd::PreviewRequiredChecks { .. } => "preview_required_checks",
             Cmd::PreviewBindingDisable { .. } => "preview_binding_disable",
             Cmd::PreviewBindingEnable { .. } => "preview_binding_enable",
             Cmd::PreviewBindingRemove { .. } => "preview_binding_remove",
@@ -972,6 +986,7 @@ impl Cmd {
             | Cmd::PreviewBindingCreate(_)
             | Cmd::PreviewBindingUpdate(_)
             | Cmd::PreviewSignedMode { .. }
+            | Cmd::PreviewRequiredChecks { .. }
             | Cmd::PreviewBindingDisable { .. }
             | Cmd::PreviewBindingEnable { .. }
             | Cmd::PreviewBindingRemove { .. }

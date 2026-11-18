@@ -5,6 +5,7 @@ pub mod api;
 pub mod approvals;
 pub mod audit;
 pub mod bindings;
+pub mod checks;
 pub mod config;
 pub mod converge;
 pub mod credentials;

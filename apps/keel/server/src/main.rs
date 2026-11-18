@@ -23,6 +23,8 @@ const DB_POOL: u32 = 16;
 /// How often expired in-memory sessions are swept.
 const SESSION_SWEEP: Duration = Duration::from_secs(60);
 const APPROVAL_SWEEP: Duration = Duration::from_secs(30);
+/// How often runs in `waiting_checks` read the forge again (spec 068 US7).
+const CHECKS_POLL: Duration = Duration::from_secs(30);
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -280,6 +282,8 @@ async fn serve(cfg: Config, tls: Option<tokio_rustls::TlsAcceptor>, exporting: b
     // Held runs whose approval window closed expire within a period, and on start-up (spec 064).
     let approvals = keel_server::approvals::spawn_approval_sweeper(app.clone(), APPROVAL_SWEEP);
     let poller = sync::spawn_poller(app.clone());
+    // Runs waiting on their commit's required checks (spec 068 US7).
+    let checks = keel_server::checks::spawn_poller(app.clone(), CHECKS_POLL);
     // Scheduled update checks; none at all with KEEL_UPDATE_CHECK=false (spec 061 FR-004).
     let update_checker = app.updates.spawn_checker();
     let router = serve::router(app.clone());
@@ -291,6 +295,7 @@ async fn serve(cfg: Config, tls: Option<tokio_rustls::TlsAcceptor>, exporting: b
         t.abort();
     }
     poller.abort();
+    checks.abort();
     sweeper.abort();
     approvals.abort();
     runners.abort();

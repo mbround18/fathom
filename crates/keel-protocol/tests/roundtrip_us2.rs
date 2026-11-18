@@ -58,6 +58,7 @@ fn run_info() -> RunInfo {
         check: false,
         parent_run: None,
         narrowed_by: None,
+        checks: None,
     }
 }
 

@@ -264,6 +264,11 @@ pub struct RunInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub narrowed_by: Option<Vec<String>>,
+    /// Spec 068 US7: the commit's required checks as this run last saw them. Absent when its
+    /// binding required none when it was made.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub checks: Option<Vec<crate::converge::RunCheckView>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

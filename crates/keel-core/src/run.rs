@@ -5,6 +5,7 @@
 //! pending_approval ──approve──▶ queued                       ──deny / ttl──▶ denied | expired
 //! queued ──dispatch──▶ running ──▶ succeeded | failed | refused
 //! queued, running ──cancel──▶ cancelled; needs_review, pending_approval, queued ──binding disabled──▶ cancelled
+//! waiting_checks (spec 068) ──cancel / binding disabled──▶ cancelled; the server moves it on
 //! ```
 //!
 //! A queued run that cannot start (bad inventory, missing artifact, unavailable credential) fails;
@@ -229,10 +230,12 @@ pub fn transition(from: RunState, event: &RunEvent) -> Result<RunStatus, Illegal
         (S::NeedsReview | S::PendingApproval, RunEvent::Expired) => {
             RunStatus::because(S::Expired, R::ApprovalExpired)
         }
-        (S::NeedsReview | S::PendingApproval | S::Queued, RunEvent::BindingDisabled) => {
-            RunStatus::because(S::Cancelled, R::BindingDisabled)
-        }
-        (S::Queued | S::Running, RunEvent::CancelledByUser) => {
+        (
+            S::NeedsReview | S::PendingApproval | S::WaitingChecks | S::Queued,
+            RunEvent::BindingDisabled,
+        ) => RunStatus::because(S::Cancelled, R::BindingDisabled),
+        // Spec 068: a run waiting on its commit's checks can be cancelled like a queued one.
+        (S::WaitingChecks | S::Queued | S::Running, RunEvent::CancelledByUser) => {
             RunStatus::because(S::Cancelled, R::CancelledByUser)
         }
         (S::Queued, RunEvent::Dispatched) => RunStatus::of(S::Running),
@@ -347,12 +350,13 @@ mod tests {
             (S::NeedsReview | S::PendingApproval, RunEvent::Expired) => {
                 because(S::Expired, R::ApprovalExpired)
             }
-            (S::NeedsReview | S::PendingApproval | S::Queued, RunEvent::BindingDisabled) => {
-                because(S::Cancelled, R::BindingDisabled)
-            }
+            (
+                S::NeedsReview | S::PendingApproval | S::WaitingChecks | S::Queued,
+                RunEvent::BindingDisabled,
+            ) => because(S::Cancelled, R::BindingDisabled),
             (S::PendingApproval, RunEvent::Approved) => st(S::Queued),
             (S::Queued, RunEvent::Dispatched) => st(S::Running),
-            (S::Queued | S::Running, RunEvent::CancelledByUser) => {
+            (S::WaitingChecks | S::Queued | S::Running, RunEvent::CancelledByUser) => {
                 because(S::Cancelled, R::CancelledByUser)
             }
             (S::Queued, RunEvent::Unrunnable(Unrunnable::InventoryInvalid)) => {
@@ -385,7 +389,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(allowed_count, 18);
+        assert_eq!(allowed_count, 20);
     }
 
     #[test]

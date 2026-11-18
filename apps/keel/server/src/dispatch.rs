@@ -93,6 +93,7 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::PreviewBindingCreate(_)
         | Cmd::PreviewBindingUpdate(_)
         | Cmd::PreviewSignedMode { .. }
+        | Cmd::PreviewRequiredChecks { .. }
         | Cmd::PreviewBindingDisable { .. }
         | Cmd::PreviewBindingEnable { .. }
         | Cmd::PreviewBindingRemove { .. }
@@ -278,6 +279,14 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         Cmd::PreviewBindingUpdate(upd) => bindings::preview_update(app, req, upd).await,
         Cmd::PreviewSignedMode { binding, on } => {
             bindings::preview_signed_mode(app, req, binding, on).await
+        }
+        Cmd::PreviewRequiredChecks {
+            binding_id,
+            contexts,
+            timeout_secs,
+        } => {
+            crate::checks::preview_required_checks(app, req, binding_id, contexts, timeout_secs)
+                .await
         }
         Cmd::PreviewBindingDisable { binding } => {
             bindings::preview_status(app, req, binding, false).await

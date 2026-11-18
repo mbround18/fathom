@@ -546,13 +546,27 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     } else {
         BTreeMap::new()
     };
+    // Spec 068 US7: a run from a binding with required checks waits for them before review,
+    // approval or the queue. One whose every host is covered has nothing to wait for.
+    let all_covered = !covered.is_empty() && covered.len() == plan.hosts.len();
+    let contexts = if all_covered {
+        Vec::new()
+    } else {
+        crate::checks::required(&mut tx, new.binding).await?
+    };
+    let then = status;
+    let status = if crate::checks::gates(status, &contexts) {
+        crate::checks::waiting()
+    } else {
+        status
+    };
     sqlx::query(
         "insert into runs (id, workspace_id, job_id, binding_id, job_name, trigger, delivery_id, \
          requested_by, commit, inventory_revision_id, inventory_name, resolved_hosts, run_limit, \
          policy_id, signed_mode, state, state_reason, queued_at, ended_at, summary, params, \
          approvals_needed, four_eyes, approval_expires_at, narrowed_by, check_mode) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
-         case when $16 = 'queued' then now() end, case when $18 then now() end, \
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $26, $17, \
+         case when $26 = 'queued' then now() end, case when $18 then now() end, \
          case when $18 then $19 end, $20, \
          case when $16 = 'pending_approval' then $21 end, \
          case when $16 = 'pending_approval' then $22 end, \
@@ -574,7 +588,7 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     .bind(new.run_limit)
     .bind((!plan.policy.id.is_nil()).then_some(plan.policy.id))
     .bind(new.signed_mode)
-    .bind(status.state.as_str())
+    .bind(then.state.as_str())
     .bind(status.reason.map(|r| r.as_str()))
     .bind(ended)
     .bind(json!(RunSummary::default()))
@@ -585,8 +599,13 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     .bind(i64::from(plan.policy.approval_ttl_secs))
     .bind(&narrowed_by)
     .bind(new.check)
+    // $16 is where the run goes once any required checks pass; $26 is where it starts.
+    .bind(status.state.as_str())
     .execute(&mut *tx)
     .await?;
+    if status.state == RunState::WaitingChecks {
+        crate::checks::hold(&mut tx, id, &contexts).await?;
+    }
     if !ended {
         let ids: Vec<Uuid> = plan.hosts.iter().map(|h| h.0).collect();
         let by: Vec<Option<Uuid>> = ids.iter().map(|h| covered.get(h).copied()).collect();
@@ -659,6 +678,7 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
                 "narrowed_by": narrowed_by,
                 "covered": covered.len(),
                 "check": new.check,
+                "required_checks": contexts,
             }),
         },
     )
@@ -697,7 +717,7 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
         );
     }
     crate::queue::push_state(app, new.workspace, id, status);
-    if !covered.is_empty() && covered.len() == plan.hosts.len() {
+    if all_covered {
         // Every host is covered: nothing will run, so the run ends now.
         crate::queue::maybe_finish(app, id).await;
     } else if status.state == RunState::Queued {
@@ -1488,6 +1508,9 @@ const RUN_COLUMNS: &str = "r.id, r.workspace_id, r.binding_id, r.job_id, r.job_n
      r.started_at, r.ended_at, r.summary, r.params, \
      r.approvals_needed, r.four_eyes, r.approval_expires_at, r.kind, r.check_mode, \
      r.parent_run_id, r.narrowed_by, \
+     (select jsonb_agg(jsonb_build_object('context', c.context, 'state', c.state, \
+         'target_url', c.target_url) order by c.context) \
+       from run_check_states c where c.run_id = r.id) as checks, \
      (select coalesce(jsonb_agg(jsonb_build_object( \
          'user', a.approver_user_id, \
          'name', case when u.id is null or u.disabled_at is not null then 'Deleted user' \
@@ -1584,6 +1607,7 @@ struct RunRow {
     check_mode: bool,
     parent_run_id: Option<Uuid>,
     narrowed_by: Option<Vec<String>>,
+    checks: Option<Value>,
     answers: Value,
 }
 
@@ -1621,6 +1645,7 @@ impl RunRow {
             check: self.check_mode,
             parent_run: self.parent_run_id,
             narrowed_by: self.narrowed_by,
+            checks: self.checks.and_then(|c| serde_json::from_value(c).ok()),
         }
     }
 }

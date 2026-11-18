@@ -26,7 +26,7 @@ use crate::review::{
     SignerInfo,
 };
 // Runs (US2)
-use crate::converge::{ConvergeHostState, ConvergePlan, ConvergeView};
+use crate::converge::{ConvergeHostState, ConvergePlan, ConvergeView, RunCheckView};
 use crate::run::{
     JobInfo, LogStream, PolicyCheck, PolicyInfo, RunHostInfo, RunInfo, RunPhase, RunReason,
     WorkspaceCount,
@@ -199,6 +199,13 @@ pub enum Event {
     },
     /// Reply to `GetConverge` and `CancelConverge`.
     Converge(ConvergeView),
+    /// A run waiting on its commit's required checks saw them change (spec 068 US7; pushed to
+    /// the workspace's viewers). `checks` is every required context with its latest state.
+    RunChecksChanged {
+        #[ts(type = "string")]
+        run_id: Uuid,
+        checks: Vec<RunCheckView>,
+    },
     /// A converge host changed state (pushed to the workspace's viewers).
     ConvergeChanged {
         #[ts(type = "string")]

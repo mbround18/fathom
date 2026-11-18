@@ -625,10 +625,18 @@ async fn create(
         )));
     }
     let actor = caller.actor();
-    let status = RunStatus::initial(false, p.terms.requires_approval);
-    let queued = status.state == RunState::Queued;
+    let then = RunStatus::initial(false, p.terms.requires_approval);
     let names: Vec<String> = p.runnable().map(|h| h.host.clone()).collect();
     let mut tx = app.db.begin().await?;
+    // Spec 068 US7: with required checks the converge waits for them before approval or its
+    // first steps; `checks::poll_once` moves it on.
+    let contexts = crate::checks::required(&mut tx, p.binding).await?;
+    let status = if crate::checks::gates(then, &contexts) {
+        crate::checks::waiting()
+    } else {
+        then
+    };
+    let queued = status.state == RunState::Queued;
     // Held converges on these hosts are replaced (one approval covers the newest plan).
     let replaced: Vec<Uuid> = sqlx::query_scalar(
         "update runs set state = 'cancelled', state_reason = 'replaced', ended_at = now() \
@@ -660,7 +668,7 @@ async fn create(
          signed_mode, check_mode, retry_of, state, queued_at, summary, params, \
          approvals_needed, four_eyes, approval_expires_at) \
          values ($1, $2, 'converge', null, $3, 'converge', 'manual', $4, $5, $6, $7, $8, $9, \
-         $10, $11, $12, case when $12 = 'queued' then now() end, $13, '{}', \
+         $10, $11, $17, case when $17 = 'queued' then now() end, $13, '{}', \
          case when $12 = 'pending_approval' then $14 end, \
          case when $12 = 'pending_approval' then $15 end, \
          case when $12 = 'pending_approval' then now() + $16 * interval '1 second' end)",
@@ -676,13 +684,18 @@ async fn create(
     .bind(p.signed_mode)
     .bind(p.check)
     .bind(retry_of)
-    .bind(status.state.as_str())
+    // $12 is where the converge goes once any required checks pass; $17 is where it starts.
+    .bind(then.state.as_str())
     .bind(json!(RunSummary::default()))
     .bind(i32::from(p.terms.approvals_needed.max(1)))
     .bind(p.terms.four_eyes)
     .bind(i64::from(p.terms.approval_ttl_secs))
+    .bind(status.state.as_str())
     .execute(&mut *tx)
     .await?;
+    if status.state == RunState::WaitingChecks {
+        crate::checks::hold(&mut tx, id, &contexts).await?;
+    }
     for (child, job, hosts) in &children {
         let host_names: Vec<String> = hosts.iter().map(|h| h.1.clone()).collect();
         sqlx::query(
@@ -764,6 +777,7 @@ async fn create(
                 "jobs": children.iter().map(|c| &c.1).collect::<Vec<_>>(),
                 "check": p.check,
                 "state": status.state.as_str(),
+                "required_checks": contexts,
                 "approvals_needed": p.terms.approvals_needed,
                 "four_eyes": p.terms.four_eyes,
                 "replaces": replaced,

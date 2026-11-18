@@ -177,12 +177,15 @@ struct Row {
     manifest_problems: Value,
     checks_timeout_secs: i32,
     manifest_v068: bool,
+    required_checks: Vec<String>,
 }
 
 const SELECT: &str = "select b.id, b.project_id, p.workspace_id, b.url, b.branch, b.transport, \
      b.credential_id, b.known_host, b.poll_interval, b.allow_force_push, b.signed_mode, \
      b.override_quorum, b.status, b.last_commit, b.last_synced_at, b.last_sync_error, \
-     b.manifest_problems, b.checks_timeout_secs, b.manifest_v068 from repo_bindings b join projects p on p.id = b.project_id";
+     b.manifest_problems, b.checks_timeout_secs, b.manifest_v068, \
+     coalesce((select array_agg(c.context order by c.context) from binding_required_checks c \
+       where c.binding_id = b.id), '{}') as required_checks from repo_bindings b join projects p on p.id = b.project_id";
 
 impl Row {
     fn info(self) -> BindingInfo {
@@ -207,8 +210,12 @@ impl Row {
                 self.manifest_problems,
             )
             .unwrap_or_default(),
-            // Required checks land with US5; refusing runners are filled by `binding_event`.
-            required_checks: Vec::new(),
+            // Refusing runners are filled by `binding_event`.
+            required_checks: self
+                .required_checks
+                .into_iter()
+                .map(|context| keel_protocol::RequiredCheck { context })
+                .collect(),
             checks_timeout_secs: u32::try_from(self.checks_timeout_secs).unwrap_or(3600),
             runners_refusing_manifest: Vec::new(),
         }

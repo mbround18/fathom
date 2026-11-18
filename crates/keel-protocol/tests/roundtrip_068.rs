@@ -59,6 +59,11 @@ fn run_info() -> RunInfo {
         check: true,
         parent_run: None,
         narrowed_by: Some(vec!["inventory/group_vars/keel_servers.yml".into()]),
+        checks: Some(vec![RunCheckView {
+            context: "ci/lint".into(),
+            state: CheckState::Pending,
+            target_url: None,
+        }]),
     }
 }
 
@@ -332,6 +337,30 @@ fn converge_commands_and_events_round_trip_in_the_web_lanes_shape() {
             run_id: id(1),
             replan: false,
         }
+    );
+    let v = round_trip(&Event::RunChecksChanged {
+        run_id: id(1),
+        checks: vec![RunCheckView {
+            context: "ci/lint".into(),
+            state: CheckState::Failure,
+            target_url: Some("https://ci.example/1".into()),
+        }],
+    });
+    assert_eq!(
+        v,
+        json!({ "type": "RunChecksChanged", "data": { "run_id": id(1), "checks": [
+            { "context": "ci/lint", "state": "failure", "target_url": "https://ci.example/1" }
+        ] } })
+    );
+    let v = round_trip(&Cmd::PreviewRequiredChecks {
+        binding_id: id(3),
+        contexts: vec!["ci/lint".into()],
+        timeout_secs: None,
+    });
+    assert_eq!(
+        v,
+        json!({ "type": "PreviewRequiredChecks",
+                "data": { "binding_id": id(3), "contexts": ["ci/lint"] } })
     );
     let v = round_trip(&Event::ConvergeStarted { run_id: id(1) });
     assert_eq!(
