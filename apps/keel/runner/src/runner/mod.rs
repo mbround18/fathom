@@ -8,11 +8,13 @@
 //! - Otherwise holds a `keel-runner-v1` session ([`session`]): `Hello`, `Ping`/`Pong`, renewal
 //!   at half the certificate's lifetime, the KRL, and run frames relayed unchanged to and from
 //!   one executor socket connection per run.
+//! - Answers typed host queries (spec 067 US5) checked against `queries.toml` ([`queries`]).
 //!
 //! It never interprets work: the executor checks everything itself.
 
 pub mod join;
 pub mod outside;
+pub mod queries;
 pub(crate) mod session;
 pub mod spool;
 
@@ -302,6 +304,8 @@ pub struct Runner {
     spool: spool::Spool,
     /// The host's age public key, reported on `Hello` (spec 066 R7).
     age_recipient_file: PathBuf,
+    /// Typed host queries (spec 067 US5).
+    queries: queries::Answerer,
 }
 
 impl std::fmt::Debug for Runner {
@@ -325,6 +329,14 @@ impl Runner {
         let key = Arc::new(load_or_create_key(&cfg.state_dir)?);
         let outside = outside::OutsideLog::new(outside::DEFAULT_OUTSIDE_LOG, &cfg.state_dir);
         let spool = spool::Spool::new(&cfg.state_dir, spool::DEFAULT_MAX_OFFLINE);
+        let queries = queries::Answerer::new(
+            queries::QueryConfig::new(
+                cfg.trust_dir.clone(),
+                cfg.executor_socket.clone(),
+                cfg.venv.clone(),
+            ),
+            queries::QueryLog::new(cfg.state_dir.join(queries::QUERY_LOG_FILE)),
+        );
         Ok(Self {
             cfg,
             policy,
@@ -333,6 +345,7 @@ impl Runner {
             outside,
             spool,
             age_recipient_file: PathBuf::from(DEFAULT_AGE_RECIPIENT_FILE),
+            queries,
         })
     }
 
@@ -345,6 +358,12 @@ impl Runner {
     /// The age public key reported on `Hello`, read fresh for each session.
     pub(crate) fn age_recipient(&self) -> Option<String> {
         read_age_recipient(&self.age_recipient_file)
+    }
+
+    /// Answers host queries from `cfg` (tests point it at fixture files).
+    pub fn with_query_config(mut self, cfg: queries::QueryConfig) -> Self {
+        self.queries = queries::Answerer::new(cfg, self.queries.log().clone());
+        self
     }
 
     /// Drops undelivered results older than `max` unsent instead of after 30 days.

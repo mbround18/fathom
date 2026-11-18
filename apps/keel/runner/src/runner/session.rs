@@ -82,6 +82,7 @@ fn from_server(frame: &Frame) -> bool {
             | Frame::Approvals { .. }
             | Frame::Cancel { .. }
             | Frame::OutsideRunsAck { .. }
+            | Frame::Query { .. }
             | Frame::Ping
             | Frame::Pong
     )
@@ -158,8 +159,10 @@ impl Runner {
             ledger_head,
             bases,
             age_recipient: self.age_recipient(),
-            // `query-v1` once the runner answers host queries (spec 067).
-            capabilities: vec![keel_exec::frames::CAP_MANIFEST_V068.to_owned()],
+            capabilities: vec![
+                keel_exec::frames::CAP_MANIFEST_V068.to_owned(),
+                keel_exec::frames::CAP_QUERY_V1.to_owned(),
+            ],
         };
         send(&out, hello)?;
         // Results Keel missed while it restarted, oldest first, then a Ping whose Pong
@@ -172,6 +175,10 @@ impl Runner {
         // A relay's run id, and whether it wrote a Finished to the spool.
         let (done_tx, mut done_rx) = mpsc::unbounded_channel::<(String, bool)>();
         let mut relays = Relays::default();
+        // Queries answer on their own tasks, so they never hold up run frames; at most
+        // MAX_QUERIES_IN_FLIGHT at once. Dropping the set at the end aborts what is left.
+        let in_flight = super::queries::InFlight::default();
+        let mut queries = tokio::task::JoinSet::new();
         let mut last_heard = Instant::now();
         let mut ping = tokio::time::interval_at(Instant::now() + PING_EVERY, PING_EVERY);
         let mut outside_tick =
@@ -217,6 +224,23 @@ impl Runner {
                             }
                         }
                         Frame::Krl { bytes } => self.save_krl(&bytes)?,
+                        query @ Frame::Query { .. } => {
+                            while queries.try_join_next().is_some() {}
+                            let Some(permit) = in_flight.try_start() else {
+                                if let Some(busy) = self.queries.busy(&query) {
+                                    send(&out, busy)?;
+                                }
+                                continue;
+                            };
+                            let answerer = self.queries.clone();
+                            let out = out.clone();
+                            queries.spawn(async move {
+                                if let Some(reply) = answerer.answer(query).await {
+                                    let _ = out.send(reply);
+                                }
+                                drop(permit);
+                            });
+                        }
                         Frame::OutsideRunsAck { through } => {
                             if outside_sent != Some(through) {
                                 eprintln!(
@@ -290,6 +314,7 @@ impl Runner {
             }
         };
         drop(relays);
+        queries.abort_all();
         let _ = handle
             .disconnect(russh::Disconnect::ByApplication, "", "")
             .await;

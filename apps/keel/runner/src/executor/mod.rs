@@ -2,6 +2,7 @@
 //! executor socket is one request, served as the `keel-exec` user.
 //!
 //! - `ReadLedger` → `Ledger` (head and per-job bases, for the network half's `Hello`).
+//! - `ReadSmart` → `Smart` (each whole disk's SMART verdict, for a `disk_health` query; [`smart`]).
 //! - `Assign` → one run. The executor trusts nothing the network half says. In order it checks
 //!   its local policy, its ledger (`ledger_corrupt`), that the run id is new (`replay`), that
 //!   Keel's base matches its own (`base_mismatch`), and the ansible-core floor
@@ -29,6 +30,7 @@
 mod process;
 pub mod secrets;
 pub mod signed;
+pub mod smart;
 pub mod store;
 
 use std::collections::BTreeMap;
@@ -78,6 +80,10 @@ pub struct ExecutorConfig {
     pub cancel_grace: Duration,
     /// The largest pack accepted.
     pub max_pack_bytes: u64,
+    /// `/sys/block`, where `ReadSmart` finds the disks.
+    pub sys_block: PathBuf,
+    /// `smartctl`, when installed (spec 067 `disk_health`).
+    pub smartctl: Option<PathBuf>,
 }
 
 impl ExecutorConfig {
@@ -91,6 +97,8 @@ impl ExecutorConfig {
             venv,
             cancel_grace: Duration::from_secs(30),
             max_pack_bytes: 1024 * 1024 * 1024,
+            sys_block: PathBuf::from("/sys/block"),
+            smartctl: smart::find_smartctl(),
         }
     }
 
@@ -99,7 +107,7 @@ impl ExecutorConfig {
     }
 }
 
-/// Serves one connection: `ReadLedger` or one run.
+/// Serves one connection: `ReadLedger`, `ReadSmart` or one run.
 pub async fn serve<S>(stream: S, cfg: &ExecutorConfig)
 where
     S: AsyncRead + AsyncWrite + Send + 'static,
@@ -110,6 +118,9 @@ where
     match tokio::time::timeout(FIRST_FRAME, incoming.recv()).await {
         Ok(Some(Frame::ReadLedger)) => {
             let _ = out.send(ledger_answer(cfg));
+        }
+        Ok(Some(Frame::ReadSmart)) => {
+            let _ = out.send(smart::read_smart(&cfg.sys_block, cfg.smartctl.clone()).await);
         }
         Ok(Some(assign @ Frame::Assign { .. })) => run(assign, cfg, &out, &mut incoming).await,
         Ok(Some(other)) => eprintln!(

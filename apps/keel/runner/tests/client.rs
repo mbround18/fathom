@@ -181,7 +181,7 @@ impl RunnerAuthority for TestAuthority {
 }
 
 /// Plays Keel's side: answers `Enroll` with `Enrolled`, `RenewCert` with `Cert`, and on a full
-/// session sends `assign` after `Hello` and stops after `Finished` or `Pong`. Records every frame with
+/// session sends `assign` after `Hello` and stops after `Finished`, `Pong` or `QueryRefused`. Records every frame with
 /// its access and whether that access permits it; stops at the first refused frame.
 struct TestService {
     seen: mpsc::UnboundedSender<(Access, Frame, bool)>,
@@ -205,7 +205,7 @@ impl SubsystemService for TestService {
                 }],
                 Frame::RenewCert {} => vec![Frame::Cert { cert }],
                 Frame::Hello { .. } => self.assign.clone(),
-                Frame::Finished { .. } | Frame::Pong => return,
+                Frame::Finished { .. } | Frame::Pong | Frame::QueryRefused { .. } => return,
                 _ => vec![],
             };
             for f in answer {
@@ -620,10 +620,14 @@ async fn a_session_says_hello_and_relays_a_run_unchanged() {
             ..
         } => {
             assert_eq!(host_id, "h-1");
-            // Spec 068 T025: this runner parses recipe manifests, check runs and env items.
+            // Spec 068 T025: this runner parses recipe manifests, check runs and env items;
+            // spec 067 US5: it answers typed host queries.
             assert_eq!(
                 capabilities,
-                &[keel_exec::frames::CAP_MANIFEST_V068.to_owned()]
+                &[
+                    keel_exec::frames::CAP_MANIFEST_V068.to_owned(),
+                    keel_exec::frames::CAP_QUERY_V1.to_owned(),
+                ]
             );
             assert_eq!(age_recipient.as_deref(), Some(AGE_PUB));
             assert_eq!(ledger_head.as_deref(), Some("ab".repeat(32).as_str()));
@@ -639,6 +643,47 @@ async fn a_session_says_hello_and_relays_a_run_unchanged() {
         got.push(f);
     }
     assert_eq!(got, vec![Frame::ReadLedger, assign, secrets]);
+}
+
+/// Spec 067 US5: a query reaches the answerer through the session and its refusal goes back on
+/// the runner channel. This host has no `queries.toml`, so everything is refused.
+#[tokio::test]
+async fn a_session_answers_a_query_and_without_queries_toml_refuses_it() {
+    let pki = Pki::new();
+    let host = Host::new(&pki);
+    let key_data = host.runner(1).public_key().clone();
+    let query = Frame::Query {
+        query_id: "q-1".to_owned(),
+        kind: "unit_state".to_owned(),
+        params: [("unit".to_owned(), "k3s.service".to_owned())].into(),
+        asked_by: "ada".to_owned(),
+    };
+    let mut server = good_server(&pki, vec![key_data.clone()], vec![query]).await;
+    let _exec = fake_executor(&host.socket).await;
+    host.write_cert(&runner_cert(&pki.runner_ca, &key_data, SystemTime::now()));
+
+    tokio::time::timeout(WAIT, host.runner(server.port).run_once())
+        .await
+        .expect("hung")
+        .unwrap();
+    let frames: Vec<Frame> = server
+        .frames()
+        .into_iter()
+        .map(|(_, f, permitted)| {
+            assert!(permitted, "{f:?}");
+            f
+        })
+        .collect();
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    assert_eq!(
+        frames[1],
+        Frame::QueryRefused {
+            query_id: "q-1".to_owned(),
+            reason: keel_exec::frames::QueryRefusal::NotAllowed,
+        }
+    );
+    let log = std::fs::read_to_string(host.state.join("queries.log")).unwrap();
+    assert!(log.contains(r#""outcome":"not_allowed""#), "{log}");
 }
 
 /// Holds a session whose server pushes `pushed` right after `Hello`, then pings and closes on
