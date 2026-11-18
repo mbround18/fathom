@@ -1581,6 +1581,12 @@ pub struct SupervisorOptions {
     pub maximum_packet_size: u32,
     /// A relay link with no traffic for this long is dropped.
     pub inactivity_timeout: Duration,
+    /// The largest control frame read from a relay (at most the protocol's 1 MiB).
+    pub max_control_frame: usize,
+    /// SSH keepalive on the link …
+    pub keepalive_interval: Duration,
+    /// … and how many may go unanswered.
+    pub keepalive_max: usize,
     /// Enrollment (and join) attempts per minute per relay …
     pub enroll_per_minute: u32,
     /// … and their burst.
@@ -1601,6 +1607,9 @@ impl SupervisorOptions {
             window_size: l.window_size,
             maximum_packet_size: l.maximum_packet_size,
             inactivity_timeout: l.inactivity_timeout,
+            max_control_frame: l.max_control_frame,
+            keepalive_interval: l.keepalive_interval,
+            keepalive_max: usize::try_from(l.keepalive_max).unwrap_or(usize::MAX),
             enroll_per_minute: l.enroll_per_minute,
             enroll_burst: l.enroll_burst,
             ..Self::default()
@@ -1614,6 +1623,8 @@ impl SupervisorOptions {
             window_size: self.window_size,
             maximum_packet_size: self.maximum_packet_size,
             inactivity_timeout: Some(self.inactivity_timeout),
+            keepalive_interval: Some(self.keepalive_interval),
+            keepalive_max: self.keepalive_max,
             ..link_client_config()
         }
     }
@@ -1635,6 +1646,9 @@ impl Default for SupervisorOptions {
             window_size: limits.window_size,
             maximum_packet_size: limits.maximum_packet_size,
             inactivity_timeout: limits.inactivity_timeout,
+            max_control_frame: limits.max_control_frame,
+            keepalive_interval: limits.keepalive_interval,
+            keepalive_max: usize::try_from(limits.keepalive_max).unwrap_or(usize::MAX),
             enroll_per_minute: limits.enroll_per_minute,
             enroll_burst: limits.enroll_burst,
         }
@@ -2553,9 +2567,10 @@ impl LinkRun {
         // `read_frame` is not cancel-safe: one task reads, the loop selects on its channel.
         let (frames_tx, mut frames) = mpsc::channel::<FrameRead>(8);
         let mut reader = JoinSet::new();
+        let max_frame = opts.max_control_frame;
         reader.spawn(async move {
             loop {
-                let read = relay::read_frame(&mut rd).await;
+                let read = relay::read_frame_capped(&mut rd, max_frame).await;
                 let last = !matches!(read, Ok(Some(_)));
                 if frames_tx.send(read).await.is_err() || last {
                     return;
@@ -2948,7 +2963,19 @@ mod tests {
         assert_eq!(cfg.maximum_packet_size, 32 << 10);
         assert_eq!(cfg.inactivity_timeout, Some(Duration::from_secs(120)));
         assert_eq!(cfg.keepalive_interval, Some(relay::LINK_KEEPALIVE));
+        assert_eq!(cfg.keepalive_max, relay::LINK_KEEPALIVE_MAX);
+        assert_eq!(opts.max_control_frame, relay::MAX_CONTROL_FRAME_LEN);
         assert!(cfg.channel_buffer_size <= 32);
+        let keepalive = SupervisorOptions {
+            keepalive_interval: Duration::from_secs(20),
+            keepalive_max: 5,
+            ..SupervisorOptions::default()
+        }
+        .client_config();
+        assert_eq!(
+            (keepalive.keepalive_interval, keepalive.keepalive_max),
+            (Some(Duration::from_secs(20)), 5)
+        );
         let tight = SupervisorOptions {
             window_size: 64 << 10,
             maximum_packet_size: 8 << 10,

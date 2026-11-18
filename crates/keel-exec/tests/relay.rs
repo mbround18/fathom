@@ -139,6 +139,36 @@ async fn a_frame_over_one_mib_fails_both_ways() {
     ));
 }
 
+/// T060: Keel's own cap (`KEEL_RELAY_MAX_CONTROL_FRAME`) refuses a frame under the protocol's,
+/// and can never raise it above 1 MiB.
+#[tokio::test]
+async fn a_lower_read_cap_refuses_a_frame_under_one_mib() {
+    use tokio::io::AsyncWriteExt;
+    let mid = Frame::Close {
+        reason: "x".repeat(100 << 10),
+    };
+    let (mut a, mut b) = tokio::io::duplex(1 << 20);
+    write_frame(&mut a, &mid).await.unwrap();
+    assert!(matches!(
+        relay::read_frame_capped(&mut b, 64 << 10).await,
+        Err(CodecError::TooLarge { max, .. }) if max == 64 << 10
+    ));
+    let (mut a, mut b) = tokio::io::duplex(1 << 20);
+    write_frame(&mut a, &mid).await.unwrap();
+    assert_eq!(
+        relay::read_frame_capped(&mut b, 256 << 10).await.unwrap(),
+        Some(mid)
+    );
+    let (mut a, mut b) = tokio::io::duplex(1024);
+    a.write_all(&((MAX_CONTROL_FRAME_LEN as u32) + 1).to_be_bytes())
+        .await
+        .unwrap();
+    assert!(matches!(
+        relay::read_frame_capped(&mut b, usize::MAX).await,
+        Err(CodecError::TooLarge { max, .. }) if max == MAX_CONTROL_FRAME_LEN
+    ));
+}
+
 #[test]
 fn a_cache_chunk_over_512_kib_fails() {
     assert_eq!(MAX_CACHE_CHUNK, 512 * 1024);

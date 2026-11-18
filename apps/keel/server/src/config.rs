@@ -472,10 +472,17 @@ pub struct RelayLimits {
     /// The largest SSH packet Keel accepts on a relay link [`KEEL_RELAY_MAX_PACKET`, 32KiB].
     pub maximum_packet_size: u32,
     /// A relay link with no traffic at all for this long is dropped
-    /// [`KEEL_RELAY_INACTIVITY_TIMEOUT`, 2m]. Keepalives (15 s) count as traffic.
+    /// [`KEEL_RELAY_INACTIVITY_TIMEOUT`, 2m]. Keepalives count as traffic.
     pub inactivity_timeout: Duration,
     /// Unanswered `Ping`s after which the link is dropped [`KEEL_RELAY_MAX_UNANSWERED_PINGS`, 4].
     pub max_unanswered_pings: u32,
+    /// The largest control frame Keel reads from a relay [`KEEL_RELAY_MAX_CONTROL_FRAME`, 1MiB,
+    /// at least 64KiB and at most the protocol's 1MiB].
+    pub max_control_frame: usize,
+    /// SSH keepalive Keel sends on a relay link [`KEEL_RELAY_KEEPALIVE`, 15s] …
+    pub keepalive_interval: Duration,
+    /// … and how many may go unanswered before Keel drops it [`KEEL_RELAY_KEEPALIVE_MAX`, 3].
+    pub keepalive_max: u32,
     /// Enrollment (and join) attempts per minute through one relay
     /// [`KEEL_RELAY_ENROLL_PER_MINUTE`, 30] …
     pub enroll_per_minute: u32,
@@ -494,6 +501,9 @@ impl Default for RelayLimits {
             maximum_packet_size: 32 << 10,
             inactivity_timeout: Duration::from_secs(120),
             max_unanswered_pings: 4,
+            max_control_frame: keel_exec::relay::MAX_CONTROL_FRAME_LEN,
+            keepalive_interval: keel_exec::relay::LINK_KEEPALIVE,
+            keepalive_max: keel_exec::relay::LINK_KEEPALIVE_MAX as u32,
             enroll_per_minute: 30,
             enroll_burst: 10,
         }
@@ -534,6 +544,11 @@ impl RelayLimits {
             "KEEL_RELAY_ENROLL_BURST",
             d.enroll_burst,
         )?;
+        let keepalive_max = count(
+            "relay_keepalive_max",
+            "KEEL_RELAY_KEEPALIVE_MAX",
+            d.keepalive_max,
+        )?;
         let mut duration = |setting: &'static str, env: &str, default: Duration| {
             r.pick(setting, None, env)
                 .map_or(Ok(default), |v| parse_duration(env, &v))
@@ -548,6 +563,11 @@ impl RelayLimits {
             "KEEL_RELAY_INACTIVITY_TIMEOUT",
             d.inactivity_timeout,
         )?;
+        let keepalive_interval = duration(
+            "relay_keepalive",
+            "KEEL_RELAY_KEEPALIVE",
+            d.keepalive_interval,
+        )?;
         let mut size = |setting: &'static str, env: &str, default: u32| {
             let Some(v) = r.pick(setting, None, env) else {
                 return Ok(default);
@@ -561,12 +581,26 @@ impl RelayLimits {
             "KEEL_RELAY_MAX_PACKET",
             d.maximum_packet_size,
         )?;
+        let max_control_frame = size(
+            "relay_max_control_frame",
+            "KEEL_RELAY_MAX_CONTROL_FRAME",
+            u32::try_from(d.max_control_frame).unwrap_or(u32::MAX),
+        )? as usize;
+        if !(64 << 10..=keel_exec::relay::MAX_CONTROL_FRAME_LEN).contains(&max_control_frame) {
+            // The protocol's cap is the ceiling; a relay's `Hello` and cache requests must fit.
+            return refuse("KEEL_RELAY_MAX_CONTROL_FRAME: must be from 64KiB to 1MiB");
+        }
+        if keepalive_interval < Duration::from_secs(1) {
+            return refuse("KEEL_RELAY_KEEPALIVE: must be at least 1s");
+        }
         if maximum_packet_size > window_size {
             return refuse("KEEL_RELAY_MAX_PACKET: must not exceed KEEL_RELAY_WINDOW_SIZE");
         }
-        if inactivity_timeout <= Duration::from_secs(30) {
-            // Two keepalives (15 s) must fit, or an idle healthy link would be dropped.
-            return refuse("KEEL_RELAY_INACTIVITY_TIMEOUT: must be more than 30s");
+        if inactivity_timeout <= keepalive_interval.saturating_mul(2) {
+            // Two keepalives must fit, or an idle healthy link would be dropped.
+            return refuse(
+                "KEEL_RELAY_INACTIVITY_TIMEOUT: must be more than two KEEL_RELAY_KEEPALIVE (30s)",
+            );
         }
         Ok(Self {
             max_streams,
@@ -577,6 +611,9 @@ impl RelayLimits {
             maximum_packet_size,
             inactivity_timeout,
             max_unanswered_pings,
+            max_control_frame,
+            keepalive_interval,
+            keepalive_max,
             enroll_per_minute,
             enroll_burst,
         })
@@ -1608,6 +1645,9 @@ mod tests {
             ("KEEL_RELAY_MAX_PACKET", "16KiB"),
             ("KEEL_RELAY_INACTIVITY_TIMEOUT", "1m"),
             ("KEEL_RELAY_MAX_UNANSWERED_PINGS", "2"),
+            ("KEEL_RELAY_MAX_CONTROL_FRAME", "256KiB"),
+            ("KEEL_RELAY_KEEPALIVE", "20s"),
+            ("KEEL_RELAY_KEEPALIVE_MAX", "5"),
             ("KEEL_RELAY_ENROLL_PER_MINUTE", "6"),
             ("KEEL_RELAY_ENROLL_BURST", "1"),
         ]);
@@ -1623,6 +1663,9 @@ mod tests {
                 maximum_packet_size: 16 << 10,
                 inactivity_timeout: Duration::from_secs(60),
                 max_unanswered_pings: 2,
+                max_control_frame: 256 << 10,
+                keepalive_interval: Duration::from_secs(20),
+                keepalive_max: 5,
                 enroll_per_minute: 6,
                 enroll_burst: 1,
             }
@@ -1634,6 +1677,10 @@ mod tests {
             ("KEEL_RELAY_WINDOW_SIZE", "8GiB"),
             ("KEEL_RELAY_MAX_PACKET", "1MiB"),
             ("KEEL_RELAY_INACTIVITY_TIMEOUT", "20s"),
+            ("KEEL_RELAY_MAX_CONTROL_FRAME", "2MiB"),
+            ("KEEL_RELAY_MAX_CONTROL_FRAME", "1KiB"),
+            ("KEEL_RELAY_KEEPALIVE", "soon"),
+            ("KEEL_RELAY_KEEPALIVE_MAX", "0"),
         ] {
             let mut env = BASE.to_vec();
             env.push((key, bad));

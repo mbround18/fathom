@@ -262,7 +262,7 @@ side, and anything an honest relay never does takes the relay out of service.
   decision 2026-11-17: accept refuse-only (no russh fork); document the gap in the threat model
   and raise an upstream russh issue/PR for a client-side request hook, adopted once released; the
   `PreviewRelayRelease` mutation and preview are US3 (`release_relay` is in place for it).
-- [ ] T060 [US2] **Keel-side limits, independent of the relay's own**, in `server/src/relays.rs`
+- [X] T060 [US2] **Keel-side limits, independent of the relay's own**, in `server/src/relays.rs`
   and `exec/relay.rs`. A server config value sets each:
   - at most 256 concurrent carried streams per relay, beyond which channel opens are refused;
   - at most 20 new streams per second per relay (token bucket, burst 50);
@@ -277,9 +277,14 @@ side, and anything an honest relay never does takes the relay out of service.
   relay: Keel stays within a fixed memory bound, and direct runners and other relays stay
   served.
 
-  Remaining: the 1 MiB frame cap, 4 unanswered Pings, link window/packet sizes and keepalives
-  are constants in `keel-exec`, not server config values (streams, rate, burst and auth deadline
-  are config).
+  Done: every limit is a `KEEL_RELAY_*` value in `RelayLimits` (`server/src/config.rs`),
+  defaulting to the `keel-exec` constants. Window and packet sizes, the inactivity timeout and
+  the 4 unanswered Pings were already config. The control frame cap is now
+  `KEEL_RELAY_MAX_CONTROL_FRAME`, which accepts 64KiB to 1MiB and is read through the new
+  `keel_exec::relay::read_frame_capped`, so it can never exceed the protocol's 1 MiB. Keepalives
+  are now `KEEL_RELAY_KEEPALIVE` (15s) and `KEEL_RELAY_KEEPALIVE_MAX` (3), and the inactivity
+  timeout must exceed two keepalives. These are Keel's side only: the relay binary keeps the
+  constants.
 - [X] T061 [US2] **Audit and log flood control**: `relay.refused` and limit hits are coalesced
   per `(relay, reason)` per minute into one row with a `count`. `tracing` output on relay paths
   is rate-limited the same way. A relay can never grow the audit table faster than this. Test
@@ -473,16 +478,25 @@ dispatching.
 
 **Independent test**: `cargo test -p keel-server --test relay_failover`.
 
-- [ ] T037 [P] [US4] `server/tests/relay_failover.rs` uses two in-process relays in one zone and
+- [X] T037 [P] [US4] `server/tests/relay_failover.rs` uses two in-process relays in one zone and
   a runner with both in `--dial`:
   - stop the relay in use, and the runner reconnects through the other within 60 s with the
     path updated;
   - a run in progress on the stopped relay is handled as a lost connection and never runs twice;
   - a run queued meanwhile dispatches after the reconnect.
-- [ ] T038 [US4] Add a test in `runner/tests/dial.rs` for a dial list with relays first and the
+
+  Done with the real relay, runner and supervisor. The shared harness moved from
+  `relay_link.rs` to `tests/real_relay/`. Fixed bug: when a runner reconnected before Keel
+  noticed its old session had ended, the old session's end marked every in-flight run of the
+  host `lost`, including a run the new session was executing. Now each session loses only the
+  runs it was sent (`queue.rs`; reproduced in `runs.rs`). Lost rows are still never re-queued.
+- [X] T038 [US4] Add a test in `runner/tests/dial.rs` for a dial list with relays first and the
   direct address last. When the relays are down and the direct address answers, the runner
   connects direct, and Keel shows `direct`. Fix whatever T037/T038 reveal in
   `runner/src/runner/mod.rs` or `server/src/relays.rs`.
+
+  Done. `dial.rs` covers the runner's side. Keel showing `direct` (`hosts.last_path`) is the
+  second test in `relay_failover.rs`. Nothing needed fixing in the runner.
 
 ## Phase 7: User Story 5, typed questions to hosts (P3)
 

@@ -137,7 +137,16 @@ pub async fn write_frame<W: AsyncWrite + Unpin>(
 
 /// Read one control frame; `Ok(None)` is a clean end of stream.
 pub async fn read_frame<R: AsyncRead + Unpin>(r: &mut R) -> Result<Option<Frame>, CodecError> {
-    let frame: Option<Frame> = codec::read_capped(r, MAX_CONTROL_FRAME_LEN).await?;
+    read_frame_capped(r, MAX_CONTROL_FRAME_LEN).await
+}
+
+/// [`read_frame`] with a lower cap on the body (Keel's `KEEL_RELAY_MAX_CONTROL_FRAME`); `max`
+/// never raises it above [`MAX_CONTROL_FRAME_LEN`].
+pub async fn read_frame_capped<R: AsyncRead + Unpin>(
+    r: &mut R,
+    max: usize,
+) -> Result<Option<Frame>, CodecError> {
+    let frame: Option<Frame> = codec::read_capped(r, max.min(MAX_CONTROL_FRAME_LEN)).await?;
     if let Some(f) = &frame {
         f.check()?;
     }
