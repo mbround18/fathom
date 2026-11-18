@@ -11,8 +11,10 @@ import {
   MAX_CONTEXTS,
   narrowedText,
   paramProblem,
+  paramRequired,
   paramsReady,
   paramsToSend,
+  requiredMissing,
   skipText,
   timeoutText,
   unavailableText,
@@ -71,6 +73,21 @@ describe('Start dialog params', () => {
     expect(initialParams({ app: choice(), image: digest })).toEqual({ app: 'keel', image: '' })
     expect(initialParams({ app: choice({ default: 'gone' }) })).toEqual({ app: '' })
     expect(initialParams(undefined)).toEqual({})
+  })
+
+  it('requires a choice with no default, and only that (T074)', () => {
+    const stack = choice({ default: null })
+    expect(paramRequired(stack)).toBe(true)
+    expect(paramRequired(choice())).toBe(false)
+    expect(paramRequired(digest)).toBe(false)
+    expect(initialParams({ stack })).toEqual({ stack: '' })
+    expect(requiredMissing({ stack, image: digest }, { stack: '', image: '' })).toBe(true)
+    expect(requiredMissing({ stack, image: digest }, { stack: 'keel', image: '' })).toBe(false)
+    expect(requiredMissing({ app: choice() }, { app: '' })).toBe(false)
+    expect(requiredMissing(undefined, {})).toBe(false)
+    // One that can't be listed explains itself in its hint instead.
+    const gone = choice({ default: null, allowed: null, unavailable: 'choice_from_missing' })
+    expect(requiredMissing({ stack: gone }, { stack: '' })).toBe(false)
   })
 
   it('refuses values outside the list, and every value of an unavailable choice', () => {

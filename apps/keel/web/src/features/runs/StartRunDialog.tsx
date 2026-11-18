@@ -7,13 +7,13 @@
 import { PlayIcon } from '@phosphor-icons/react'
 import { Button, Input, Switch } from '@companion/ui'
 import { Dialog, Field, Select } from '@companion/ui/kit'
-import { useId, useState } from 'react'
+import { useId, useLayoutEffect, useState } from 'react'
 
 import { useConverge } from '@/features/converge/store'
 import { useGovernance } from '@/features/teams/store'
 import type { JobInfo, ParamView } from '@/protocol/wire'
 
-import { initialParams, paramNames, paramProblem, paramsReady, paramsToSend } from './run-068'
+import { initialParams, paramNames, paramProblem, paramRequired, paramsReady, paramsToSend, requiredMissing } from './run-068'
 
 function ParamField({
   name,
@@ -34,13 +34,25 @@ function ParamField({
   // A choice that can't be listed says so at once; a value problem waits for a Start attempt.
   const hint = stuck || (shown && problem) ? problem : view.kind === 'oci_digest' ? 'sha256: and 64 hex characters' : null
   const hintId = `${id}-hint`
+  // A choice with no default (T074): the job is manual-only, and nothing is picked for the user.
+  const required = paramRequired(view)
+  const placeholder = stuck ? 'Nothing to pick' : required ? `Choose a ${name}…` : 'Pick a value…'
   return (
-    <Field label={<span className="font-mono">{name}</span>} htmlFor={id}>
+    <Field
+      label={
+        <>
+          <span className="font-mono">{name}</span>
+          {required && <span className="text-muted-foreground"> (required)</span>}
+        </>
+      }
+      htmlFor={id}
+    >
       {view.kind === 'choice' ? (
         <Select
           id={id}
           data-param={name}
           value={value}
+          required={required}
           disabled={stuck}
           aria-invalid={shown && problem !== null}
           aria-describedby={hint ? hintId : undefined}
@@ -48,7 +60,7 @@ function ParamField({
             onChange(e.target.value)
           }}
         >
-          <option value="">{stuck ? 'Nothing to pick' : 'Pick a value…'}</option>
+          <option value="">{placeholder}</option>
           {(view.allowed ?? []).map((v) => (
             <option key={v} value={v}>
               {v}
@@ -80,7 +92,15 @@ function ParamField({
   )
 }
 
-function Form({ job, onClose }: { job: JobInfo; onClose: () => void }) {
+function Form({
+  job,
+  onClose,
+  onBlocked,
+}: {
+  job: JobInfo
+  onClose: () => void
+  onBlocked: (blocked: boolean) => void
+}) {
   const propose = useGovernance((s) => s.propose)
   const convergeOff = useConverge((s) => s.disabled)
   const [values, setValues] = useState<Record<string, string>>(() => initialParams(job.params))
@@ -88,6 +108,11 @@ function Form({ job, onClose }: { job: JobInfo; onClose: () => void }) {
   const [tried, setTried] = useState(false)
   const checkId = useId()
   const names = paramNames(job.params)
+  const blocked = requiredMissing(job.params, values)
+  // Layout effect: the footer's Start is disabled before the dialog first paints.
+  useLayoutEffect(() => {
+    onBlocked(blocked)
+  }, [blocked, onBlocked])
 
   const start = () => {
     if (!paramsReady(job.params, values)) {
@@ -165,6 +190,8 @@ function Form({ job, onClose }: { job: JobInfo; onClose: () => void }) {
 
 /** The Start dialog for `job`; `null` closes it. */
 export function StartRunDialog({ job, onClose }: { job: JobInfo | null; onClose: () => void }) {
+  // A required choice still empty (T074) keeps Start disabled; the form reports it.
+  const [blocked, setBlocked] = useState(false)
   return (
     <Dialog
       open={job !== null}
@@ -177,14 +204,14 @@ export function StartRunDialog({ job, onClose }: { job: JobInfo | null; onClose:
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" form="start-run">
+          <Button type="submit" form="start-run" disabled={job !== null && blocked}>
             <PlayIcon aria-hidden />
             Review run
           </Button>
         </>
       }
     >
-      {job && <Form key={job.id} job={job} onClose={onClose} />}
+      {job && <Form key={job.id} job={job} onClose={onClose} onBlocked={setBlocked} />}
     </Dialog>
   )
 }

@@ -62,7 +62,9 @@ for (const size of WIDTHS) {
         convergePlan({
           binding_id: t.binding_id,
           hosts: [
-            hostPlan('host-alpha', 'alpha', [{ job: 'debian' }, { job: 'keel-node' }]),
+            hostPlan('host-alpha', 'alpha', [{ job: 'debian' }, { job: 'keel-node' }], {
+              skipped: [{ job: 'provision', reason: 'needs_value' }],
+            }),
             hostPlan('host-bravo', 'bravo', [{ job: 'debian' }], { refusals: [{ job: 'k3s-agent', reason: 'outside_ceiling' }] }),
           ],
           policy: { requires_approval: true, approvals_needed: 2, four_eyes: true, approval_ttl_secs: 14_400 },
@@ -76,6 +78,9 @@ for (const size of WIDTHS) {
       await expect(dialog).toContainText('Needs 2 approvals, four eyes, expires in 4 h (strictest of 2 steps)')
       await expect(planHost(page, 'bravo')).toHaveAttribute('data-included', 'false')
       await expect(planHost(page, 'bravo')).toContainText('k3s-agent: outside the host’s ceiling')
+      // A manual-only job (T074) is a quiet line, not a refusal: alpha still converges.
+      await expect(planHost(page, 'alpha')).toHaveAttribute('data-included', 'true')
+      await expect(planHost(page, 'alpha')).toContainText('provision: needs a value, start it by hand')
       await expect(dialog.locator('[data-converge-confirm]')).toHaveText('Converge 1 host (2 steps)')
     })
 

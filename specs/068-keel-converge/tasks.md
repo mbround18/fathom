@@ -355,6 +355,11 @@ that host's rest; retry resumes.
   sections take H3 with wider gaps between them; Last converge link carries its state tone;
   Queries controls share one height and show a loading state; Require/Save/Grant match field
   height; dialog Cancel is ghost everywhere and Start run uses default-size footer buttons.
+- [X] T074 [core][server][web] A `choice` param with no default is required, and its job is
+  manual-only. Done: core refuses one with `paths:` (`required_param_paths`) or in a recipe
+  (`manual_only_recipe_job`), and a converge skips it as `HostPlan.skipped` (`needs_value`).
+  The server refuses a Start without it ("The run's param <name> is required."), and push never
+  runs it. The Start dialog marks it required and keeps Review run off until a value is picked.
 - [ ] T070 Main session only: `scripts/hygiene.sh`, then the full gate once on the combined
   branch (`scripts/ci.sh`); report wall time, slowest steps and delta vs the last pass.
 - [ ] T071 [web] Brochure screens last: add the converge preview, converge page and Profiles

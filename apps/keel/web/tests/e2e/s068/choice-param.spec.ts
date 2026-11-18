@@ -37,6 +37,34 @@ for (const size of WIDTHS) {
       expect(r068.started).toHaveLength(1)
     })
 
+    test('a choice with no default is required: Start waits until it is picked (T074)', async ({ page, backend }) => {
+      const { r068 } = running(backend)
+      r068.job('upgrade', {
+        params: {
+          stack: choiceParam(['web', 'db'], { default: null }),
+          size: choiceParam(['small', 'large'], { default: 'small' }),
+        },
+      })
+      const dialog = await openStart(page, 'upgrade')
+      const stack = dialog.getByLabel('stack')
+      await expect(dialog.getByText('(required)')).toHaveCount(1)
+      await expect(stack).toHaveValue('')
+      await expect(stack).toHaveAttribute('required', '')
+      await expect(stack.locator('option').first()).toHaveText('Choose a stack…')
+      const review = dialog.getByRole('button', { name: 'Review run' })
+      await expect(review).toBeDisabled()
+      // The defaulted choice is optional and keeps its usual placeholder.
+      await expect(dialog.getByLabel('size').locator('option').first()).toHaveText('Pick a value…')
+
+      await stack.selectOption('db')
+      await expect(review).toBeEnabled()
+      await press(page, review)
+      expect(await backend.waitForCmd('PreviewRunStart')).toMatchObject({
+        data: { job: 'job-upgrade', params: { stack: 'db', size: 'small' }, check: false },
+      })
+      await expect(change(page, 'Run upgrade')).toContainText('stack = db')
+    })
+
     test('a choice that cannot be listed says why and starts nothing', async ({ page, backend }) => {
       const { r068 } = running(backend)
       r068.job('upgrade', { params: { app: choiceParam(null, { unavailable: 'choice_from_missing' }) } })

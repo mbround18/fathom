@@ -47,6 +47,7 @@ const hostPlan = (host: string, steps: PlannedStep[], over: Partial<HostPlan> = 
   profiles: ['base'],
   steps,
   refusals: [],
+  skipped: [],
   ...over,
 })
 

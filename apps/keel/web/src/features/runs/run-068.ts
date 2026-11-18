@@ -104,6 +104,21 @@ export function paramProblem(view: ParamView, value: string): string | null {
   return DIGEST.test(value.trim()) ? null : 'An image digest is sha256: and 64 lowercase hex characters.'
 }
 
+/** A `choice` with no default must be picked (T074): the job is manual-only, and Start waits for it. */
+export function paramRequired(view: ParamView): boolean {
+  return view.kind === 'choice' && view.default === null
+}
+
+/**
+ * Whether a required choice that can be picked is still empty, which keeps Start disabled. One that
+ * can't be listed says why in its hint instead, and Start refuses it as before.
+ */
+export function requiredMissing(params: Readonly<Record<string, ParamView>> | undefined, values: Readonly<Record<string, string>>): boolean {
+  return Object.entries(params ?? {}).some(
+    ([n, view]) => paramRequired(view) && view.unavailable === null && (view.allowed ?? []).length > 0 && (values[n] ?? '') === '',
+  )
+}
+
 /** Params sorted by name, as the form lists them. */
 export function paramNames(params: Readonly<Record<string, ParamView>> | undefined): string[] {
   return Object.keys(params ?? {}).sort((a, b) => a.localeCompare(b))

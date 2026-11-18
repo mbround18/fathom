@@ -52,7 +52,7 @@ export function plannedSteps(steps: readonly StepSpec[]): PlannedStep[] {
 }
 
 export function hostPlan(host_id: string, host: string, steps: readonly StepSpec[], over: Partial<HostPlan> = {}): HostPlan {
-  return { host_id, host, profiles: ['base'], steps: plannedSteps(steps), refusals: [], ...over }
+  return { host_id, host, profiles: ['base'], steps: plannedSteps(steps), refusals: [], skipped: [], ...over }
 }
 
 export function convergePlan(over: Partial<ConvergePlan> = {}): ConvergePlan {

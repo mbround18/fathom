@@ -14,6 +14,7 @@ import type {
   Me,
   PlannedStep,
   StepRefusalReason,
+  StepSkipReason,
   StepState,
 } from '@/protocol/wire'
 
@@ -131,6 +132,15 @@ const REFUSAL: Record<StepRefusalReason, string> = {
 /** "k3s-agent: outside the host's ceiling". */
 export function refusalText(job: string, reason: StepRefusalReason): string {
   return reason === 'no_steps' || reason === 'host_revoked' ? REFUSAL[reason] : `${job}: ${REFUSAL[reason]}`
+}
+
+const SKIPPED: Record<StepSkipReason, string> = {
+  needs_value: 'needs a value, start it by hand',
+}
+
+/** "provision: needs a value, start it by hand" (T074). */
+export function skippedText(job: string, reason: StepSkipReason): string {
+  return `${job}: ${SKIPPED[reason]}`
 }
 
 // --- The view (converge page) -------------------------------------------------------------------

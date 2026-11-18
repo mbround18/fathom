@@ -110,3 +110,29 @@ A job marked **blocked** can't run, and its details say why. Choose **Run** to s
 
 If the job reads sops files that some of its hosts can't decrypt, the run's preview says so before
 you confirm.
+
+### Choice params
+
+A job can ask for a value each time it runs. A `choice` param lists its values, or takes them from
+the folders under a path at the commit the run pins:
+
+```yaml
+jobs:
+  provision:
+    playbook: playbooks/provision.yaml
+    profiles: [gameserver]
+    inventory: prod
+    params:
+      stack: { kind: choice, from: composes/ }
+      size: { kind: choice, values: [small, large], default: small }
+```
+
+The Run dialog shows each one as a list. A param with a `default` starts on it. A param without
+one, like `stack` above, is **required**:
+
+- The dialog marks it required and starts it empty. **Review run** stays off until you pick a
+  value.
+- The job is manual only. A push never starts it, so it can't have `paths:`, and a recipe can't
+  list it. Keel refuses the manifest if either is set.
+- A converge leaves it out and carries on with the host's other jobs. The preview says
+  "provision: needs a value, start it by hand".

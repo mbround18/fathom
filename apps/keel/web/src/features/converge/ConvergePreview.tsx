@@ -15,7 +15,7 @@ import { useRepos } from '@/features/bindings/store'
 import { short } from '@/features/runs/store'
 import type { ConvergePlan, HostPlan, PlannedStep } from '@/protocol/wire'
 
-import { confirmLabel, jobsOf, planCounts, planMatrix, policyText, refusalText, viaText } from './derive'
+import { confirmLabel, jobsOf, planCounts, planMatrix, policyText, refusalText, skippedText, viaText } from './derive'
 import { useConverge } from './store'
 
 function Step({ step }: { step: PlannedStep }) {
@@ -42,6 +42,20 @@ function Refusals({ host }: { host: HostPlan }) {
     <ul aria-label={`Why ${host.host} is left out`} className="text-xs text-status-err">
       {host.refusals.map((r) => (
         <li key={`${r.job}-${r.reason}`}>{refusalText(r.job, r.reason)}</li>
+      ))}
+    </ul>
+  )
+}
+
+/** Jobs the host's profiles reach that a converge leaves to a hand start (T074): quiet, not a refusal. */
+function Skipped({ host }: { host: HostPlan }) {
+  if (host.skipped.length === 0) return null
+  return (
+    <ul aria-label={`Left out on ${host.host}`} className="text-xs font-normal text-muted-foreground">
+      {host.skipped.map((s) => (
+        <li key={s.job} data-skipped={s.job}>
+          {skippedText(s.job, s.reason)}
+        </li>
       ))}
     </ul>
   )
@@ -76,6 +90,7 @@ function Matrix({ plan }: { plan: ConvergePlan }) {
               <th scope="row" className="py-1.5 pr-3 text-left font-medium">
                 <span className={row.included ? '' : 'text-muted-foreground line-through'}>{row.host.host}</span>
                 <Refusals host={row.host} />
+                <Skipped host={row.host} />
               </th>
               {row.cells.map((cell, i) => (
                 <td key={positions[i]} className="py-1.5 pr-3">
@@ -100,6 +115,7 @@ function Cards({ plan }: { plan: ConvergePlan }) {
           <li key={host.host_id} data-plan-host={host.host} data-included={included} className="border border-border p-2">
             <p className={`${H3} ${included ? '' : 'text-muted-foreground line-through'}`}>{host.host}</p>
             <Refusals host={host} />
+            <Skipped host={host} />
             {host.steps.length > 0 && (
               <ol aria-label={`Steps on ${host.host}`} className="mt-1 list-decimal pl-5 text-xs">
                 {host.steps.map((s) => (
