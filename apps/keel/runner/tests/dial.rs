@@ -521,6 +521,54 @@ async fn one_failing_pass_tries_every_address_once() {
     assert_eq!(b_accepts.load(Ordering::SeqCst), 1);
 }
 
+/// T038: the relays first in `dial` and the direct address last. With the relays down (one gone,
+/// one up but turning runners away, as a relay with no link to Keel does), the runner connects
+/// direct, and its session opens there with `Hello`. Keel showing `direct` for that session, with
+/// enrollment through the same list, is `keel-server`'s `relay_failover.rs`.
+#[tokio::test]
+async fn with_the_relays_down_the_runner_connects_to_the_direct_address_last() {
+    let pki = Pki::new();
+    let gone = format!("127.0.0.1:{}", dead_port().await);
+    let (unlinked, unlinked_accepts) = closer().await;
+    let host = Host::new(&pki);
+    let server = format!("{SERVER_NAME}:{}", dead_port().await);
+    // An enrolled runner whose key Keel knows.
+    let key = host.runner(server.clone(), vec![]).public_key().clone();
+    host.write_cert(&runner_cert(&pki.runner_ca, &key, SystemTime::now()));
+    let mut keel = keel_server(&pki, vec![key]).await;
+    let runner = host.runner(server, vec![gone, unlinked, keel.addr()]);
+    // The executor: an empty ledger, which the session reads before `Hello`.
+    let executor = tokio::net::UnixListener::bind(&host.socket).unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = executor.accept().await {
+            tokio::spawn(async move {
+                while let Ok(Some(Frame::ReadLedger)) = read_frame(&mut s).await {
+                    let ledger = Frame::Ledger {
+                        ledger_head: None,
+                        bases: Vec::new(),
+                    };
+                    if write_frame(&mut s, &ledger).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+
+    // The fake Keel ends the session after `Hello`, so one pass returns.
+    let _ = tokio::time::timeout(WAIT, runner.run_once())
+        .await
+        .expect("hung");
+    let frames = keel.frames();
+    assert!(
+        matches!(frames[..], [Frame::Hello { .. }]),
+        "the session opened direct: {frames:?}"
+    );
+    // The relays were tried first, once each, in the one pass.
+    assert_eq!(unlinked_accepts.load(Ordering::SeqCst), 1);
+    assert_eq!(keel.accepts.load(Ordering::SeqCst), 1);
+}
+
 #[test]
 fn backoff_doubles_per_pass_and_is_capped_at_60s() {
     let mut backoff = Backoff::default();
