@@ -19,7 +19,8 @@ what Keel relies on. Nothing in `../ansible` changes as part of 055 without the 
 | `keel_runner_allowed_profiles` | `[]` | The ceiling for profiles Keel may assign. Empty means the host refuses every job. |
 | `keel_runner_override_quorum` | `1` | |
 | `keel_runner_inventory_name` | `inventory_hostname` | |
-| `KEEL_TOKEN` (environment) | unset | The enrollment or join token, read with `lookup('env')` for the first run only. Never a var: the role refuses `keel_enroll_token` and `keel_join_token` (`roles/keel_runner/tasks/token.yml`). |
+| `KEEL_TOKEN` (environment) | unset | The enrollment or join token, read with `lookup('env')` for the first run only. Never a plain var: the role refuses `keel_enroll_token` and `keel_join_token` (`roles/keel_runner/tasks/token.yml`). |
+| `keel_runner_secrets_file` | `secrets/keel_nodes.sops.yaml` (group_vars/keel_nodes.yml) | SOPS file whose `keel_join_token` is used when `KEEL_TOKEN` is empty and the host has no certificate. Join tokens only; skipped when the file is absent. |
 | *(join token in `KEEL_TOKEN`)* | | A join token (contracts/join.md) is passed the same way. Supplies `keel_runner_server`, `keel_runner_host_ca`, `keel_runner_origin` and `keel_runner_rp_id` when those are unset; the role fails if a set var disagrees with the token. Never supplies trust decisions. |
 | `keel_runner_download` | `true` | `true` fetches the binaries, requirements and callback from `https://<origin>/runner/latest/…` instead of `github_release`; each file must match `keel_runner_sha256`. |
 
@@ -61,7 +62,8 @@ list is empty, because such a host could never run anything.
      because `become` needs sudo.
 6. **Host key:** generated on first start by `keel-runner` (`ssh-keygen`-compatible Ed25519) in
    its state directory. It never leaves the host.
-7. **Enrollment:** if the host has no certificate, read `KEEL_TOKEN` (`tasks/token.yml`). A
+7. **Enrollment:** if the host has no certificate, read `KEEL_TOKEN`, or, when it is empty, a
+   join token from `keel_runner_secrets_file` (SOPS; contracts/join.md) (`tasks/token.yml`). A
    `keel-enroll-v1.<secret>.SHA256:<fp>` token is written to `/var/lib/keel-runner/enroll-token`;
    a three-segment JWS whose header is `alg: EdDSA`, `typ: keel-join+jwt` (with `aud` containing
    `keel-runner`, an unexpired `exp`, and `server`, `host_ca`, `origin` present) is written to

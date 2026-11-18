@@ -65,10 +65,15 @@ able to widen what a host accepts.
 If a var and the token both give a connection setting (for example `keel_runner_host_ca` is set
 and differs from `keel.host_ca`), the role fails rather than picking one.
 
-On hosts the token comes only from the `KEEL_TOKEN` environment variable on the first run, as an
-enrollment token does. The role refuses `keel_join_token` and `keel_enroll_token` as vars. A
-token in SOPS-encrypted vars could not help a new host anyway: the repository decrypts SOPS with
-each box's own age key, which is only added to `.sops.yaml` after that box's first run.
+On hosts the token comes from `KEEL_TOKEN` on the first run, or, when that is empty and the host
+has no certificate, from `secrets/keel_nodes.sops.yaml` (key `keel_join_token`, path in
+`keel_runner_secrets_file`). The SOPS file is only decrypted when the run can already decrypt it:
+from the workstation over SSH, or on a box whose age key is a recipient in `.sops.yaml`. A failed
+decrypt fails the run and points at `KEEL_TOKEN`. `KEEL_TOKEN` wins when both are set. SOPS may
+hold only a join token (multi-use, expiring, and every join still needs an admin to accept the
+fingerprint); an enrollment token found there is refused. `keel_join_token` and
+`keel_enroll_token` as plain vars (group or host vars, `-e`) are refused before the SOPS load.
+Enrolled hosts, Keel's own runs included, never decrypt it.
 
 ## Runner side (`keel-join-v1` subsystem)
 
