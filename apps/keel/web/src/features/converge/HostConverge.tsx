@@ -6,7 +6,7 @@
  */
 import { ArrowsClockwiseIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
-import { LABEL, Link, LINK } from '@companion/ui/kit'
+import { H3, Link, LINK } from '@companion/ui/kit'
 import { useEffect } from 'react'
 
 import { useSession } from '@/app/session-store'
@@ -24,13 +24,13 @@ const TONE = {
   cancelled: 'text-muted-foreground',
 } as const
 
-/** The Converge column: empty when the host has no converge. */
+/** The Converge column: a dash when the host has no converge. */
 export function ConvergeCell({ host }: { host: HostInfo }) {
   const c = host.converge
   const steps = useConverge((s) => (c ? s.views[c.run_id]?.hosts.find((h) => h.host_id === host.id)?.steps : undefined))
-  if (!c) return null
+  if (!c) return <span className="text-muted-foreground">—</span>
   return (
-    <Link to={`/runs/${c.run_id}`} data-host-converge={c.state} className={`${LINK} text-xs whitespace-nowrap ${TONE[c.state]}`}>
+    <Link to={`/runs/${c.run_id}`} data-host-converge={c.state} className={`${LINK} text-xs ${TONE[c.state]}`}>
       {hostConvergeText(c, steps)}
     </Link>
   )
@@ -50,7 +50,7 @@ export function ConvergeSelected({ hosts, binding }: { hosts: readonly HostInfo[
         variant="outline"
         data-converge-selected
         disabled={blocked !== null}
-        aria-describedby={blocked !== null ? 'converge-blocked' : undefined}
+        aria-describedby={blocked !== null && hosts.length > 0 ? 'converge-blocked' : undefined}
         onClick={() => {
           if (binding === null) return
           preview({ binding_id: binding, hosts: { kind: 'hosts', ids: hosts.map((h) => h.id) }, check: false })
@@ -85,7 +85,7 @@ export function HostConverge({ host, binding }: { host: HostInfo; binding: strin
   return (
     <section aria-label="Converge" className="flex min-w-0 flex-col gap-1.5">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className={LABEL}>Last converge</h3>
+        <h3 className={H3}>Last converge</h3>
         {may && (
           <Button
             size="xs"
@@ -106,7 +106,7 @@ export function HostConverge({ host, binding }: { host: HostInfo; binding: strin
       ) : (
         <>
           <p>
-            <Link to={`/runs/${host.converge.run_id}`} className={LINK}>
+            <Link to={`/runs/${host.converge.run_id}`} className={`${LINK} ${TONE[host.converge.state]}`}>
               {hostConvergeText(host.converge, steps)}
             </Link>
           </p>

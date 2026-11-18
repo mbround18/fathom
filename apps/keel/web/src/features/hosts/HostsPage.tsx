@@ -25,6 +25,7 @@ import {
   ErrorLine as Alert,
   Fingerprint,
   H2,
+  H3,
   LABEL,
   LINK,
   LoadFailed,
@@ -134,7 +135,7 @@ function AgeKey({ host }: { host: HostInfo }) {
   const canPropose = key !== null && canAdminister(me, host.workspace) && catalog !== undefined && !keyInRules(catalog, key)
   return (
     <div data-age-key={key === null ? 'none' : 'reported'} className="flex min-w-0 flex-col gap-1">
-      <h3 className={LABEL}>Age key</h3>
+      <h3 className={H3}>Age key</h3>
       {key === null ? (
         <p className="text-muted-foreground">Not reported yet. The runner reports it when it next checks in.</p>
       ) : (
@@ -212,13 +213,14 @@ function HostDetailPanel() {
         </Button>
       </div>
       {detail && (
-        <div className="flex min-w-0 flex-col gap-2 p-3">
+        <div className="flex min-w-0 flex-col gap-5 p-3">
           <HostZone host={detail.host} />
           <ProfilesCard host={detail.host} />
           <AgeKey host={detail.host} />
           <HostConverge host={detail.host} binding={binding} />
           <QueriesPanel host={detail.host} />
-          <h3 className={LABEL}>Runs outside Keel</h3>
+          <section aria-label="Runs outside Keel" className="flex min-w-0 flex-col gap-1.5">
+          <h3 className={H3}>Runs outside Keel</h3>
           <SectionIntro guide={{ guide: 'hosts', anchor: 'hosts-in-the-list' }}>
             These are the host&apos;s claims, which Keel cannot verify.
           </SectionIntro>
@@ -244,6 +246,7 @@ function HostDetailPanel() {
               ))}
             </ul>
           )}
+          </section>
         </div>
       )}
     </section>
@@ -430,7 +433,7 @@ export default function HostsPage() {
       {
         key: 'name',
         header: 'Name',
-        className: 'w-[22%]',
+        className: 'w-[18%]',
         cell: (h) => (
           <span className="flex min-w-0 flex-wrap items-center gap-1">
             <button
@@ -448,9 +451,9 @@ export default function HostsPage() {
           </span>
         ),
       },
-      { key: 'state', header: 'State', cell: (h) => <StateBadge state={h.state} /> },
-      { key: 'path', header: 'Path', className: 'w-[17%]', cell: (h) => <PathCell host={h} relays={relays ?? []} /> },
-      { key: 'converge', header: 'Converge', cell: (h) => <ConvergeCell host={h} /> },
+      { key: 'state', header: 'State', className: 'w-24', cell: (h) => <StateBadge state={h.state} /> },
+      { key: 'path', header: 'Path', className: 'w-[14%]', cell: (h) => <PathCell host={h} relays={relays ?? []} /> },
+      { key: 'converge', header: 'Converge', className: 'w-[13%]', cell: (h) => <ConvergeCell host={h} /> },
       { key: 'profiles', header: 'Profiles', tip: <TermTip term="profile" />, cell: (h) => (
           <span className="flex min-w-0 items-start gap-1">
             {/* Wraps between profiles, never inside one (a name broken at its hyphen reads as two). */}
@@ -573,6 +576,7 @@ export default function HostsPage() {
           'data-inventory-status': h.inventory_status,
           'data-host-path': h.reach.kind,
         })}
+        actionsWidth="w-20"
         actions={(h) =>
           canRevoke &&
           h.state !== 'revoked' && (

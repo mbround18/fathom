@@ -6,7 +6,7 @@
  */
 import { QuestionIcon } from '@phosphor-icons/react'
 import { Button, Input } from '@companion/ui'
-import { LABEL, RefusalText, Select } from '@companion/ui/kit'
+import { H3, LoadState, RefusalText, Select } from '@companion/ui/kit'
 import { useEffect, useId, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
@@ -54,7 +54,6 @@ function AskForm({ host }: { host: HostInfo }) {
           <span className="text-muted-foreground">Kind</span>
           <Select
             id={kindId}
-            dense
             value={kind}
             onChange={(e) => {
               setKind(e.target.value as QueryKind)
@@ -86,7 +85,7 @@ function AskForm({ host }: { host: HostInfo }) {
             />
           </label>
         )}
-        <Button type="submit" size="sm" variant="outline" disabled={asking || host.state === 'revoked'}>
+        <Button type="submit" variant="outline" disabled={asking || host.state === 'revoked'}>
           <QuestionIcon aria-hidden />
           {asking ? 'Asking…' : 'Ask'}
         </Button>
@@ -140,7 +139,7 @@ export function QueriesPanel({ host }: { host: HostInfo }) {
   const operator = canOperate(me, host.workspace)
   return (
     <section aria-label="Queries" className="flex min-w-0 flex-col gap-1.5">
-      <h3 className={LABEL}>Queries</h3>
+      <h3 className={H3}>Queries</h3>
       {queryV1 === false ? (
         <p data-queries="too-old" className="text-status-warn">
           Runner too old for queries. Upgrade keel-runner on this host to ask it.
@@ -156,6 +155,7 @@ export function QueriesPanel({ host }: { host: HostInfo }) {
         </>
       )}
       {refusal && <RefusalText refusal={refusal} />}
+      {items === null && !refusal && <LoadState loading label="Loading queries…" />}
       {items !== null &&
         (items.length === 0 ? (
           <p data-pane-state="empty" className="text-muted-foreground">

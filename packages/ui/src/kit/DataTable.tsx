@@ -84,6 +84,7 @@ export function DataTable<T>({
   selection,
   rowActions,
   rowLabel = rowKey,
+  actionsWidth = 'w-40',
 }: {
   label: string
   columns: readonly Column<T>[]
@@ -104,6 +105,8 @@ export function DataTable<T>({
   rowActions?: RowActions<T>
   /** How a row is named in "Select …" and "Actions for …". Default: `rowKey`. */
   rowLabel?: (row: T) => string
+  /** The actions column's width class when `actions` is set: narrower for a single short button. */
+  actionsWidth?: string
 }) {
   const isWide = useWide()
   const hasActions = actions !== undefined || rowActions !== undefined
@@ -196,7 +199,7 @@ export function DataTable<T>({
                 )
               })}
               {hasActions && (
-                <th scope="col" className={`${actions ? 'w-40' : 'w-12'} px-2 py-1.5`}>
+                <th scope="col" className={`${actions ? actionsWidth : 'w-12'} px-2 py-1.5`}>
                   <span className="sr-only">Actions</span>
                 </th>
               )}

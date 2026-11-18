@@ -137,7 +137,7 @@ export function ProfilesCard({ host }: { host: HostInfo }) {
   return (
     <section aria-label="Profiles" data-profiles-card className="flex min-w-0 flex-col gap-1.5">
       <div className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1">
-        <h3 className={`${LABEL} inline-flex items-center gap-1`}>
+        <h3 className={`${H3} inline-flex items-center gap-1`}>
           Profiles
           <TermTip term="profile" />
         </h3>
@@ -236,7 +236,7 @@ function Editor({ host }: { host: HostInfo }) {
         <p className="text-muted-foreground">{ceilingText(host.allowed_profiles)}</p>
       </div>
       <div className="flex min-w-0 flex-col gap-1">
-        <h3 className={LABEL}>Change</h3>
+        <h3 className={H3}>Change</h3>
         <Diff add={add} remove={remove} />
         {outside.length > 0 && (
           <p data-outside-warning className="flex items-start gap-1.5 text-status-warn">
