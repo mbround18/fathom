@@ -172,15 +172,18 @@ that host's rest; retry resumes.
 - [X] T036 [P] [core] `converge::suggest` tests and implementation (adds from groups; removes
   only for profiles a mapping could produce; dismissed suggestions return only when groups
   change).
-- [ ] T037 [P] [server] Tests first, `server/tests/host_profiles.rs`: step-up required; cert
+- [X] T037 [P] [server] Tests first, `server/tests/host_profiles.rs`: step-up required; cert
   principals match after add/remove; audit in the same transaction; suggestions computed at sync
   and never assigned; dismiss.
-- [ ] T038 [server] `PreviewHostProfiles`/`ConfirmHostProfiles` in `server/src/hosts.rs`:
+  Note: three tests: preview shows add/remove, `outside_ceiling`, `principals_after` and `plan_after`, and needs step-up (a stale session without a passkey gets `PasskeyEnrolmentRequired` and nothing changes); confirm sets `host_profiles` with `assigned_by`, re-issues a certificate whose principals drop out-of-ceiling and removed profiles, audits `host.profiles_set` with the serial; refusals `no_change`, `unknown_profile`, `invalid_change`, `not_found`, `host_revoked`; suggestions from `groups:` at sync (add + remove, `HostInfo.suggestions` count), never assigned, dismiss survives a same-groups sync and returns when the groups change, accepting through the preview settles the add. "Audit in the same transaction" is by construction (one tx); the test checks the row, not a forced rollback.
+- [X] T038 [server] `PreviewHostProfiles`/`ConfirmHostProfiles` in `server/src/hosts.rs`:
   `host_profiles` with `assigned_by`, `hosts::issue_cert` re-issue, `host.profiles_set`,
   `HostProfilesChanged`.
-- [ ] T039 [server] `server/src/sync.rs`: refresh `profile_suggestions` from `groups:` and the
+  Note: Deviations: the generic `Confirm` replaces `ConfirmHostProfiles`; the preview replies `Event::HostProfilesPreview { preview_token, preview }` before its `Preview` (like `ConvergePlan`). `plan_after` comes from the first active non-signed binding (oldest first) whose manifest gives the host a step. The certificate is re-issued in the transaction when the host has a key and the CAs are loaded, then sent as `Frame::Cert` to its live session (`Runs::send` is now `pub(crate)`); a disconnected host gets the new principals at its next renewal. The old certificate is not revoked, so a removed profile's principal lasts until that cert expires (dispatch already follows `host_profiles`). Confirm also deletes the suggestions the change settles. `HostProfilesChanged` is pushed to the workspace. New OpError codes `invalid_change`, `unknown_profile`, `too_many_profiles`, `host_revoked`.
+- [X] T039 [server] `server/src/sync.rs`: refresh `profile_suggestions` from `groups:` and the
   pinned inventory's groups; `ProfileSuggestionsChanged`; `DismissProfileSuggestion`; span
   `profile.suggest`.
+  Note: Suggestions are refreshed after every applied sync with a valid manifest, moved or not, from the hosts' groups in the latest valid revision of each inventory the manifest's jobs use; never fails the sync. A dismissed row keeps its dismissal while its groups are unchanged (SQL equality, the same rule as `still_dismissed`); a suggestion this binding no longer makes is deleted, so leaving and rejoining a group brings it back. `ProfileSuggestionsChanged { binding_id, hosts }` is pushed only when a host's open suggestions changed. `ListProfileSuggestions` takes a required `workspace` (contract had only `host_id?`); `DismissProfileSuggestion` replies `ProfileSuggestions` for the host and audits `profile_suggestion.dismissed`. `HostInfo.suggestions` is now the open count.
 - [ ] T040 [P] [web] Host page Profiles card (chips, ceiling, outside-ceiling marker, editor with
   preview and step-up), suggestions list, Hosts suggestion dot; `s068/host-profiles.spec.ts`,
   `s068/suggestions.spec.ts`.

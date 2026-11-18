@@ -20,7 +20,7 @@ use crate::inventory::InventoryText;
 use crate::governance::{ApiTokenState, GrantProfiles, Label, Slug, TokenActions};
 use crate::types::{InstanceRole, TeamRole};
 // Runs (US2)
-use crate::converge::ConvergeTarget;
+use crate::converge::{ConvergeTarget, HostProfilesChange, SuggestionAction};
 use crate::run::{ApprovalReason, Pattern, PolicySpec, RunPhase};
 // Hosts and the SSH CAs (US7)
 use crate::governance::ProfileName;
@@ -624,6 +624,25 @@ pub enum Cmd {
         #[ts(type = "string")]
         host: Uuid,
     },
+    /// Spec 068 US3: `HostProfilesPreview`, then `Preview` (step-up, workspace admin); the
+    /// generic `Confirm` sets the host's profiles, re-issues its certificate and replies `Host`.
+    PreviewHostProfiles(HostProfilesChange),
+    /// `ProfileSuggestions`: open (undismissed) suggestions in `workspace`, or for one host.
+    ListProfileSuggestions {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "string")]
+        host_id: Option<Uuid>,
+    },
+    /// Hides a suggestion until the groups behind it change (workspace admin). Replies
+    /// `ProfileSuggestions` for that host.
+    DismissProfileSuggestion {
+        #[ts(type = "string")]
+        host_id: Uuid,
+        profile: String,
+        action: SuggestionAction,
+    },
     /// `SshCa`: CA fingerprints and the `@cert-authority` line for `keel_runner_host_ca`.
     GetSshCa,
     /// `Preview` (instance admin, step-up); `Confirm` replies `SshCa`.
@@ -942,6 +961,9 @@ impl Cmd {
             Cmd::GetHost { .. } => "get_host",
             Cmd::PreviewHostEnroll { .. } => "preview_host_enroll",
             Cmd::PreviewHostRevoke { .. } => "preview_host_revoke",
+            Cmd::PreviewHostProfiles(_) => "preview_host_profiles",
+            Cmd::ListProfileSuggestions { .. } => "list_profile_suggestions",
+            Cmd::DismissProfileSuggestion { .. } => "dismiss_profile_suggestion",
             Cmd::GetSshCa => "get_ssh_ca",
             Cmd::PreviewSshCaRotate { .. } => "preview_ssh_ca_rotate",
             // Signed mode: review and signers (US8)
@@ -1076,6 +1098,9 @@ impl Cmd {
             | Cmd::GetHost { .. }
             | Cmd::PreviewHostEnroll { .. }
             | Cmd::PreviewHostRevoke { .. }
+            | Cmd::PreviewHostProfiles(_)
+            | Cmd::ListProfileSuggestions { .. }
+            | Cmd::DismissProfileSuggestion { .. }
             | Cmd::GetSshCa
             | Cmd::PreviewSshCaRotate { .. } => false,
             // Signed mode: review and signers (US8)

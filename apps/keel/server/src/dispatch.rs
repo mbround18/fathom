@@ -185,6 +185,9 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::GetHost { .. }
         | Cmd::PreviewHostEnroll { .. }
         | Cmd::PreviewHostRevoke { .. }
+        | Cmd::PreviewHostProfiles(_)
+        | Cmd::ListProfileSuggestions { .. }
+        | Cmd::DismissProfileSuggestion { .. }
         | Cmd::GetSshCa
         | Cmd::PreviewSshCaRotate { .. } => Ok(()),
         // Signed mode (US8): each handler checks the workspace capability.
@@ -442,6 +445,9 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         | Cmd::GetHost { .. }
         | Cmd::PreviewHostEnroll { .. }
         | Cmd::PreviewHostRevoke { .. }
+        | Cmd::PreviewHostProfiles(_)
+        | Cmd::ListProfileSuggestions { .. }
+        | Cmd::DismissProfileSuggestion { .. }
         | Cmd::GetSshCa
         | Cmd::PreviewSshCaRotate { .. }) => crate::hosts::handle(app, req, other).await,
         other @ (Cmd::ListReviews { .. }

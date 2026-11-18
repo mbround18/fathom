@@ -26,7 +26,10 @@ use crate::review::{
     SignerInfo,
 };
 // Runs (US2)
-use crate::converge::{ConvergeHostState, ConvergePlan, ConvergeView, RunCheckView};
+use crate::converge::{
+    ConvergeHostState, ConvergePlan, ConvergeView, HostProfilesPreview, ProfileSuggestion,
+    RunCheckView,
+};
 use crate::run::{
     JobInfo, LogStream, PolicyCheck, PolicyInfo, RunHostInfo, RunInfo, RunPhase, RunReason,
     WorkspaceCount,
@@ -191,6 +194,26 @@ pub enum Event {
     ConvergePlan {
         preview_token: PreviewId,
         plan: ConvergePlan,
+    },
+    /// Reply to `PreviewHostProfiles`, before its `Preview` (spec 068 US3).
+    HostProfilesPreview {
+        preview_token: PreviewId,
+        preview: HostProfilesPreview,
+    },
+    /// A host's assigned profiles changed (pushed to the workspace's viewers).
+    HostProfilesChanged {
+        #[ts(type = "string")]
+        host_id: Uuid,
+        profiles: Vec<String>,
+    },
+    /// Reply to `ListProfileSuggestions` and `DismissProfileSuggestion`.
+    ProfileSuggestions { items: Vec<ProfileSuggestion> },
+    /// A sync changed the suggestions of `hosts` (pushed to the workspace's viewers).
+    ProfileSuggestionsChanged {
+        #[ts(type = "string")]
+        binding_id: Uuid,
+        #[ts(type = "Array<string>")]
+        hosts: Vec<Uuid>,
     },
     /// Reply to `ConfirmConverge` and `ConfirmConvergeRetry`: the new parent run.
     ConvergeStarted {

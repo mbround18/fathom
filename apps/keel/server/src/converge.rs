@@ -344,6 +344,49 @@ async fn plan(
     .await
 }
 
+/// Spec 068 US3: the steps a converge would give `host` with `profiles` assigned, from the
+/// workspace's first active binding (oldest first) whose manifest gives it any. Empty when no
+/// usable binding does (signed mode, not synced, invalid manifest are skipped).
+pub(crate) async fn steps_with(
+    app: &AppState,
+    workspace: Uuid,
+    host: Uuid,
+    name: &str,
+    allowed: &[String],
+    profiles: &[String],
+) -> Result<Vec<PlannedStep>, sqlx::Error> {
+    let bindings: Vec<(Uuid, String)> = sqlx::query_as(
+        "select b.id, b.last_commit from repo_bindings b join projects p on p.id = b.project_id \
+         where p.workspace_id = $1 and b.status = 'active' and not b.signed_mode \
+           and b.last_commit is not null order by b.id",
+    )
+    .bind(workspace)
+    .fetch_all(&app.db)
+    .await?;
+    for (binding, commit) in bindings {
+        let Ok(m) = crate::sync::manifest_at(app, binding, &commit, false).await? else {
+            continue;
+        };
+        let Ok(cov) = core::coverage(&m) else {
+            continue;
+        };
+        if let Ok(h) = host_plan(
+            &m,
+            &cov,
+            host,
+            name.to_owned(),
+            "online",
+            allowed,
+            profiles.to_vec(),
+            false,
+        ) && !h.steps.is_empty()
+        {
+            return Ok(h.steps);
+        }
+    }
+    Ok(Vec::new())
+}
+
 /// One host's plan: its steps from its assigned profiles, and why any cannot run.
 #[allow(clippy::too_many_arguments)]
 fn host_plan(

@@ -29,8 +29,9 @@ use keel_exec::ca::{self, CaKind, RunnerCertRequest, RunnerCertVerifier, SshCa, 
 use keel_exec::frames::Frame;
 use keel_exec::krl::Krl;
 use keel_protocol::{
-    Cmd, EnrollToken, Event, HostCertInfo, HostDetail, HostInfo, HostStatus, SshCaInfo, SshCaKind,
-    SshCaState,
+    Cmd, EnrollToken, Event, HostCertInfo, HostDetail, HostInfo, HostProfilesChange,
+    HostProfilesPreview, HostStatus, MAX_HOST_PROFILES, ProfileSuggestion, SshCaInfo, SshCaKind,
+    SshCaState, SuggestionAction,
 };
 use rand::TryRng;
 use rand::rngs::SysRng;
@@ -540,6 +541,22 @@ pub async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
             .await
         }
         Cmd::PreviewHostRevoke { host } => preview_revoke(app, req, host).await,
+        Cmd::PreviewHostProfiles(change) => preview_profiles(app, req, change).await,
+        Cmd::ListProfileSuggestions { workspace, host_id } => {
+            let action = "list_profile_suggestions";
+            if let Err(d) = require(app, req, action, Capability::View, workspace).await {
+                return d;
+            }
+            match suggestions(app, workspace, host_id).await {
+                Ok(items) => vec![Event::ProfileSuggestions { items }],
+                Err(e) => db_failed(&e),
+            }
+        }
+        Cmd::DismissProfileSuggestion {
+            host_id,
+            profile,
+            action,
+        } => dismiss_suggestion(app, req, host_id, profile, action).await,
         Cmd::GetSshCa => ssh_ca_event(app).await,
         Cmd::PreviewSshCaRotate { kind } => preview_rotate(app, req, kind).await,
         _ => internal(),
@@ -591,7 +608,9 @@ const HOST_COLUMNS: &str = "h.id, h.workspace_id, h.inventory_name, h.state, h.a
      h.require_signed, h.runner_version, h.ansible_version, h.enrolled_at, h.last_seen_at, \
      h.revoked_at, array(select p.name from host_profiles hp join profiles p \
        on p.id = hp.profile_id where hp.host_id = h.id order by p.name) as profiles, \
-     h.python_version, h.override_quorum, h.ledger_head, h.changed_outside, h.age_recipient";
+     h.python_version, h.override_quorum, h.ledger_head, h.changed_outside, h.age_recipient, \
+     (select count(*) from profile_suggestions s where s.host_id = h.id \
+       and s.dismissed_at is null) as suggestions";
 
 #[derive(sqlx::FromRow)]
 struct HostRow {
@@ -612,6 +631,7 @@ struct HostRow {
     ledger_head: Option<String>,
     changed_outside: bool,
     age_recipient: Option<String>,
+    suggestions: i64,
 }
 
 impl HostRow {
@@ -634,9 +654,9 @@ impl HostRow {
             age_recipient: self.age_recipient.clone(),
             // Spec 066 FR-023: from the workspace's primary catalog.
             inventory_status: listing.status(&self.inventory_name),
-            // Spec 068: filled by the server lane (converge, suggestions).
+            // Spec 068: the open converge is not filled in yet.
             converge: None,
-            suggestions: 0,
+            suggestions: u16::try_from(self.suggestions).unwrap_or(u16::MAX),
         }
     }
 }
@@ -1000,6 +1020,420 @@ pub(crate) async fn enrollment_event(
         token: EnrollToken(new.token),
         instructions,
         instructions_unavailable: unavailable,
+    }
+}
+
+// ---- profiles (spec 068 US3) -----------------------------------------------------------------
+
+/// A host's assigned profile names, sorted.
+async fn assigned_profiles(
+    conn: &mut PgConnection,
+    host: Uuid,
+) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "select p.name from host_profiles hp join profiles p on p.id = hp.profile_id \
+         where hp.host_id = $1 order by p.name",
+    )
+    .bind(host)
+    .fetch_all(conn)
+    .await
+}
+
+/// Profiles after a change, then the ones it adds and removes.
+type ProfileChange = (Vec<String>, Vec<String>, Vec<String>);
+
+/// The effective change against `assigned`: (profiles after, added, removed). Adding what is
+/// assigned or removing what is not is dropped; nothing left is `no_change`.
+fn profile_change(
+    assigned: &[String],
+    change: &HostProfilesChange,
+) -> Result<ProfileChange, Vec<Event>> {
+    let add: BTreeSet<&String> = change.add.iter().collect();
+    let remove: BTreeSet<&String> = change.remove.iter().collect();
+    if add.intersection(&remove).next().is_some() {
+        return Err(op_error(
+            "invalid_change",
+            "A profile cannot be both added and removed.",
+        ));
+    }
+    let added: Vec<String> = add
+        .into_iter()
+        .filter(|p| !assigned.contains(p))
+        .cloned()
+        .collect();
+    let removed: Vec<String> = remove
+        .into_iter()
+        .filter(|p| assigned.contains(p))
+        .cloned()
+        .collect();
+    if added.is_empty() && removed.is_empty() {
+        return Err(op_error(
+            "no_change",
+            "The host already has those profiles.",
+        ));
+    }
+    let after: BTreeSet<String> = assigned
+        .iter()
+        .filter(|p| !removed.contains(p))
+        .chain(&added)
+        .cloned()
+        .collect();
+    if after.len() > MAX_HOST_PROFILES {
+        return Err(op_error(
+            "too_many_profiles",
+            &format!("A host can have at most {MAX_HOST_PROFILES} profiles."),
+        ));
+    }
+    Ok((after.into_iter().collect(), added, removed))
+}
+
+/// `PreviewHostProfiles`: what the change adds and removes, the added profiles outside the
+/// host's own ceiling (its runner will refuse their jobs), its certificate principals after and
+/// the converge steps it would then have. Confirming needs step-up.
+async fn preview_profiles(
+    app: &AppState,
+    req: &Request<'_>,
+    change: HostProfilesChange,
+) -> Vec<Event> {
+    const ACTION: &str = "preview_host_profiles";
+    let host = change.host_id;
+    let row: Option<(Uuid, String, String, Vec<String>)> = match sqlx::query_as(
+        "select workspace_id, inventory_name, state, allowed_profiles from hosts where id = $1",
+    )
+    .bind(host)
+    .fetch_optional(&app.db)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => return db_failed(&e),
+    };
+    let Some((ws, name, state, allowed)) = row else {
+        return not_found("host");
+    };
+    if let Err(d) = require(app, req, ACTION, Capability::Administer, ws).await {
+        return d;
+    }
+    if state == "revoked" {
+        return op_error("host_revoked", "The host is revoked.");
+    }
+    let assigned = match app.db.acquire().await {
+        Ok(mut c) => match assigned_profiles(&mut c, host).await {
+            Ok(a) => a,
+            Err(e) => return db_failed(&e),
+        },
+        Err(e) => return db_failed(&e),
+    };
+    let (after, add, remove) = match profile_change(&assigned, &change) {
+        Ok(c) => c,
+        Err(d) => return d,
+    };
+    let known: Vec<String> = match sqlx::query_scalar(
+        "select name from profiles where workspace_id = $1 and name = any($2)",
+    )
+    .bind(ws)
+    .bind(&add)
+    .fetch_all(&app.db)
+    .await
+    {
+        Ok(k) => k,
+        Err(e) => return db_failed(&e),
+    };
+    let unknown: Vec<&str> = add
+        .iter()
+        .filter(|p| !known.contains(p))
+        .map(String::as_str)
+        .collect();
+    if !unknown.is_empty() {
+        return op_error(
+            "unknown_profile",
+            &format!(
+                "No repository defines profile {} in this workspace.",
+                unknown.join(", ")
+            ),
+        );
+    }
+    let outside_ceiling: Vec<String> = add
+        .iter()
+        .filter(|p| !allowed.contains(p))
+        .cloned()
+        .collect();
+    let principals_after: Vec<String> = std::iter::once(format!("host:{name}"))
+        .chain(
+            after
+                .iter()
+                .filter(|p| allowed.contains(p))
+                .map(|p| format!("profile:{p}")),
+        )
+        .collect();
+    let plan_after = match crate::converge::steps_with(app, ws, host, &name, &allowed, &after).await
+    {
+        Ok(s) => s,
+        Err(e) => return db_failed(&e),
+    };
+    let mut summary = format!("Set host {name}'s profiles to ");
+    summary.push_str(&if after.is_empty() {
+        "(none)".to_owned()
+    } else {
+        after.join(", ")
+    });
+    summary.push_str(". Its certificate is re-issued with the new profiles.");
+    if !outside_ceiling.is_empty() {
+        summary.push_str(&format!(
+            " Outside the host's own ceiling, so its runner will refuse their jobs: {}.",
+            outside_ceiling.join(", ")
+        ));
+    }
+    let preview = HostProfilesPreview {
+        change: HostProfilesChange {
+            host_id: host,
+            add: add.clone(),
+            remove: remove.clone(),
+        },
+        outside_ceiling,
+        principals_after,
+        plan_after,
+    };
+    let op = pending(move |app, caller| async move {
+        if let Err(d) = recheck(&caller, ACTION, Capability::Administer, ws) {
+            return d;
+        }
+        match set_profiles(&app, &caller, host, ws, &add, &remove).await {
+            Ok(Ok(profiles)) => app.repos.push(
+                ws,
+                Event::HostProfilesChanged {
+                    host_id: host,
+                    profiles,
+                },
+            ),
+            Ok(Err(d)) => return d,
+            Err(e) => return db_failed(&e),
+        }
+        host_event(&app, host).await
+    });
+    let key = req.caller.preview_key(req.session);
+    if key.is_empty() {
+        return internal();
+    }
+    let p = app.previews.create(
+        &key,
+        Draft {
+            action: ACTION.to_owned(),
+            summary,
+            affected: vec![name],
+            step_up: true,
+        },
+        op,
+    );
+    vec![
+        Event::HostProfilesPreview {
+            preview_token: p.preview_id,
+            preview,
+        },
+        Event::Preview(p),
+    ]
+}
+
+/// Applies a confirmed profile change in one transaction: `host_profiles` (with `assigned_by`),
+/// the suggestions it settles, a re-issued certificate when the host has a key and the CAs are
+/// loaded, and `host.profiles_set`. The new certificate goes to the host's live session after
+/// the commit; a host not connected gets one at its next renewal. Returns the profiles after.
+async fn set_profiles(
+    app: &AppState,
+    caller: &Caller,
+    host: Uuid,
+    ws: Uuid,
+    add: &[String],
+    remove: &[String],
+) -> Result<Result<Vec<String>, Vec<Event>>, sqlx::Error> {
+    let mut tx = app.db.begin().await?;
+    let row: Option<(String, String, Option<String>)> = sqlx::query_as(
+        "select inventory_name, state, ssh_public_key from hosts where id = $1 for update",
+    )
+    .bind(host)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((name, state, key)) = row else {
+        return Ok(Err(not_found("host")));
+    };
+    if state == "revoked" {
+        return Ok(Err(op_error("host_revoked", "The host is revoked.")));
+    }
+    let before = assigned_profiles(&mut tx, host).await?;
+    sqlx::query(
+        "delete from host_profiles hp using profiles p \
+         where hp.host_id = $1 and p.id = hp.profile_id and p.name = any($2)",
+    )
+    .bind(host)
+    .bind(remove)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "insert into host_profiles (host_id, profile_id, assigned_by) \
+         select $1, p.id, $3 from profiles p where p.workspace_id = $2 and p.name = any($4) \
+         on conflict do nothing",
+    )
+    .bind(host)
+    .bind(ws)
+    .bind(caller.user.id)
+    .bind(add)
+    .execute(&mut *tx)
+    .await?;
+    let after = assigned_profiles(&mut tx, host).await?;
+    if after.len() > MAX_HOST_PROFILES {
+        return Ok(Err(op_error(
+            "too_many_profiles",
+            &format!("A host can have at most {MAX_HOST_PROFILES} profiles."),
+        )));
+    }
+    // An add now assigned, or a remove now gone, is settled.
+    sqlx::query(
+        "delete from profile_suggestions where host_id = $1 and \
+         ((action = 'add' and profile = any($2)) or (action = 'remove' and not profile = any($2)))",
+    )
+    .bind(host)
+    .bind(&after)
+    .execute(&mut *tx)
+    .await?;
+    let cert = match key {
+        Some(line) if app.ssh.get().is_some() => {
+            let issued = match public_key(&line) {
+                Ok(k) => issue_cert(app, &mut tx, host, &name, &k).await,
+                Err(e) => Err(e),
+            };
+            match issued {
+                Ok(c) => Some(c),
+                Err(SshError::Db(e)) => return Err(e),
+                Err(e) => {
+                    tracing::warn!(%host, error = %e, "re-issuing a certificate for new profiles failed");
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+    let added: Vec<&String> = after.iter().filter(|p| !before.contains(p)).collect();
+    let removed: Vec<&String> = before.iter().filter(|p| !after.contains(p)).collect();
+    audit::record(
+        &mut tx,
+        Entry {
+            actor: &caller.actor(),
+            action: "host.profiles_set",
+            workspace: Some(WorkspaceId(ws)),
+            target: json!({ "host": host }),
+            decision: Decision::Allowed,
+            reason: None,
+            context: json!({
+                "added": added,
+                "removed": removed,
+                "profiles": after,
+                "serial": cert.as_ref().map(|c| c.serial().to_string()),
+            }),
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    if let Some(cert) = cert {
+        match cert.to_openssh() {
+            Ok(cert) => {
+                app.runs.send(host, Frame::Cert { cert });
+            }
+            Err(e) => tracing::warn!(%host, error = %e, "encoding a re-issued certificate failed"),
+        }
+    }
+    Ok(Ok(after))
+}
+
+/// Open suggestions in `workspace` (or for `host`), by host name then action and profile.
+async fn suggestions(
+    app: &AppState,
+    workspace: Uuid,
+    host: Option<Uuid>,
+) -> Result<Vec<ProfileSuggestion>, sqlx::Error> {
+    let rows: Vec<(Uuid, String, String, Vec<String>, OffsetDateTime)> = sqlx::query_as(
+        "select s.host_id, s.profile, s.action, s.groups, s.first_seen_at \
+         from profile_suggestions s join hosts h on h.id = s.host_id \
+         where h.workspace_id = $1 and ($2::uuid is null or s.host_id = $2) \
+           and s.dismissed_at is null and h.state <> 'revoked' \
+         order by h.inventory_name, s.action, s.profile",
+    )
+    .bind(workspace)
+    .bind(host)
+    .fetch_all(&app.db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|(host_id, profile, action, groups, first)| {
+            Some(ProfileSuggestion {
+                host_id,
+                profile,
+                action: enum_from(&action)?,
+                groups,
+                first_seen_at: ts(first),
+            })
+        })
+        .collect())
+}
+
+/// `DismissProfileSuggestion`: hidden until a sync suggests it from different groups.
+async fn dismiss_suggestion(
+    app: &AppState,
+    req: &Request<'_>,
+    host: Uuid,
+    profile: String,
+    action: SuggestionAction,
+) -> Vec<Event> {
+    const ACTION: &str = "dismiss_profile_suggestion";
+    let ws = match host_workspace(app, host).await {
+        Ok(Some(ws)) => ws,
+        Ok(None) => return not_found("host"),
+        Err(e) => return db_failed(&e),
+    };
+    if let Err(d) = require(app, req, ACTION, Capability::Administer, ws).await {
+        return d;
+    }
+    let action = enum_str(&action);
+    let done: Result<bool, sqlx::Error> = async {
+        let mut tx = app.db.begin().await?;
+        let n = sqlx::query(
+            "update profile_suggestions set dismissed_at = coalesce(dismissed_at, now()), \
+             dismissed_by = coalesce(dismissed_by, $4) \
+             where host_id = $1 and profile = $2 and action = $3",
+        )
+        .bind(host)
+        .bind(&profile)
+        .bind(&action)
+        .bind(req.caller.user.id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if n == 0 {
+            return Ok(false);
+        }
+        audit::record(
+            &mut tx,
+            Entry {
+                actor: &req.caller.actor(),
+                action: "profile_suggestion.dismissed",
+                workspace: Some(WorkspaceId(ws)),
+                target: json!({ "host": host, "profile": profile, "action": action }),
+                decision: Decision::Allowed,
+                reason: None,
+                context: json!({}),
+            },
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(true)
+    }
+    .await;
+    match done {
+        Ok(true) => {}
+        Ok(false) => return not_found("suggestion"),
+        Err(e) => return db_failed(&e),
+    }
+    match suggestions(app, ws, Some(host)).await {
+        Ok(items) => vec![Event::ProfileSuggestions { items }],
+        Err(e) => db_failed(&e),
     }
 }
 

@@ -150,7 +150,7 @@ impl Runs {
     }
 
     /// Sends `frame` to `host`'s runner; false if it is not connected.
-    fn send(&self, host: Uuid, frame: Frame) -> bool {
+    pub(crate) fn send(&self, host: Uuid, frame: Frame) -> bool {
         self.inner
             .links
             .lock()
