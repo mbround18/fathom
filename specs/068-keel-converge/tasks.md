@@ -223,12 +223,14 @@ that host's rest; retry resumes.
   the runner log.
 - [X] T053 [runner] Implement in `runner/src/executor/secrets.rs` using `keel_core::env_names`.
   Note: missing `env_var` credentials are not counted by core `missing_credentials`; the runner fails the run itself ("env credentials not sent"). Refusal code `env_refused` is new in keel-exec.
-- [ ] T054 [P] [server] Tests first, `server/tests/env_canary.rs`: a canary credential via
+- [X] T054 [P] [server] Tests first, `server/tests/env_canary.rs`: a canary credential via
   `env:`; assert it appears in no log, event, audit row, or text/jsonb/bytea column outside the
   sealed credential store.
-- [ ] T055 [server] `queue.rs` `secrets()` resolves every credential through `SecretResolver`
+  Note: also covers a missing and a wrong-kind `env:` credential (run fails `credential_unavailable` before the host sees an `Assign`). The column sweep covers every text/varchar/json/jsonb/bytea/array column of every table in the test schema; run logs live in `run_log_chunks.bytes`, so they are swept too.
+- [X] T055 [server] `queue.rs` `secrets()` resolves every credential through `SecretResolver`
   (`core/ports.rs:97`) instead of `credentials::open`; `env_value` credential kind; `env_var`
   items; credential names (only) in the converge and run previews.
+  Note: the core `SecretResolver` port is sync, so the server adapter is `credentials::Granted`: the granted rows are loaded (still sealed) once per assignment, and each value is unsealed only in `resolve`. `env:` entries must be `env_value` credentials and go out as `env_var` items with `env_name`; anything missing or of another kind fails the assignment with `credential_unavailable` (US1 leftover: core `missing_credentials` still does not count `env:`). Migration 0019 adds `env_value` to `credentials_kind_check`. Run previews end with "Credentials sent: a, b (as $VAR)."; converge plans already carry `credential_names`. A dispatch now also kicks after a converge settles and after `CancelConverge`, so a released hold sends the next run at once.
 - [ ] T056 [P] [web] `env_value` kind in the credentials UI; credential names shown in previews.
 
 ## Phase 9: User Story 7, runnable only once checks passed (P3)

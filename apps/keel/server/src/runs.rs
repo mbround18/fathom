@@ -899,6 +899,22 @@ pub(crate) async fn load_job(app: &AppState, job: Uuid) -> Result<Option<JobRow>
     }))
 }
 
+/// The credential names a job uses, for a preview: names only, never values (spec 068 T055).
+/// Empty when it uses none; otherwise a sentence to append to a summary.
+pub(crate) fn credentials_note(def: &JobDefinition) -> String {
+    let mut names: Vec<String> = def.credentials.clone();
+    names.extend(
+        def.env
+            .iter()
+            .map(|(var, cred)| format!("{cred} (as ${var})")),
+    );
+    if names.is_empty() {
+        String::new()
+    } else {
+        format!(" Credentials sent: {}.", names.join(", "))
+    }
+}
+
 async fn preview_run_start(
     app: &AppState,
     req: &Request<'_>,
@@ -972,7 +988,7 @@ async fn preview_run_start(
         } else {
             ""
         },
-    );
+    ) + &credentials_note(&def);
     // Spec 066 FR-018: hosts that cannot decrypt the sops files the job reads. Warns only.
     let warnings =
         match crate::repo_catalog::run_warnings(&app.db, ws, binding, &name, &affected).await {

@@ -491,7 +491,11 @@ async fn a_runner_without_manifest_v068_is_not_sent_a_068_manifest() {
         states,
         vec![
             ("new".into(), "succeeded".into(), None),
-            ("old".into(), "refused".into(), Some("runner_too_old".into())),
+            (
+                "old".into(),
+                "refused".into(),
+                Some("runner_too_old".into())
+            ),
         ]
     );
     drop(handles);

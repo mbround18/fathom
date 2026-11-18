@@ -28,7 +28,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use keel_core::WorkspaceId;
-use keel_core::ports::CommitId;
+use keel_core::ports::{CommitId, SecretResolver as _};
 use keel_core::run::{self as core_run, HostState, RunEvent, RunState};
 use keel_exec::codec;
 use keel_exec::events::{self, HostStatus, KeelEvent};
@@ -1516,6 +1516,8 @@ async fn settle_converge(app: &AppState, parent: Uuid) {
         tracing::error!(error = %e, run = %parent, "finishing a converge failed");
     }
     crate::converge::push_hosts(app, parent).await;
+    // A host whose converge ended is no longer held: what waited behind the hold goes out now.
+    kick(app);
 }
 
 /// A run's state, reason, workspace, whether it ended, its update digest param, kind and
@@ -1958,7 +1960,7 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
     .await
     .map_err(|_| AssignError::Internal)?
     .map_err(|_| AssignError::ArtifactMissing)?;
-    let items = secrets(app, binding, host, &def.credentials).await?;
+    let items = secrets(app, workspace, binding, host, &def).await?;
     let timeout = def.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS);
     let deadline = u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp())
         .unwrap_or(0)
@@ -2064,48 +2066,58 @@ async fn approvals(
     Ok(out)
 }
 
-/// The job's credentials, as granted to the binding for one of the host's profiles.
+/// The job's credentials, as granted to the binding for one of the host's profiles, resolved
+/// through [`SecretResolver`] (spec 068 T055). `credentials:` go out under their own kind;
+/// each `env:` entry goes out as an `env_var` item naming its variable, and must be an
+/// `env_value` credential. Anything missing, of the wrong kind, or that does not open fails the
+/// assignment with `credential_unavailable` before the host sees a frame of the run.
 async fn secrets(
     app: &AppState,
+    workspace: Uuid,
     binding: Uuid,
     host: Uuid,
-    names: &[String],
+    def: &keel_core::manifest::JobDefinition,
 ) -> Result<Vec<SecretItem>, AssignError> {
-    if names.is_empty() {
+    if def.credentials.is_empty() && def.env.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<(Uuid, String)> = sqlx::query_as(
-        "select distinct c.id, c.name from credentials c \
-         join credential_grants g on g.credential_id = c.id \
-         where g.binding_id = $1 and c.name = any($2) and c.kind not like 'git_%' \
-           and (cardinality(g.profiles) = 0 or g.profiles && coalesce((select array_agg(p.name) \
-                from host_profiles hp join profiles p on p.id = hp.profile_id \
-                where hp.host_id = $3), '{}'))",
-    )
-    .bind(binding)
-    .bind(names)
-    .bind(host)
-    .fetch_all(&app.db)
-    .await
-    .map_err(|_| AssignError::Internal)?;
-    if rows.len() != names.len() {
-        return Err(AssignError::CredentialUnavailable);
-    }
-    let mut items = Vec::with_capacity(rows.len());
-    for (id, name) in rows {
-        let (kind, value) = crate::credentials::open(app, id)
-            .await
+    let mut names: Vec<String> = def.credentials.clone();
+    names.extend(def.env.values().cloned());
+    names.sort();
+    names.dedup();
+    let granted = crate::credentials::Granted::load(app, workspace, binding, host, &names)
+        .await
+        .map_err(|_| AssignError::Internal)?;
+    let open = |name: &str| -> Result<SecretString, AssignError> {
+        let bytes = granted
+            .resolve(WorkspaceId(workspace), name)
             .map_err(|_| AssignError::CredentialUnavailable)?;
-        let value = {
-            use secrecy::ExposeSecret as _;
-            String::from_utf8(value.expose_secret().to_vec())
-                .map_err(|_| AssignError::CredentialUnavailable)?
-        };
+        String::from_utf8(bytes)
+            .map(SecretString::new)
+            .map_err(|_| AssignError::CredentialUnavailable)
+    };
+    let mut items = Vec::with_capacity(def.credentials.len() + def.env.len());
+    for name in &def.credentials {
+        let kind = granted
+            .kind(name)
+            .ok_or(AssignError::CredentialUnavailable)?
+            .to_owned();
         items.push(SecretItem {
-            name,
+            name: name.clone(),
             kind,
-            value: SecretString::new(value),
+            value: open(name)?,
             env_name: None,
+        });
+    }
+    for (var, name) in &def.env {
+        if granted.kind(name) != Some("env_value") {
+            return Err(AssignError::CredentialUnavailable);
+        }
+        items.push(SecretItem {
+            name: name.clone(),
+            kind: frames::SECRET_KIND_ENV_VAR.into(),
+            value: open(name)?,
+            env_name: Some(var.clone()),
         });
     }
     Ok(items)

@@ -5,239 +5,18 @@
 //! hosts; a retry re-plans only the hosts that did not succeed; and the flag gates it all.
 
 mod common;
+mod converge_support;
 mod repos;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use keel_exec::fake::{FakeHandle, FakeRunner, Script};
-use keel_exec::frames::CAP_MANIFEST_V068;
-use keel_protocol::{
-    Cmd, ConvergeHostState, ConvergeTarget, Event, PreviewId, StepState, TargetSelection,
-};
+use converge_support::{Fixture, WITHIN, row};
+use keel_exec::fake::{FakeRunner, Script};
+use keel_protocol::{Cmd, ConvergeHostState, Event, StepState};
 use keel_server::config::Config;
-use keel_server::runs::{RunSettings, Runs};
-use repos::{Harness, op_error};
+use repos::op_error;
 use uuid::Uuid;
-
-const WITHIN: Duration = Duration::from_secs(20);
-
-struct Fixture {
-    h: Harness,
-    binding: Uuid,
-    /// `node-1` (keel-node) and `master-1` (k3s-master).
-    node: Uuid,
-    master: Uuid,
-}
-
-impl Fixture {
-    async fn new(test: &str, approval: bool) -> Option<Self> {
-        let mut h = Harness::new(test).await?;
-        h.app.runs = Runs::new(RunSettings {
-            ping_interval: Duration::from_millis(50),
-            flush_interval: Duration::from_millis(20),
-            ..RunSettings::default()
-        });
-        h.app.cfg = Arc::new(Config {
-            converge: true,
-            ..(*h.app.cfg).clone()
-        });
-        let (_src, binding) = repos::bind_converge_repo(&h).await;
-        let owner = &h.db.owner;
-        let inventory = Uuid::now_v7();
-        sqlx::query(
-            "insert into inventories (id, workspace_id, name, source) \
-             values ($1, $2, 'prod', 'managed')",
-        )
-        .bind(inventory)
-        .bind(h.workspace)
-        .execute(owner)
-        .await
-        .expect("inventory");
-        let revision = Uuid::now_v7();
-        sqlx::query(
-            "insert into inventory_revisions (id, inventory_id, seq, content, content_hash, \
-             status) values ($1, $2, 1, '{}', 'h1', 'valid')",
-        )
-        .bind(revision)
-        .bind(inventory)
-        .execute(owner)
-        .await
-        .expect("revision");
-        let mut ids = Vec::new();
-        for (name, profile) in [("node-1", "keel-node"), ("master-1", "k3s-master")] {
-            sqlx::query(
-                "insert into inventory_hosts (revision_id, host, groups) values ($1, $2, '{}')",
-            )
-            .bind(revision)
-            .bind(name)
-            .execute(owner)
-            .await
-            .expect("inventory host");
-            let id = Uuid::now_v7();
-            sqlx::query(
-                "insert into hosts (id, workspace_id, inventory_name, allowed_profiles) \
-                 values ($1, $2, $3, array['debian', $4])",
-            )
-            .bind(id)
-            .bind(h.workspace)
-            .bind(name)
-            .bind(profile)
-            .execute(owner)
-            .await
-            .expect("host");
-            sqlx::query(
-                "insert into host_profiles (host_id, profile_id) \
-                 select $1, id from profiles where workspace_id = $2 and name = $3",
-            )
-            .bind(id)
-            .bind(h.workspace)
-            .bind(profile)
-            .execute(owner)
-            .await
-            .expect("host profile");
-            ids.push(id);
-        }
-        if !approval {
-            sqlx::query(
-                "insert into approval_policies (id, workspace_id, priority, requires_approval) \
-                 values ($1, $2, 1, false)",
-            )
-            .bind(Uuid::now_v7())
-            .bind(h.workspace)
-            .execute(owner)
-            .await
-            .expect("policy");
-        }
-        Some(Self {
-            h,
-            binding,
-            node: ids[0],
-            master: ids[1],
-        })
-    }
-
-    /// Connects a 068 runner for each host, built by `runner`.
-    async fn attach(&self, runner: impl Fn(&str, Uuid) -> FakeRunner) -> Vec<FakeHandle> {
-        let mut out = Vec::new();
-        for (name, id) in [("node-1", self.node), ("master-1", self.master)] {
-            let (stream, handle) = runner(name, id)
-                .with_capabilities([CAP_MANIFEST_V068])
-                .spawn();
-            keel_server::queue::attach(self.h.app.clone(), id, stream)
-                .await
-                .expect("attach");
-            out.push(handle);
-        }
-        out
-    }
-
-    fn target(&self) -> ConvergeTarget {
-        ConvergeTarget {
-            binding_id: self.binding,
-            hosts: TargetSelection::All,
-            check: false,
-        }
-    }
-
-    /// Previews `cmd`, returns the plan's token after checking it answered a plan.
-    async fn plan(&self, cmd: Cmd) -> (PreviewId, keel_protocol::ConvergePlan) {
-        let out = self.h.cmd(cmd).await;
-        match out.as_slice() {
-            [
-                Event::ConvergePlan {
-                    preview_token,
-                    plan,
-                },
-                Event::Preview(p),
-            ] => {
-                assert_eq!(*preview_token, p.preview_id);
-                (*preview_token, plan.clone())
-            }
-            other => panic!("expected a plan, got {other:?}"),
-        }
-    }
-
-    /// Previews and confirms a converge of every host; returns the parent run.
-    async fn start(&self) -> Uuid {
-        let (token, _) = self.plan(Cmd::PreviewConverge(self.target())).await;
-        self.confirm(token).await
-    }
-
-    async fn confirm(&self, token: PreviewId) -> Uuid {
-        let out = self
-            .h
-            .cmd(Cmd::ConfirmConverge {
-                preview_token: token,
-                step_up: None,
-            })
-            .await;
-        match out.as_slice() {
-            [Event::Confirmed { .. }, Event::ConvergeStarted { run_id }] => *run_id,
-            other => panic!("confirm: {other:?}"),
-        }
-    }
-
-    async fn ended(&self, run: Uuid) -> (String, Option<String>) {
-        let start = Instant::now();
-        loop {
-            let (state, reason, ended): (String, Option<String>, bool) = sqlx::query_as(
-                "select state, state_reason, ended_at is not null from runs where id = $1",
-            )
-            .bind(run)
-            .fetch_one(&self.h.db.owner)
-            .await
-            .expect("run");
-            if ended {
-                return (state, reason);
-            }
-            assert!(start.elapsed() < WITHIN, "run {run} still {state}");
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    }
-
-    /// Each child step as (host, position, job, run_hosts state, skip reason), in order.
-    async fn steps(&self, parent: Uuid) -> Vec<(String, i16, String, String, Option<String>)> {
-        sqlx::query_as(
-            "select h.inventory_name, s.position, s.job_name, rh.state, rh.skip_reason \
-             from converge_steps s join hosts h on h.id = s.host_id \
-             join run_hosts rh on rh.run_id = s.step_run_id and rh.host_id = s.host_id \
-             where s.run_id = $1 order by h.inventory_name, s.position",
-        )
-        .bind(parent)
-        .fetch_all(&self.h.db.owner)
-        .await
-        .expect("steps")
-    }
-
-    async fn converge(&self, run: Uuid) -> keel_protocol::ConvergeView {
-        match self
-            .h
-            .cmd(Cmd::GetConverge { run_id: run })
-            .await
-            .as_slice()
-        {
-            [Event::Converge(view)] => view.clone(),
-            other => panic!("get converge: {other:?}"),
-        }
-    }
-}
-
-fn row(
-    host: &str,
-    pos: i16,
-    job: &str,
-    state: &str,
-    skip: Option<&str>,
-) -> (String, i16, String, String, Option<String>) {
-    (
-        host.into(),
-        pos,
-        job.into(),
-        state.into(),
-        skip.map(Into::into),
-    )
-}
 
 #[tokio::test]
 async fn a_preview_lists_each_hosts_steps_in_order() {
@@ -648,5 +427,119 @@ async fn a_converge_holds_the_host_against_other_runs() {
     f.h.cmd(Cmd::CancelConverge { run_id: parent }).await;
     let (state, _) = f.ended(other).await;
     assert_eq!(state, "succeeded");
+    f.h.finish().await;
+}
+
+/// A converge cancelled between two of a host's steps frees the host at once: no step is in
+/// flight, so no `Finished` will come to wake the dispatcher, and the cancel itself must.
+#[tokio::test]
+async fn cancelling_between_steps_releases_the_host_at_once() {
+    let Some(f) = Fixture::new("converge_cancel_between", false).await else {
+        return;
+    };
+    // Only node-1 hangs, so master-1's steps finish and nothing of the cancel is in flight.
+    let _runners = f
+        .attach(|name, id| {
+            let r = FakeRunner::new(id.to_string());
+            if name == "node-1" {
+                r.script("debian", Script::hang())
+            } else {
+                r
+            }
+        })
+        .await;
+    let parent = f.start().await;
+    let step = |pos: i16| {
+        let f = &f;
+        async move {
+            sqlx::query_as::<_, (Uuid, String)>(
+                "select rh.run_id, rh.state from run_hosts rh join converge_steps s \
+                 on s.step_run_id = rh.run_id and s.host_id = rh.host_id \
+                 where s.run_id = $1 and s.host_id = $2 and s.position = $3",
+            )
+            .bind(parent)
+            .bind(f.node)
+            .bind(pos)
+            .fetch_one(&f.h.db.owner)
+            .await
+            .expect("step")
+        }
+    };
+    let start = Instant::now();
+    let debian = loop {
+        let (run, state) = step(0).await;
+        if state == "running" {
+            break run;
+        }
+        assert!(start.elapsed() < WITHIN, "debian still {state}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    // Let master-1 finish and its last dispatch settle, so no frame wakes the dispatcher
+    // from here on.
+    let start = Instant::now();
+    loop {
+        let (state,): (String,) =
+            sqlx::query_as("select state from converge_hosts where run_id = $1 and host_id = $2")
+                .bind(parent)
+                .bind(f.master)
+                .fetch_one(&f.h.db.owner)
+                .await
+                .expect("master-1");
+        if state == "succeeded" {
+            break;
+        }
+        assert!(start.elapsed() < WITHIN, "master-1 still {state}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    // A plain run of `debian` waits behind the hold.
+    let other = Uuid::now_v7();
+    sqlx::query(
+        "insert into runs (id, workspace_id, binding_id, job_id, job_name, trigger, commit, \
+         inventory_name, state) \
+         select $1, $2, b.id, j.id, j.name, 'manual', b.last_commit, 'prod', 'queued' \
+           from repo_bindings b join jobs j on j.binding_id = b.id and j.name = 'debian' \
+          where b.id = $3",
+    )
+    .bind(other)
+    .bind(f.h.workspace)
+    .bind(f.binding)
+    .execute(&f.h.db.owner)
+    .await
+    .expect("run");
+    sqlx::query("insert into run_hosts (run_id, host_id, host_name) values ($1, $2, 'node-1')")
+        .bind(other)
+        .bind(f.node)
+        .execute(&f.h.db.owner)
+        .await
+        .expect("run host");
+    // The first step's result lands with no dispatch after it: the trigger queues the second
+    // step and the host stays held.
+    sqlx::query(
+        "update run_hosts set state = 'succeeded', ended_at = now() \
+         where run_id = $1 and host_id = $2",
+    )
+    .bind(debian)
+    .bind(f.node)
+    .execute(&f.h.db.owner)
+    .await
+    .expect("debian done");
+    assert_eq!(step(1).await.1, "queued");
+    // Cancelling frees node-1 and the plain run goes out without anything else waking it (it
+    // hangs there, as `debian` does on this runner).
+    f.h.cmd(Cmd::CancelConverge { run_id: parent }).await;
+    let start = Instant::now();
+    loop {
+        let (state,): (String,) = sqlx::query_as("select state from run_hosts where run_id = $1")
+            .bind(other)
+            .fetch_one(&f.h.db.owner)
+            .await
+            .expect("other");
+        if state == "running" {
+            break;
+        }
+        assert!(start.elapsed() < WITHIN, "the plain run is still {state}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     f.h.finish().await;
 }

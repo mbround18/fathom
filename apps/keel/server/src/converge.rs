@@ -919,6 +919,8 @@ async fn cancel(app: &AppState, req: &Request<'_>, run: Uuid) -> Vec<Event> {
                 },
             );
             push_hosts(app, run).await;
+            // Hosts with nothing in flight are released now; their other runs go out at once.
+            crate::queue::kick(app);
             reply(app, run).await
         }
         Ok(None) => op_error("not_cancellable", "The converge has already ended."),

@@ -659,7 +659,6 @@ impl Config {
         on
     }
 
-
     /// Resolves the serving configuration.
     pub fn resolve(flags: Flags, env: Env<'_>) -> Result<Self, ConfigError> {
         let mut r = Resolver {

@@ -59,6 +59,14 @@ alter table repo_bindings
     add column manifest_v068 boolean not null default false;
 alter table host_enrollments add column auto_converge boolean not null default true;
 
+-- ---- credentials -------------------------------------------------------------------------
+-- `env_value`: one value set as the environment variable a job's `env:` names.
+alter table credentials drop constraint credentials_kind_check;
+alter table credentials add constraint credentials_kind_check check (
+    kind in ('vault_password', 'env', 'secret_vars', 'git_https_token', 'git_ssh_key',
+             'forge_token', 'env_value')
+);
+
 -- ---- converge ------------------------------------------------------------------------------
 create table converge_hosts (
     run_id uuid not null references runs (id) on delete cascade,
