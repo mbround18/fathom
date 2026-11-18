@@ -244,7 +244,7 @@ echo 'error: apps/depths/web/src/protocol/generated is stale. Run cargo test -p 
 # against the fake backend.
 KEEL_WEB=@companion/keel-web
 KEEL_CRATES="-p keel-core -p keel-exec -p keel-git -p keel-protocol -p keel-trust \
--p keel-server -p keel-runner -p web-auth -p web-passkeys"
+-p keel-server -p keel-runner -p keel-relay -p web-auth -p web-passkeys"
 # Spec 067 D4: keel-server's database tests run in CI, never skip. paws has no service
 # containers and each step is its own exec, so PostgreSQL 18 (from PGDG, as on the dev box) is
 # baked into the keel image and scripts/keel-test-db.sh starts it inside the test step; the
