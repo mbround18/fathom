@@ -6,7 +6,8 @@
 //! accepts must also pass an independent check of the contract: a JSON object with a known `t`,
 //! exactly that frame's fields, and a clean round trip.
 //!
-//! Query frames are not covered: they arrive with US5, which is not built yet.
+//! The US5 query frames, which travel on the runner subsystem rather than the relay link, are
+//! covered in `query_props.rs`.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;

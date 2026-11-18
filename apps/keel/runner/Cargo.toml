@@ -59,4 +59,5 @@ toml = "1.1"
 
 [dev-dependencies]
 keel-exec = { path = "../../../crates/keel-exec", features = ["fake"] }
+proptest = "1.11"
 tempfile = "3"

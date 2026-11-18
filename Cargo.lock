@@ -5844,6 +5844,7 @@ dependencies = [
  "keel-trust",
  "libc",
  "openssl",
+ "proptest",
  "rand 0.10.3",
  "russh",
  "serde",
