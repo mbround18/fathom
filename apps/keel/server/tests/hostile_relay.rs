@@ -434,6 +434,47 @@ async fn a_cache_get_is_a_miss_and_audited() {
     l.finish().await;
 }
 
+/// T066 F5: an over-long `CacheGet` release or path is `NotFound`, not a violation, and the
+/// audited detail is capped.
+#[tokio::test]
+async fn an_over_long_cache_get_is_not_found_and_capped() {
+    let Some(mut l) = linked("hostile_cache_get_long", opts()).await else {
+        return;
+    };
+    let get = Frame::CacheGet {
+        req: 3,
+        release: "r".repeat(65),
+        path: "p".repeat(10_000),
+    };
+    l.side
+        .inject
+        .send(relay::encode(&get).expect("get"))
+        .expect("inject");
+    let answer = tokio::time::timeout(WAIT, l.side.seen.recv())
+        .await
+        .expect("no answer")
+        .expect("control ended");
+    assert!(
+        matches!(
+            answer,
+            Frame::CacheMiss {
+                req: 3,
+                reason: CacheMissReason::NotFound
+            }
+        ),
+        "{answer:?}"
+    );
+    let rows = l.refused_total("cache_get", 1).await;
+    let detail = rows[0]["detail"].as_str().expect("detail");
+    assert!(
+        detail.len() <= 128,
+        "detail not capped: {} bytes",
+        detail.len()
+    );
+    l.in_service().await;
+    l.finish().await;
+}
+
 /// T026 and the matrix's "inject bytes before the banner": a stream whose runner never
 /// authenticates is the runner's failure: refused and audited, never a quarantine.
 #[tokio::test]

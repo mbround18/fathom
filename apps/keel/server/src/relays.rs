@@ -1648,6 +1648,11 @@ const MAX_CLAIMED: usize = 128;
 /// Control frames waiting for the link's writer. Pings are bounded by `max_unanswered_pings`,
 /// so a full queue means the relay stopped reading its control channel.
 const CONTROL_QUEUE: usize = 16;
+/// `CacheGet`s a relay may have unanswered at once (T066 F5); more are refused unanswered.
+const MAX_CACHE_GETS: usize = 4;
+/// The longest `CacheGet` release and path Keel looks up (T066 F5); longer is `NotFound`.
+const MAX_CACHE_RELEASE: usize = 64;
+const MAX_CACHE_PATH: usize = 256;
 
 fn capped(s: &str) -> String {
     s.chars().take(MAX_CLAIMED).collect()
@@ -1684,7 +1689,7 @@ impl Refusals {
             return;
         };
         let entry = pending.entry((relay, reason)).or_insert_with(|| {
-            tracing::warn!(%relay, reason, detail = %detail.escape_debug(), "relay refused");
+            tracing::warn!(%relay, reason, detail = %capped(detail).escape_debug(), "relay refused");
             PendingRefusal {
                 workspace,
                 count: 0,
@@ -2215,7 +2220,12 @@ async fn write_control(
 
 /// Queues a control frame. A full queue means the relay stopped reading its control channel.
 fn queue_control(queue: &mpsc::Sender<Outgoing>, frame: Frame) -> Result<(), String> {
-    queue.try_send((frame, None)).map_err(|e| match e {
+    queue_outgoing(queue, (frame, None))
+}
+
+/// [`queue_control`] with an optional notice once the frame is written.
+fn queue_outgoing(queue: &mpsc::Sender<Outgoing>, out: Outgoing) -> Result<(), String> {
+    queue.try_send(out).map_err(|e| match e {
         mpsc::error::TrySendError::Full(_) => "control channel: writes stalled".into(),
         mpsc::error::TrySendError::Closed(_) => "control channel: the writer stopped".into(),
     })
@@ -2541,6 +2551,8 @@ impl LinkRun {
         let mut seq = 0_u64;
         let mut outstanding: VecDeque<(u64, Instant)> = VecDeque::new();
         let mut streams: JoinSet<()> = JoinSet::new();
+        // One task per unanswered `CacheGet`, done once its answer is written (T066 F5).
+        let mut cache_gets: JoinSet<()> = JoinSet::new();
         let mut up = false;
         let with_up = |end: LinkEnd, up: bool| match end {
             LinkEnd::Lost { error, .. } => LinkEnd::Lost { error, up },
@@ -2592,11 +2604,28 @@ impl LinkRun {
                     Ok(Frame::CacheGet { req, release, path }) => {
                         // Keel does not serve runner releases yet (spec 067 US5). Not a
                         // violation, but audited (coalesced), as the hostile matrix asks.
+                        // At most MAX_CACHE_GETS unanswered (T066 F5): more are refused and
+                        // dropped unanswered, the relay's own retry problem, not a violation.
+                        if cache_gets.len() >= MAX_CACHE_GETS {
+                            self.refuse("cache_get_busy", &release);
+                            continue;
+                        }
                         self.refuse("cache_get", &format!("{release}/{path}"));
-                        let miss = Frame::CacheMiss { req, reason: CacheMissReason::Unavailable };
-                        if let Err(e) = queue_control(&ctl, miss) {
+                        let reason = if release.len() > MAX_CACHE_RELEASE
+                            || path.len() > MAX_CACHE_PATH
+                        {
+                            CacheMissReason::NotFound
+                        } else {
+                            CacheMissReason::Unavailable
+                        };
+                        let (written, answered) = oneshot::channel();
+                        let miss = (Frame::CacheMiss { req, reason }, Some(written));
+                        if let Err(e) = queue_outgoing(&ctl, miss) {
                             return stalled(e);
                         }
+                        cache_gets.spawn(async move {
+                            let _ = answered.await;
+                        });
                     }
                     Ok(other) => {
                         return LinkEnd::Violation(LinkViolation::out_of_order(frame_tag(&other)));
@@ -2612,6 +2641,7 @@ impl LinkRun {
                     let n = u32::try_from(streams.len()).unwrap_or(u32::MAX);
                     self.update(|l| l.streams = n);
                 }
+                Some(_) = cache_gets.join_next(), if !cache_gets.is_empty() => {}
                 Some(_) = streams.join_next(), if !streams.is_empty() => {
                     let n = u32::try_from(streams.len()).unwrap_or(u32::MAX);
                     self.update(|l| l.streams = n);
