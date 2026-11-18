@@ -783,11 +783,13 @@ async fn flood(handle: &russh::server::Handle, n: u32, tasks: u32) {
         set.spawn(async move {
             for i in 0..n / tasks {
                 let port = t * (n / tasks) + i;
-                let mut ch = handle
+                // Over a limit, Keel refuses at open (T066 F1); otherwise it closes it.
+                let opened = handle
                     .channel_open_forwarded_tcpip("keel-runner", 0, "10.9.0.1", port)
-                    .await
-                    .expect("open");
-                closed(&mut ch).await;
+                    .await;
+                if let Ok(mut ch) = opened {
+                    closed(&mut ch).await;
+                }
             }
         });
     }

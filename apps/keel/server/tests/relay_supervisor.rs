@@ -31,7 +31,7 @@ use repos::Harness;
 use russh::client::{self, AuthResult};
 use russh::keys::ssh_key::public::KeyData;
 use russh::keys::{Algorithm, Certificate, PrivateKey};
-use russh::{ChannelMsg, ChannelStream};
+use russh::ChannelStream;
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -221,20 +221,6 @@ async fn wait_live(h: &Harness, id: Uuid, ok: impl Fn(&RelayLive) -> bool) -> Re
     }
 }
 
-/// Waits until the relay's side of a channel sees it closed.
-async fn closed(channel: &mut russh::Channel<russh::server::Msg>) {
-    tokio::time::timeout(WAIT, async {
-        loop {
-            match channel.wait().await {
-                Some(ChannelMsg::Close) | None => return,
-                Some(_) => {}
-            }
-        }
-    })
-    .await
-    .expect("Keel kept a refused channel open");
-}
-
 async fn refused(h: &Harness, reason: &str) -> Vec<serde_json::Value> {
     let rows: Vec<(serde_json::Value,)> = sqlx::query_as(
         "select context from audit_event where action = 'relay.refused' and reason = $1",
@@ -343,12 +329,12 @@ async fn keel_links_pings_and_carries_a_runner_over_the_relay() {
         h.app.relay_live.get(id).map(|l| l.state),
         Some(RelayState::Connecting)
     );
-    let mut early = side
+    // Refused at open (T066 F1): Keel never holds a channel it will not carry.
+    let early = side
         .handle
         .channel_open_forwarded_tcpip("keel-runner", 0, "10.0.0.5", 40121)
-        .await
-        .expect("open");
-    closed(&mut early).await;
+        .await;
+    assert!(early.is_err(), "a stream before Hello was accepted");
 
     // Hello, then Pongs: connected, with an RTT and the relay's version.
     let (handle, _responder) = side.answer(relay.fingerprint());
@@ -521,12 +507,11 @@ async fn streams_over_max_streams_are_refused() {
         .await
         .expect("open");
     wait_live(&h, id, |l| l.streams == 1).await;
-    // … the second is over the cap and closed.
-    let mut over = handle
+    // … the second is over the cap and refused at open (T066 F1).
+    let over = handle
         .channel_open_forwarded_tcpip("keel-runner", 0, "10.0.0.5", 2)
-        .await
-        .expect("open");
-    closed(&mut over).await;
+        .await;
+    assert!(over.is_err(), "a stream over max_streams was accepted");
     sup.flush_refusals(true).await;
     let rows = refused(&h, "max_streams").await;
     assert_eq!(rows.len(), 1, "{rows:?}");

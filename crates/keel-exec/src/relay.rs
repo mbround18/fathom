@@ -642,13 +642,20 @@ pub struct RunnerChannel {
     pub originator_port: u32,
 }
 
+/// Asked before a runner channel is accepted, with the advisory originator address and port:
+/// `true` takes the channel, `false` refuses it (`resource-shortage`, not a violation). Keel
+/// counts streams and applies its rate here, so a relay cannot make it hold (and buffer) more
+/// channels than its limits allow, whatever its own loop is doing (spec 067 T066).
+pub type StreamAdmission = Arc<dyn Fn(&str, u32) -> bool + Send + Sync>;
+
 /// Keel's per-link SSH client policy. Accepts only the pinned relay host key, and only
-/// `forwarded-tcpip` channels to [`RUNNER_CHANNEL_ADDR`], which go to `runners`. Every other
-/// channel is refused.
+/// `forwarded-tcpip` channels to [`RUNNER_CHANNEL_ADDR`] that [`StreamAdmission`] admits, which
+/// go to `runners`. Every other channel is refused.
 pub struct LinkClientPolicy {
     pinned: KeyData,
     on_violation: ViolationSink,
     runners: mpsc::UnboundedSender<RunnerChannel>,
+    admit: Option<StreamAdmission>,
 }
 
 impl std::fmt::Debug for LinkClientPolicy {
@@ -669,7 +676,16 @@ impl LinkClientPolicy {
             pinned,
             on_violation,
             runners,
+            admit: None,
         }
+    }
+
+    /// Asks `admit` before accepting each runner channel. Without it every runner channel is
+    /// accepted, and `runners` is the only bound.
+    #[must_use]
+    pub fn with_admission(mut self, admit: StreamAdmission) -> Self {
+        self.admit = Some(admit);
+        self
     }
 
     /// The host-key decision, separate from the russh callback so it can be tested alone.
@@ -736,6 +752,12 @@ impl client::Handler for LinkClientPolicy {
                     format!("{connected_address}:{connected_port}"),
                 )
                 .await;
+        }
+        if let Some(admit) = &self.admit
+            && !admit(originator_address, originator_port)
+        {
+            reply.reject(ChannelOpenFailure::ResourceShortage).await;
+            return Ok(());
         }
         reply.accept().await;
         // If Keel stopped listening in between, dropping the channel closes it.

@@ -947,7 +947,7 @@ mod tests {
     fn advisory_peer_is_read_only_for_display_and_audit() {
         let allowed: &[(&str, &str)] = &[
             ("relays.rs", "advisory_peer"),
-            ("relays.rs", "serve"),
+            ("relays.rs", "admit"),
             ("relays.rs", "carry"),
             ("runner_listener.rs", "RunnerPath"),
             ("runner_listener.rs", "to_json"),

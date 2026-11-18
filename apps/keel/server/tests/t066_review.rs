@@ -73,7 +73,6 @@ async fn bare_auth(ssh: &mut Handle<KeelSshClient>) {
 /// Secure: with `max_streams = 4`, no more than 4 carried channels stay open (and buffered)
 /// whatever the control channel is doing.
 #[tokio::test]
-#[ignore = "T066 finding: fails today"]
 async fn t066_f1_zero_window_control_stalls_caps() {
     let _ = FAILS_TODAY;
     let Some((h, zone)) = harness("t066_f1").await else {

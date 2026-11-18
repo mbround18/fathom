@@ -10,6 +10,7 @@
 //! dialled.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -17,7 +18,7 @@ use keel_core::WorkspaceId;
 use keel_exec::codec::CodecError;
 use keel_exec::relay::{
     self, CacheMissReason, Frame, LINK_USER, LinkClientPolicy, LinkViolation, RELAY_SUBSYSTEM,
-    RunnerChannel, ViolationSink, link_client_config,
+    RunnerChannel, StreamAdmission, ViolationSink, link_client_config,
 };
 use keel_protocol::{self as wire, Event};
 use russh::client::{AuthResult, Handle};
@@ -30,7 +31,7 @@ use sqlx::{PgConnection, PgPool};
 use time::OffsetDateTime;
 use tokio::io::WriteHalf;
 use tokio::net::TcpStream;
-use tokio::sync::{Notify, broadcast, mpsc, watch};
+use tokio::sync::{Notify, broadcast, mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use uuid::Uuid;
 
@@ -1644,6 +1645,9 @@ impl Default for SupervisorOptions {
 const FIRST_BACKOFF: Duration = Duration::from_millis(500);
 /// The longest relay-claimed string kept (version, advisory peer, detail).
 const MAX_CLAIMED: usize = 128;
+/// Control frames waiting for the link's writer. Pings are bounded by `max_unanswered_pings`,
+/// so a full queue means the relay stopped reading its control channel.
+const CONTROL_QUEUE: usize = 16;
 
 fn capped(s: &str) -> String {
     s.chars().take(MAX_CLAIMED).collect()
@@ -2098,6 +2102,111 @@ async fn close_channel(ch: RunnerChannel) {
 struct LinkIo {
     violations: mpsc::UnboundedReceiver<LinkViolation>,
     runners: mpsc::UnboundedReceiver<RunnerChannel>,
+    gate: Arc<StreamGate>,
+}
+
+/// One link's stream admission (T066 F1), shared by its SSH client policy, which asks before
+/// accepting a runner channel, and the streams it carries. The limits hold whatever the serve
+/// loop is doing: a relay that stalls the loop still cannot get past them.
+struct StreamGate {
+    shared: Arc<Shared>,
+    relay: Uuid,
+    workspace: Uuid,
+    /// Set once the relay's `Hello` arrived; until then every stream is refused.
+    control_up: AtomicBool,
+    /// Streams admitted and not yet ended (those queued for the serve loop included).
+    open: AtomicUsize,
+    bucket: Mutex<Bucket>,
+}
+
+impl StreamGate {
+    fn new(shared: Arc<Shared>, row: &RelayRow) -> Arc<Self> {
+        let bucket = Bucket::new(shared.opts.stream_rate, shared.opts.stream_burst);
+        Arc::new(Self {
+            shared,
+            relay: row.id,
+            workspace: row.workspace_id,
+            control_up: AtomicBool::new(false),
+            open: AtomicUsize::new(0),
+            bucket: Mutex::new(bucket),
+        })
+    }
+
+    /// Whether to accept one more runner channel; a refusal is noted (coalesced). The peer is
+    /// the relay's claim, used for the refusal's detail only.
+    fn admit(&self, addr: &str, port: u32) -> bool {
+        let refuse = |reason| {
+            let peer = advisory_peer(addr, port);
+            self.shared
+                .refusals
+                .note(self.relay, self.workspace, reason, &peer);
+            false
+        };
+        if !self.control_up.load(Ordering::SeqCst) {
+            return refuse("stream_before_control");
+        }
+        let max = self.shared.opts.max_streams;
+        let counted = self
+            .open
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                (n < max).then_some(n + 1)
+            });
+        if counted.is_err() {
+            return refuse("max_streams");
+        }
+        let took = self
+            .bucket
+            .lock()
+            .is_ok_and(|mut b| b.take_at(Instant::now()));
+        if !took {
+            self.open.fetch_sub(1, Ordering::SeqCst);
+            return refuse("stream_rate");
+        }
+        true
+    }
+
+    fn admission(self: &Arc<Self>) -> StreamAdmission {
+        let gate = Arc::clone(self);
+        Arc::new(move |addr, port| gate.admit(addr, port))
+    }
+}
+
+/// An admitted stream's place under `max_streams`, given back when it is dropped.
+struct StreamSlot(Arc<StreamGate>);
+
+impl Drop for StreamSlot {
+    fn drop(&mut self) {
+        self.0.open.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// A control frame for the link's writer, with a signal once it is written.
+type Outgoing = (Frame, Option<oneshot::Sender<()>>);
+
+/// The link's control writer (T066 F1): writes queued frames in order, each bounded by `wait`,
+/// so the serve loop never waits on the relay's window. Returns why it stopped.
+async fn write_control(
+    mut wr: ControlWriter,
+    mut queue: mpsc::Receiver<Outgoing>,
+    wait: Duration,
+) -> String {
+    while let Some((frame, written)) = queue.recv().await {
+        if let Err(e) = write(&mut wr, &frame, wait).await {
+            return e;
+        }
+        if let Some(done) = written {
+            let _ = done.send(());
+        }
+    }
+    "the control writer stopped".into()
+}
+
+/// Queues a control frame. A full queue means the relay stopped reading its control channel.
+fn queue_control(queue: &mpsc::Sender<Outgoing>, frame: Frame) -> Result<(), String> {
+    queue.try_send((frame, None)).map_err(|e| match e {
+        mpsc::error::TrySendError::Full(_) => "control channel: writes stalled".into(),
+        mpsc::error::TrySendError::Closed(_) => "control channel: the writer stopped".into(),
+    })
 }
 
 /// One relay's link task.
@@ -2279,7 +2388,9 @@ impl LinkRun {
             let _ = violation_tx.send(v);
         });
         let (runners_tx, runners) = mpsc::unbounded_channel();
-        let policy = LinkClientPolicy::new(pinned, sink, runners_tx);
+        let gate = StreamGate::new(Arc::clone(&self.shared), &self.row);
+        let policy =
+            LinkClientPolicy::new(pinned, sink, runners_tx).with_admission(gate.admission());
         let connected = tokio::time::timeout(
             wait,
             russh::client::connect_stream(Arc::new(self.shared.opts.client_config()), tcp, policy),
@@ -2307,6 +2418,7 @@ impl LinkRun {
                         let io = LinkIo {
                             violations,
                             runners,
+                            gate,
                         };
                         self.serve(control, io, &fingerprint, stop).await
                     }
@@ -2331,6 +2443,11 @@ impl LinkRun {
 
     /// Runs an open control channel: waits for `Hello`, then pings, answers `CacheGet` and
     /// carries runner streams until the link ends.
+    ///
+    /// Control frames go out through [`write_control`], so nothing here waits on the relay's
+    /// window (T066 F1). A write that times out, or a queue that fills, ends the link as lost
+    /// with `up: false`, so the redial keeps backing off; it is not a quarantine, because a
+    /// stalled network looks the same from here as a relay that stopped reading.
     async fn serve(
         &mut self,
         control: ChannelStream<russh::client::Msg>,
@@ -2339,7 +2456,7 @@ impl LinkRun {
         stop: &mut watch::Receiver<Option<String>>,
     ) -> LinkEnd {
         let opts = self.shared.opts.clone();
-        let (mut rd, mut wr) = tokio::io::split(control);
+        let (mut rd, wr) = tokio::io::split(control);
         // `read_frame` is not cancel-safe: one task reads, the loop selects on its channel.
         let (frames_tx, mut frames) = mpsc::channel::<FrameRead>(8);
         let mut reader = JoinSet::new();
@@ -2352,8 +2469,12 @@ impl LinkRun {
                 }
             }
         });
+        let (ctl, queue) = mpsc::channel::<Outgoing>(CONTROL_QUEUE);
+        let mut writer = JoinSet::new();
+        writer.spawn(write_control(wr, queue, opts.health_interval));
+        let stalled = |error: String| LinkEnd::Lost { error, up: false };
 
-        // Hello first: until it arrives, no stream is carried.
+        // Hello first: until it arrives, the gate refuses every stream.
         let deadline = tokio::time::sleep(opts.hello_timeout);
         tokio::pin!(deadline);
         loop {
@@ -2373,6 +2494,7 @@ impl LinkRun {
                         }
                         let version = capped(&version);
                         self.update(|l| l.version = Some(version));
+                        io.gate.control_up.store(true, Ordering::SeqCst);
                         break;
                     }
                     Ok(other) => {
@@ -2384,16 +2506,18 @@ impl LinkRun {
                     Err(end) => return end,
                 },
                 ch = io.runners.recv() => {
+                    // The gate refuses before Hello; nothing should arrive here.
                     let Some(ch) = ch else { return lost("the link closed") };
-                    let peer = advisory_peer(&ch.originator_address, ch.originator_port);
-                    self.refuse("stream_before_control", &peer);
                     close_channel(ch).await;
                 }
                 v = io.violations.recv() => {
                     return v.map_or_else(|| lost("the link closed"), LinkEnd::Violation);
                 }
+                Some(done) = writer.join_next() => {
+                    return stalled(done.unwrap_or_else(|e| e.to_string()));
+                }
                 changed = stop.changed() => {
-                    if let Some(end) = self.stopping(changed.is_err(), stop, &mut wr).await {
+                    if let Some(end) = self.stopping(changed.is_err(), stop, &ctl).await {
                         return end;
                     }
                 }
@@ -2405,7 +2529,6 @@ impl LinkRun {
         let mut seq = 0_u64;
         let mut outstanding: VecDeque<(u64, Instant)> = VecDeque::new();
         let mut streams: JoinSet<()> = JoinSet::new();
-        let mut bucket = Bucket::new(opts.stream_rate, opts.stream_burst);
         let mut up = false;
         let with_up = |end: LinkEnd, up: bool| match end {
             LinkEnd::Lost { error, .. } => LinkEnd::Lost { error, up },
@@ -2428,8 +2551,8 @@ impl LinkRun {
                         .await;
                     }
                     seq += 1;
-                    if let Err(e) = write(&mut wr, &Frame::Ping { seq }, opts.health_interval).await {
-                        return LinkEnd::Lost { error: e, up };
+                    if let Err(e) = queue_control(&ctl, Frame::Ping { seq }) {
+                        return stalled(e);
                     }
                     outstanding.push_back((seq, Instant::now()));
                 }
@@ -2459,8 +2582,8 @@ impl LinkRun {
                         // violation, but audited (coalesced), as the hostile matrix asks.
                         self.refuse("cache_get", &format!("{release}/{path}"));
                         let miss = Frame::CacheMiss { req, reason: CacheMissReason::Unavailable };
-                        if let Err(e) = write(&mut wr, &miss, opts.health_interval).await {
-                            return LinkEnd::Lost { error: e, up };
+                        if let Err(e) = queue_control(&ctl, miss) {
+                            return stalled(e);
                         }
                     }
                     Ok(other) => {
@@ -2472,7 +2595,8 @@ impl LinkRun {
                     let Some(ch) = ch else {
                         return LinkEnd::Lost { error: "the link closed".into(), up };
                     };
-                    self.carry(ch, &mut streams, &mut bucket).await;
+                    let slot = StreamSlot(Arc::clone(&io.gate));
+                    self.carry(ch, slot, &mut streams);
                     let n = u32::try_from(streams.len()).unwrap_or(u32::MAX);
                     self.update(|l| l.streams = n);
                 }
@@ -2486,8 +2610,11 @@ impl LinkRun {
                         LinkEnd::Violation,
                     );
                 }
+                Some(done) = writer.join_next() => {
+                    return stalled(done.unwrap_or_else(|e| e.to_string()));
+                }
                 changed = stop.changed() => {
-                    if let Some(end) = self.stopping(changed.is_err(), stop, &mut wr).await {
+                    if let Some(end) = self.stopping(changed.is_err(), stop, &ctl).await {
                         return end;
                     }
                 }
@@ -2495,12 +2622,13 @@ impl LinkRun {
         }
     }
 
-    /// A stop was signalled: sends `Close` and ends, or `None` if it was not a stop.
+    /// A stop was signalled: sends `Close` (waiting at most a health interval for it to be
+    /// written) and ends, or `None` if it was not a stop.
     async fn stopping(
         &self,
         closed: bool,
         stop: &watch::Receiver<Option<String>>,
-        wr: &mut ControlWriter,
+        ctl: &mpsc::Sender<Outgoing>,
     ) -> Option<LinkEnd> {
         let reason = if closed {
             Some("shutdown".to_owned())
@@ -2510,26 +2638,21 @@ impl LinkRun {
         let close = Frame::Close {
             reason: capped(&reason),
         };
-        let _ = write(wr, &close, self.shared.opts.health_interval).await;
+        let (written, done) = oneshot::channel();
+        if ctl.try_send((close, Some(written))).is_ok() {
+            let _ = tokio::time::timeout(self.shared.opts.health_interval, done).await;
+        }
         Some(LinkEnd::Stopped)
     }
 
-    /// Carries one runner channel if the limits allow and the relay is still usable.
-    async fn carry(&self, ch: RunnerChannel, streams: &mut JoinSet<()>, bucket: &mut Bucket) {
+    /// Carries one admitted runner channel (the gate already applied the limits) if the relay
+    /// is still usable. `slot` is held until the stream ends.
+    fn carry(&self, ch: RunnerChannel, slot: StreamSlot, streams: &mut JoinSet<()>) {
         let peer = advisory_peer(&ch.originator_address, ch.originator_port);
-        if streams.len() >= self.shared.opts.max_streams {
-            self.refuse("max_streams", &peer);
-            close_channel(ch).await;
-            return;
-        }
-        if !bucket.take_at(Instant::now()) {
-            self.refuse("stream_rate", &peer);
-            close_channel(ch).await;
-            return;
-        }
         let shared = Arc::clone(&self.shared);
         let (relay, workspace) = (self.row.id, self.row.workspace_id);
         streams.spawn(async move {
+            let _slot = slot;
             let config = if relay_usable(&shared.app.db, relay).await {
                 shared.host.config(&shared.app)
             } else {

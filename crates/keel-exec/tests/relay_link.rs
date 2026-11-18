@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use keel_exec::relay::{
     self, LinkClientPolicy, LinkRefusal, LinkViolation, RELAY_SUBSYSTEM, RelayServerPolicy,
-    RunnerChannel, link_client_config, relay_server_config,
+    RunnerChannel, StreamAdmission, link_client_config, relay_server_config,
 };
 use russh::client::{self, AuthResult, Handle};
 use russh::keys::ssh_key::public::KeyData;
@@ -54,6 +54,16 @@ impl Link {
 
 /// A relay holding `host_key` and trusting `hub_keys`, dialled by Keel pinning `pinned`.
 async fn link_with(host_key: PrivateKey, hub_keys: Vec<KeyData>, pinned: KeyData) -> Link {
+    link_admitting(host_key, hub_keys, pinned, None).await
+}
+
+/// As [`link_with`], with Keel asking `admit` before it accepts a runner channel.
+async fn link_admitting(
+    host_key: PrivateKey,
+    hub_keys: Vec<KeyData>,
+    pinned: KeyData,
+    admit: Option<StreamAdmission>,
+) -> Link {
     let (relay_io, keel_io) = tokio::io::duplex(256 * 1024);
     let (relay_sink, relay_refused) = sink();
     let (relay_violation_sink, relay_violations) = sink();
@@ -72,7 +82,10 @@ async fn link_with(host_key: PrivateKey, hub_keys: Vec<KeyData>, pinned: KeyData
         }
     });
 
-    let policy = LinkClientPolicy::new(pinned, keel_sink, runners_tx);
+    let mut policy = LinkClientPolicy::new(pinned, keel_sink, runners_tx);
+    if let Some(admit) = admit {
+        policy = policy.with_admission(admit);
+    }
     let connected = tokio::time::timeout(
         WAIT,
         client::connect_stream(Arc::new(link_client_config()), keel_io, policy),
@@ -390,6 +403,37 @@ async fn keel_accepts_runner_channels_and_bytes_flow() {
     let mut buf = [0u8; 4];
     relay_end.read_exact(&mut buf).await.unwrap();
     assert_eq!(&buf, b"pong");
+}
+
+/// T066 F1: a runner channel the admission refuses is rejected at open, never accepted and
+/// never handed to Keel, and the refusal is not a violation.
+#[tokio::test]
+async fn a_runner_channel_refused_by_admission_is_rejected_at_open() {
+    let host = key();
+    let hub = key();
+    let admit: StreamAdmission = Arc::new(|_, port| port == 1);
+    let mut link = link_admitting(host.clone(), vec![data(&hub)], data(&host), Some(admit)).await;
+    assert!(auth(link.keel(), relay::LINK_USER, &hub).await);
+    let relay_handle = link.relay.clone().unwrap();
+
+    let refused = relay_handle
+        .channel_open_forwarded_tcpip("keel-runner", 0, "10.0.0.5", 2)
+        .await;
+    assert!(
+        refused.is_err(),
+        "an unadmitted runner channel was accepted"
+    );
+    let _admitted = relay_handle
+        .channel_open_forwarded_tcpip("keel-runner", 0, "10.0.0.5", 1)
+        .await
+        .expect("admitted runner channel");
+    let runner = tokio::time::timeout(WAIT, link.runners.recv())
+        .await
+        .unwrap()
+        .expect("runner channel handed to Keel");
+    assert_eq!(runner.originator_port, 1);
+    assert!(link.runners.try_recv().is_err());
+    assert!(link.keel_violations.try_recv().is_err());
 }
 
 #[tokio::test]
