@@ -63,6 +63,33 @@ shell that hosts the React + TypeScript UI in `ui/` and bridges it to the backen
 `daemon/` (`fathom-daemon`) is the optional in-cluster aggregator for topology, metrics and event
 snapshots. Everything the UI shows comes through the protocol, so the shells are thin.
 
+### Keel relays
+
+`apps/keel/relay` (`keel-relay`, spec 067) lets Keel reach hosts in networks that cannot reach
+Keel. Keel dials the relay over SSH (russh); runners in the relay's zone dial the relay's runner
+port; the relay hands each runner TCP connection to Keel as a `forwarded-tcpip` channel on that
+one link. Keel then runs its ordinary runner SSH server over the channel, so the runner contract
+(spec 055) holds end to end and the relay only ever sees ciphertext. Nothing dials Keel, and Keel
+never dials a runner.
+
+- **The contract lives in `crates/keel-exec`** (`relay.rs`: control frames, link policy and the
+  SSH algorithm lists), shared by the server and the relay, so neither binary owns it. The server
+  side is `apps/keel/server/src/relays.rs` (supervisor, link client, zones, registration,
+  `derive_reach`); the runner's dial list is `--dial` / `KEEL_RUNNER_DIAL`, separate from the
+  `--server` name it verifies Keel's certificate for.
+- **The relay is untrusted.** Every limit it claims is enforced again on Keel's side; anything an
+  honest relay never does quarantines it until a workspace admin releases it; a relay carries
+  only its own workspace's hosts; the peer address it reports is display-only. Keep it that way:
+  new link features go through the control subsystem in `keel-exec`, and get a row in the
+  hostile-relay matrix (`specs/067-keel-relay/contracts/relay.md`) and a test in
+  `server/tests/hostile_relay.rs` or `runner/tests/hostile_relay.rs`.
+- **Relays are host services.** `keel-relay` ships in the runner release (Dockerfile
+  `runner-dist`, `make keel keel-runner-release`), static musl for x86_64 and aarch64 in the same
+  `SHA256SUMS`, with `relay/systemd/keel-relay.service`, which the `keel_relay` Ansible role
+  byte-copies. There is no relay image: `apps/keel/compose.relay.yaml` builds throwaway fixture
+  images from the release directory for the two-network test scenario only.
+- User guide: `docs/guides/keel/relays.md`.
+
 ---
 
 ## Shared-crate rules

@@ -52,8 +52,9 @@ import { useRelays, validDialAddress, validHostKey, validName } from './relays-s
 import { canSeeSettings } from './tabs'
 
 const SECTION = 'flex min-w-0 flex-col gap-3'
-/** Until the relays guide lands (T049), the hosts guide covers where hosts connect from. */
-const GUIDE = { guide: 'hosts' }
+const KEY_GUIDE = { guide: 'relays', anchor: 'paste-the-keys' }
+const ZONES_GUIDE = { guide: 'relays', anchor: 'zones' }
+const RELAYS_GUIDE = { guide: 'relays', anchor: 'register-a-relay' }
 const HINT_ERR = 'text-xs text-status-err'
 
 /** Keel's relay-link key: the active line to copy, and, for instance admins, rotation. */
@@ -75,7 +76,7 @@ function LinkKey() {
       <h2 id="relay-link-key" className={H2}>
         Relay-link key
       </h2>
-      <SectionIntro guide={GUIDE}>
+      <SectionIntro guide={KEY_GUIDE}>
         Keel signs in to every relay with this key. Add this to <code className="font-mono">keel_relay_hub_keys</code> on each relay.
       </SectionIntro>
       {!admin ? (
@@ -270,7 +271,7 @@ function Zones({ canEdit }: { canEdit: boolean }) {
           </Button>
         )}
       </div>
-      <SectionIntro guide={GUIDE}>
+      <SectionIntro guide={ZONES_GUIDE}>
         Hosts with no zone dial Keel straight (<code className="font-mono">direct</code>). Put a host in a zone from its inspector on the Hosts page.
       </SectionIntro>
       {zones.refusal && workspace ? (
@@ -559,7 +560,7 @@ function Relays({ canEdit }: { canEdit: boolean }) {
           </Button>
         )}
       </div>
-      <SectionIntro guide={GUIDE}>Keel dials each relay and carries its zone&apos;s runner sessions through it. Revoking one cuts it off at once.</SectionIntro>
+      <SectionIntro guide={RELAYS_GUIDE}>Keel dials each relay and carries its zone&apos;s runner sessions through it. Revoking one cuts it off at once.</SectionIntro>
       {relays.refusal && workspace ? (
         <LoadFailed
           what="relays"

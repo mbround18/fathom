@@ -15,6 +15,7 @@ export const GUIDE_SLUGS = [
   'getting-started',
   'workspaces',
   'hosts',
+  'relays',
   'receivers',
   'bindings',
   'repository',

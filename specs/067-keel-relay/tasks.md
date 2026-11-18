@@ -589,7 +589,7 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
     keel-relay` (`CARGO_BUILD_JOBS=4`) succeeds. Not run: the docker/zigbuild cross build.
   - Gap: `scripts/ci.sh`'s `KEEL_CRATES` does not list `keel-relay`, so CI's Keel slice neither
     lints nor tests it. Not changed here (main session's call).
-- [ ] T049 [P] Write `docs/guides/keel/relays.md`, covering:
+- [X] T049 [P] Write `docs/guides/keel/relays.md`, covering:
   - when to use a relay;
   - zones;
   - registering by pasting keys both ways;
@@ -598,6 +598,15 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
   - queries and `queries.toml`.
 
   Also add an architecture note to `CONTRIBUTING.md`.
+  - Done. The guide also covers the Path texts, rotating the relay-link key, the workspace
+    binding, quarantine and Release, revoke, and the run-preview warning. Its "Queries" section
+    only says they are coming, since US5 is not built; `queries.toml` is not described yet, and
+    the release cache (Phase 8) is not mentioned. Update both when they land.
+  - `relays` added to `GUIDE_SLUGS` and the guides README. The Relays tab's three "Learn more"
+    links now point at `relays#paste-the-keys`, `relays#zones` and `relays#register-a-relay`.
+  - CONTRIBUTING.md gained "Keel relays" under "Workspace layout".
+  - Gate: `pnpm exec tsc -b --noEmit` and `vitest run tests/unit/guide-links.test.ts` (7 passed),
+    plus `info-tip`, `markdown` and `glossary` unit tests (70 passed). Playwright not run.
 - [X] T050 **(../ansible 48cb22d, fluxified session)** Add `keel_runner_dial`,
   `keel_runner_download_origin` and `keel_runner_queries` to `roles/keel_runner`, with the
   validation in contracts/ansible.md. The unit gets one `--dial` per entry.
