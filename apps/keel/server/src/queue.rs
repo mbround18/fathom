@@ -22,7 +22,7 @@
 //! in memory; when the run ends, a `log_truncated` event, a marker chunk and the tail are
 //! written. Live output pauses between the two.
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -82,7 +82,12 @@ struct Link {
     tx: mpsc::UnboundedSender<Frame>,
     /// Ends the session (revocation).
     close: Arc<Notify>,
+    /// The runs assigned through this session: the ones it loses when it ends (spec 067 US4).
+    sent: SentRuns,
 }
+
+/// The runs assigned through one session.
+type SentRuns = Arc<Mutex<HashSet<Uuid>>>;
 
 /// One run's output accounting.
 #[derive(Default)]
@@ -164,6 +169,7 @@ impl Runs {
         path: RunnerPath,
         tx: mpsc::UnboundedSender<Frame>,
         close: Arc<Notify>,
+        sent: SentRuns,
     ) -> u64 {
         let session = self.inner.sessions.fetch_add(1, Ordering::Relaxed) + 1;
         if let Ok(mut l) = self.inner.links.lock() {
@@ -175,10 +181,29 @@ impl Runs {
                     path,
                     tx,
                     close,
+                    sent,
                 },
             );
         }
         session
+    }
+
+    /// Sends `run`'s `frame` to `host`'s runner and records the run as that session's; false if
+    /// it is not connected.
+    fn send_run(&self, host: Uuid, run: Uuid, frame: Frame) -> bool {
+        self.inner
+            .links
+            .lock()
+            .ok()
+            .and_then(|l| {
+                l.get(&host).map(|link| {
+                    if let Ok(mut sent) = link.sent.lock() {
+                        sent.insert(run);
+                    }
+                    link.tx.send(frame).is_ok()
+                })
+            })
+            .unwrap_or(false)
     }
 
     /// How `host`'s runner is connected, or `None` when it is not.
@@ -698,9 +723,14 @@ where
         }
     });
     let close = Arc::new(Notify::new());
-    let session = app
-        .runs
-        .register(host, path.clone(), out_tx.clone(), Arc::clone(&close));
+    let sent = SentRuns::default();
+    let session = app.runs.register(
+        host,
+        path.clone(),
+        out_tx.clone(),
+        Arc::clone(&close),
+        Arc::clone(&sent),
+    );
     if let Some(cas) = app.ssh.get() {
         let _ = out_tx.send(Frame::Krl {
             bytes: cas.krl.to_bytes(),
@@ -738,7 +768,11 @@ where
         drop(s.out);
         let _ = writer_task.await;
         tracing::info!(host = %host, %path, lost, "runner disconnected");
-        disconnected(&app2, host).await;
+        let sent: Vec<Uuid> = sent
+            .lock()
+            .map(|s| s.iter().copied().collect())
+            .unwrap_or_default();
+        disconnected(&app2, host, &sent).await;
     });
     kick(&app);
     Ok(())
@@ -1353,12 +1387,17 @@ fn ledger_outcome(line: &str, run: &str) -> Option<&'static str> {
 }
 
 /// A session ended: the host is offline and its in-flight hosts are lost.
-async fn disconnected(app: &AppState, host: Uuid) {
+///
+/// When the runner has already reconnected (a relay failover, spec 067 US4), only the runs this
+/// session was `sent` are lost: a run the new session took must not be. Lost rows are never
+/// queued again, so either way nothing runs twice.
+async fn disconnected(app: &AppState, host: Uuid, sent: &[Uuid]) {
     let mut offline = None;
     let result: Result<Vec<(Uuid, String)>, sqlx::Error> = async {
         let mut tx = app.db.begin().await?;
         // A reconnect may already have brought the host back.
-        if !app.runs.connected().contains(&host) {
+        let reconnected = app.runs.connected().contains(&host);
+        if !reconnected {
             let ws: Option<(Uuid,)> = sqlx::query_as(
                 "update hosts set state = 'offline' where id = $1 and state = 'online' \
                  returning workspace_id",
@@ -1370,9 +1409,12 @@ async fn disconnected(app: &AppState, host: Uuid) {
         }
         let rows: Vec<(Uuid, String)> = sqlx::query_as(
             "update run_hosts set state = 'lost', ended_at = now() \
-             where host_id = $1 and state in ('sent', 'running') returning run_id, host_name",
+             where host_id = $1 and state in ('sent', 'running') \
+               and (not $2 or run_id = any($3)) returning run_id, host_name",
         )
         .bind(host)
+        .bind(reconnected)
+        .bind(sent)
         .fetch_all(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -1822,7 +1864,7 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
     }
     frames.extend(keel_exec::pack_builder::frames(&run_id, &pack.bytes));
     for f in frames {
-        if !app.runs.send(host, f) {
+        if !app.runs.send_run(host, run, f) {
             return Err(AssignError::NotConnected);
         }
     }

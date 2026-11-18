@@ -556,6 +556,62 @@ async fn a_host_is_sent_one_run_at_a_time_in_created_order() {
     f.finish().await;
 }
 
+/// Spec 067 US4 (found by T037): a runner that failed over reconnects before Keel notices its
+/// old session is gone. A run sent on the new session must survive the old session's end: only
+/// the runs a session was sent become `lost` when it ends.
+#[tokio::test]
+async fn an_old_session_ending_after_a_reconnect_loses_only_its_own_runs() {
+    let Some(f) = Fixture::new(
+        "run_reconnect_race",
+        RunSettings {
+            // The old sessions end when the test drops them, not on missed pings.
+            ping_interval: Duration::from_secs(5),
+            ..settings()
+        },
+    )
+    .await
+    else {
+        return;
+    };
+    let old = f.attach(|_, id| FakeRunner::new(id.to_string())).await;
+    // The reconnect replaces each host's link while the old session is still open.
+    let _new = f
+        .attach(|_, id| FakeRunner::new(id.to_string()).default_script(Script::hang()))
+        .await;
+    f.push("playbooks/web.yaml", "- hosts: web\n").await;
+    let run = f.runs().await[0].0;
+    let start = Instant::now();
+    loop {
+        let states = f.host_states(run).await;
+        if states.iter().all(|(_, s)| s == "running") {
+            break;
+        }
+        assert!(start.elapsed() < Duration::from_secs(10), "{states:?}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    for r in old {
+        r.task.abort();
+    }
+    // Long enough for both old sessions to end and record what they lost.
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(1) {
+        let states = f.host_states(run).await;
+        assert!(states.iter().all(|(_, s)| s == "running"), "{states:?}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let (events,): (i64,) = sqlx::query_as(
+        "select count(*) from run_events where run_id = $1 and kind = 'runner_lost'",
+    )
+    .bind(run)
+    .fetch_one(&f.h.db.owner)
+    .await
+    .expect("events");
+    assert_eq!(events, 0);
+    f.h.confirm(Cmd::PreviewCancel { run }).await;
+    assert_eq!(f.ended(run, Duration::from_secs(10)).await.0, "cancelled");
+    f.finish().await;
+}
+
 /// Spec 067 D2: queued runs drain in order as each one finishes, never overlapping on a host;
 /// the database refuses a second in-flight row for a host (migration 0016).
 #[tokio::test]
