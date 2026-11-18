@@ -185,6 +185,8 @@ export type * from "./SshCaKind";
 export type * from "./SshCaState";
 export type * from "./StepRefusal";
 export type * from "./StepRefusalReason";
+export type * from "./StepSkip";
+export type * from "./StepSkipReason";
 export type * from "./StepState";
 export type * from "./SuggestionAction";
 export type * from "./SyncState";

@@ -98,6 +98,10 @@ fn converge_plan_and_target_round_trip() {
                 job: "k3s-agent".into(),
                 reason: StepRefusalReason::OutsideCeiling,
             }],
+            skipped: vec![StepSkip {
+                job: "provision".into(),
+                reason: StepSkipReason::NeedsValue,
+            }],
         }],
         policy: ApprovalTerms {
             requires_approval: true,
@@ -115,6 +119,7 @@ fn converge_plan_and_target_round_trip() {
     };
     let v = round_trip(&plan);
     assert_eq!(v["hosts"][0]["refusals"][0]["reason"], "outside_ceiling");
+    assert_eq!(v["hosts"][0]["skipped"][0]["reason"], "needs_value");
     // A target without `check` reads as a real run.
     let t: ConvergeTarget =
         serde_json::from_value(json!({ "binding_id": id(3), "hosts": { "kind": "all" } })).unwrap();

@@ -38,7 +38,7 @@ use keel_git::Mirror;
 use keel_protocol::{
     ApprovalTerms, Cmd, ConvergeHostState, ConvergeHostView, ConvergePlan, ConvergeStepView,
     ConvergeTarget, ConvergeView, Event, HostPlan, PlannedStep, ReviewGroupSummary, RunSummary,
-    StepRefusal, StepRefusalReason, StepState, TargetSelection,
+    StepRefusal, StepRefusalReason, StepSkip, StepSkipReason, StepState, TargetSelection,
 };
 use serde_json::json;
 use sqlx::PgConnection;
@@ -475,7 +475,18 @@ fn host_plan(
         .into_iter()
         .filter(|p| m.profiles.contains_key(p))
         .collect();
-    let planned = core::host_plan(&profiles, m, cov).map_err(|e| e.to_string())?;
+    // Spec 068 T074: manual-only jobs are never steps; the preview names them.
+    let core::HostSteps {
+        steps: planned,
+        skipped,
+    } = core::host_steps(&profiles, m, cov).map_err(|e| e.to_string())?;
+    let skipped: Vec<StepSkip> = skipped
+        .into_iter()
+        .map(|s| StepSkip {
+            job: s.job,
+            reason: StepSkipReason::NeedsValue,
+        })
+        .collect();
     let mut steps = Vec::new();
     let mut refusals = Vec::new();
     if state == "revoked" {
@@ -525,6 +536,7 @@ fn host_plan(
         profiles,
         steps,
         refusals,
+        skipped,
     })
 }
 

@@ -170,25 +170,124 @@ async fn values_outside_the_choices_are_refused_before_approval() {
     };
     add_provision(&f).await;
     let job = provision(&f).await;
+    // `size` has no default, so it is required (T074); these all set it.
+    let size = ("size", "small");
     // Not a directory under composes/ at the commit.
-    let m = refused(&f, start(&job, &[("stack", "cache")], false)).await;
+    let m = refused(&f, start(&job, &[("stack", "cache"), size], false)).await;
     assert!(m.contains("param stack"), "{m}");
     assert!(
         !m.contains("cache"),
         "the refusal never echoes the value: {m}"
     );
     // Hidden directories are not choices; nor is a value of the wrong shape.
-    refused(&f, start(&job, &[("stack", ".hidden")], false)).await;
-    refused(&f, start(&job, &[("stack", "../web")], false)).await;
+    refused(&f, start(&job, &[("stack", ".hidden"), size], false)).await;
+    refused(&f, start(&job, &[("stack", "../web"), size], false)).await;
     // Not in the `values` list.
     refused(&f, start(&job, &[("size", "huge")], false)).await;
     // Not a declared param.
-    let m = refused(&f, start(&job, &[("region", "eu")], false)).await;
+    let m = refused(&f, start(&job, &[("region", "eu"), size], false)).await;
     assert!(m.contains("does not declare the param region"), "{m}");
     assert_eq!(provision_runs(&f).await, 0, "no refused start made a run");
-    // A listed value previews and waits for approval.
-    let out = f.h.cmd(start(&job, &[("stack", "db")], false)).await;
+    // A listed value previews and waits for approval; `stack` falls back to its default.
+    let out = f.h.cmd(start(&job, &[("stack", "db"), size], false)).await;
     assert!(matches!(out.as_slice(), [Event::Preview(_)]), "{out:?}");
+    let out = f.h.cmd(start(&job, &[size], false)).await;
+    assert!(matches!(out.as_slice(), [Event::Preview(_)]), "{out:?}");
+    f.h.finish().await;
+}
+
+/// T074 without a database: `check_params`, which every run creation goes through (push,
+/// baseline, update, Start), refuses a required param left out, naming it and no value.
+#[test]
+fn check_params_refuses_a_missing_required_choice() {
+    let def: keel_core::manifest::JobDefinition = serde_json::from_value(serde_json::json!({
+        "playbook": "playbooks/provision.yaml",
+        "profiles": ["debian"],
+        "inventory": "prod",
+        "inventory_source": "repo",
+        "limit": null,
+        "vars": {},
+        "credentials": [],
+        "paths": null,
+        "timeout_secs": null,
+        "rollback": null,
+        "params": {
+            "stack": { "kind": "choice", "values": ["web", "db"], "default": "web" },
+            "size": { "kind": "choice", "values": ["small", "large"] },
+            "image": { "kind": "oci_digest" },
+        },
+    }))
+    .expect("definition");
+    let check = |p: &[(&str, &str)]| keel_server::runs::check_params(&def, &params(p));
+    assert_eq!(check(&[]), Err("param size is required".to_owned()));
+    assert_eq!(
+        check(&[("stack", "db")]),
+        Err("param size is required".to_owned())
+    );
+    // The digest and the defaulted choice stay optional.
+    assert_eq!(check(&[("size", "small")]), Ok(()));
+}
+
+/// T074: a `choice` with no default (`size`) is required. A start without it is refused before
+/// approval, naming the param; the job is manual-only, so a converge skips it.
+#[tokio::test]
+async fn a_required_choice_left_out_is_refused() {
+    let Some(f) = Fixture::new("choice_required", true).await else {
+        return;
+    };
+    add_provision(&f).await;
+    let job = provision(&f).await;
+    let m = refused(&f, start(&job, &[], false)).await;
+    assert_eq!(m, "The run's param size is required.");
+    let m = refused(&f, start(&job, &[("stack", "web")], true)).await;
+    assert_eq!(m, "The run's param size is required.");
+    assert_eq!(provision_runs(&f).await, 0, "no refused start made a run");
+    f.h.finish().await;
+}
+
+/// T074: a profile without a recipe reaches the manual-only `provision`; a converge skips it
+/// and the preview says so, without refusing the host.
+#[tokio::test]
+async fn a_converge_skips_a_manual_only_job_and_says_so() {
+    let Some(f) = Fixture::new("choice_converge_skip", false).await else {
+        return;
+    };
+    let jobs = JOBS.replacen("profiles:\n", "profiles:\n  stacks: {}\n", 1);
+    let provision = PROVISION.replace("profiles: [debian]", "profiles: [debian, stacks]");
+    f.src
+        .commit("playbooks/provision.yaml", "- hosts: all\n", "provision");
+    f.src
+        .commit("composes/web/compose.yaml", "services: {}\n", "web");
+    f.src
+        .commit(".keel/jobs.yaml", &format!("{jobs}{provision}"), "jobs");
+    f.src.push();
+    sync(&f).await;
+    sqlx::query(
+        "insert into host_profiles (host_id, profile_id) \
+         select $1, id from profiles where workspace_id = $2 and name = 'stacks' \
+         on conflict do nothing",
+    )
+    .bind(f.node)
+    .bind(f.h.workspace)
+    .execute(&f.h.db.owner)
+    .await
+    .expect("stacks");
+    let (_, plan) = f.plan(Cmd::PreviewConverge(f.target())).await;
+    let node = plan
+        .hosts
+        .iter()
+        .find(|h| h.host_id == f.node)
+        .expect("node planned");
+    assert!(node.steps.iter().all(|s| s.job != "provision"), "{node:?}");
+    assert!(!node.steps.is_empty(), "the host's other steps still run");
+    assert!(node.refusals.is_empty(), "{node:?}");
+    assert_eq!(
+        node.skipped,
+        vec![keel_protocol::StepSkip {
+            job: "provision".to_owned(),
+            reason: keel_protocol::StepSkipReason::NeedsValue,
+        }]
+    );
     f.h.finish().await;
 }
 

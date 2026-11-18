@@ -60,7 +60,8 @@ pub use converge::{
     ApprovalTerms, CheckState, ConvergeHostState, ConvergeHostSummary, ConvergeHostView,
     ConvergePlan, ConvergeStepView, ConvergeTarget, ConvergeView, HostPlan, HostProfilesChange,
     HostProfilesPreview, PlannedStep, ProfileSuggestion, RequiredCheck, ReviewGroupSummary,
-    RunCheckView, StepRefusal, StepRefusalReason, StepState, SuggestionAction, TargetSelection,
+    RunCheckView, StepRefusal, StepRefusalReason, StepSkip, StepSkipReason, StepState,
+    SuggestionAction, TargetSelection,
 };
 
 /// The version a client states in `Hello.protocol_version`.

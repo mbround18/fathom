@@ -1656,6 +1656,13 @@ async fn preview_baseline(
     if let Some(why) = blocked {
         return op_error("job_blocked", &format!("The job is blocked: {why}."));
     }
+    // A baseline sends no params, so a job with a required one cannot be one (spec 068 T074).
+    if let Some(param) = def.missing_required(&BTreeMap::new()) {
+        return op_error(
+            "param_invalid",
+            &format!("The run's param {param} is required."),
+        );
+    }
     let row: Option<(Option<String>, bool, String)> = match sqlx::query_as(
         "select last_commit, signed_mode, status from repo_bindings where id = $1",
     )

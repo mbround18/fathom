@@ -63,6 +63,21 @@ pub struct StepRefusal {
     pub reason: StepRefusalReason,
 }
 
+/// Why a converge leaves out a job the host's profiles reach (spec 068 T074).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum StepSkipReason {
+    /// The job has a required param (a `choice` with no default): only Start can run it.
+    NeedsValue,
+}
+
+/// A job the plan leaves out without refusing the host: start it by hand.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct StepSkip {
+    pub job: String,
+    pub reason: StepSkipReason,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct HostPlan {
     #[ts(type = "string")]
@@ -71,6 +86,10 @@ pub struct HostPlan {
     pub profiles: Vec<String>,
     pub steps: Vec<PlannedStep>,
     pub refusals: Vec<StepRefusal>,
+    /// Jobs the profiles reach that are not steps (spec 068 T074). Not a refusal: the host's
+    /// steps still run.
+    #[serde(default)]
+    pub skipped: Vec<StepSkip>,
 }
 
 /// The approval a converge needs: the strictest terms across its steps' policies.

@@ -102,6 +102,10 @@ pub async fn on_push(app: &AppState, p: Push<'_>) {
             continue;
         };
         let Some(paths) = &def.paths else { continue };
+        // A push sends no params; validation already refuses paths on such a job (T074).
+        if def.manual_only() {
+            continue;
+        }
         if !target::paths_match(paths, &changed) {
             continue;
         }
@@ -188,12 +192,14 @@ pub(crate) struct UpdateAudit {
 }
 
 /// Checks run params against the job's declared ones (spec 061 R4): every name must be
-/// declared, and every value must match its kind.
+/// declared, every value must match its kind, and every required param (a `choice` with no
+/// default, spec 068 T074) must be set.
 ///
 /// # Errors
 ///
-/// What is wrong with the first bad param.
+/// What is wrong with the first bad param. Never a value.
 pub fn check_params(def: &JobDefinition, params: &BTreeMap<String, String>) -> Result<(), String> {
+    check_required(def, params)?;
     for (name, value) in params {
         let Some(spec) = def.params.get(name) else {
             return Err(format!("the job does not declare the param {name}"));
@@ -203,6 +209,14 @@ pub fn check_params(def: &JobDefinition, params: &BTreeMap<String, String>) -> R
         }
     }
     Ok(())
+}
+
+/// Every required param is set (spec 068 T074): "param stack is required".
+fn check_required(def: &JobDefinition, params: &BTreeMap<String, String>) -> Result<(), String> {
+    match def.missing_required(params) {
+        Some(name) => Err(format!("param {name} is required")),
+        None => Ok(()),
+    }
 }
 
 /// [`check_params`], and each `choice` value is one of the choices at `tree` (spec 068 FR-014).
@@ -216,6 +230,7 @@ pub fn check_params_at(
     params: &BTreeMap<String, String>,
     tree: &dyn RepoTree,
 ) -> Result<(), String> {
+    check_required(def, params)?;
     for (name, value) in params {
         let Some(spec) = def.params.get(name) else {
             return Err(format!("the job does not declare the param {name}"));
@@ -1252,7 +1267,10 @@ async fn preview_run_start(
         return op_error("binding_disabled", "The binding is disabled.");
     }
     // Spec 068 FR-014: a `choice` value must be listed at the commit the run pins; anything else
-    // is refused here, before any approval.
+    // is refused here, before any approval. So is a required param left out (T074).
+    if let Err(why) = check_required(&def, &params) {
+        return op_error("param_invalid", &format!("The run's {why}."));
+    }
     if !params.is_empty() {
         let (d, p) = (def.clone(), params.clone());
         let checked = with_tree(app, binding, Some(commit.clone()), move |tree| {
