@@ -44,10 +44,10 @@ pub fn is_update_cmd(cmd: &Cmd) -> bool {
 /// Routes one update command.
 pub(crate) async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
     match cmd {
-        Cmd::GetKeelBuild => vec![Event::KeelBuild(keel_build(
-            &app.updates.build,
-            req.caller.user.instance_role,
-        ))],
+        Cmd::GetKeelBuild => vec![Event::KeelBuild(KeelBuild {
+            flags: app.cfg.flags(),
+            ..keel_build(&app.updates.build, req.caller.user.instance_role)
+        })],
         Cmd::GetUpdateStatus => get_status(app, req).await,
         Cmd::CheckForUpdates => check_now(app, req).await,
         Cmd::DismissUpdateDot { digest } => dismiss(app, req, digest).await,
@@ -81,6 +81,7 @@ pub fn keel_build(build: &BuildInfo, role: InstanceRole) -> KeelBuild {
         built_at: build.built_at.filter(|_| full).map(ts),
         digest: build.digest.clone().filter(|_| full),
         display: build.display(),
+        flags: Vec::new(),
     }
 }
 

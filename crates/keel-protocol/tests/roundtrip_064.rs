@@ -126,6 +126,11 @@ fn run() -> RunInfo {
         summary: None,
         params: BTreeMap::new(),
         approval: None,
+        kind: RunKind::Normal,
+        check: false,
+        parent_run: None,
+        narrowed_by: None,
+        checks: None,
     }
 }
 

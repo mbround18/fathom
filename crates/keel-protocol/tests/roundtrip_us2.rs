@@ -1,5 +1,7 @@
 //! Round-trip tests for the run, job and policy commands and events (spec 055 T071).
 
+use std::collections::BTreeMap;
+
 use keel_core::uuid::Uuid;
 use keel_protocol::*;
 use serde::{Serialize, de::DeserializeOwned};
@@ -52,6 +54,11 @@ fn run_info() -> RunInfo {
         }),
         params: Default::default(),
         approval: None,
+        kind: RunKind::Normal,
+        check: false,
+        parent_run: None,
+        narrowed_by: None,
+        checks: None,
     }
 }
 
@@ -76,6 +83,8 @@ fn run_commands() {
         Cmd::PreviewRunStart {
             job: id(4),
             limit: Some(Pattern::new("web-*").unwrap()),
+            params: Default::default(),
+            check: false,
         },
         Cmd::PreviewCancel { run: id(1) },
         Cmd::ListJobs { binding: id(3) },
@@ -91,6 +100,7 @@ fn run_commands() {
             approvals_needed: 2,
             four_eyes: true,
             approval_ttl_secs: 3600,
+            check: Some(true),
         }),
         Cmd::PreviewPolicyRemove { policy: id(6) },
         Cmd::ExplainPolicy {
@@ -197,6 +207,8 @@ fn run_events() {
                     rc: Some(255),
                     unreachable: true,
                 }),
+                covered_by: None,
+                skip_reason: None,
             }],
         },
         Event::RunSubscribed { run: id(1), seq: 9 },
@@ -223,6 +235,15 @@ fn run_events() {
         Event::Jobs {
             binding: id(3),
             items: vec![JobInfo {
+                params: Some(BTreeMap::from([(
+                    "stack".to_owned(),
+                    ParamView {
+                        kind: "choice".to_owned(),
+                        allowed: Some(vec!["web".to_owned(), "db".to_owned()]),
+                        default: Some("web".to_owned()),
+                        unavailable: None,
+                    },
+                )])),
                 id: id(4),
                 binding: id(3),
                 name: "web".into(),
@@ -250,6 +271,7 @@ fn run_events() {
                 four_eyes: false,
                 approval_ttl_secs: 86_400,
                 catch_all: true,
+                check: None,
             }],
         },
         Event::PolicyExplanation {

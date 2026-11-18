@@ -3,4 +3,4 @@
 /**
  * A run's state (data-model "runs").
  */
-export type RunPhase = "needs_review" | "pending_approval" | "queued" | "running" | "succeeded" | "failed" | "refused" | "cancelled" | "denied" | "expired";
+export type RunPhase = "needs_review" | "pending_approval" | "queued" | "running" | "succeeded" | "failed" | "refused" | "cancelled" | "denied" | "expired" | "waiting_checks";

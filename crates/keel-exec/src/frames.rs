@@ -83,6 +83,12 @@ pub enum Refusal {
     /// The params Keel sent don't match what the job declares at the target commit (spec 061):
     /// an undeclared name, or a value that isn't of the declared kind.
     ParamsMismatch,
+    /// An `env_var` secret item whose name fails `keel_core::env_names`, or that the job's
+    /// `env:` map at the target does not name for that credential (spec 068).
+    EnvRefused,
+    /// A `choice` param value that is not one of the choices at the target, as this host's
+    /// checkout lists them (spec 068).
+    ChoiceMismatch,
 }
 
 impl Refusal {
@@ -97,6 +103,8 @@ impl Refusal {
             Refusal::LedgerCorrupt => "ledger_corrupt",
             Refusal::VersionTooOld => "version_too_old",
             Refusal::ParamsMismatch => "params_mismatch",
+            Refusal::EnvRefused => "env_refused",
+            Refusal::ChoiceMismatch => "choice_mismatch",
         }
     }
 }
@@ -161,6 +169,24 @@ pub struct SecretItem {
     pub name: String,
     pub kind: String,
     pub value: SecretString,
+    /// With kind `env_var` (spec 068): the environment name the value is set as, checked again
+    /// on the host against `keel_core::env_names`. Omitted otherwise, so other items are
+    /// byte-identical to before; an old runner refuses an item carrying it (fail closed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub env_name: Option<String>,
+}
+
+/// The `Hello` capability a runner advertises once it understands spec 068's manifest keys
+/// (`Assign.check`, `env_var` secrets). The server does not send a step that needs them to a
+/// session without it (`runner_too_old`).
+pub const CAP_MANIFEST_V068: &str = "manifest-v068";
+
+/// `SecretItem.kind` for a value set as an environment variable (spec 068 `jobs.<j>.env`).
+pub const SECRET_KIND_ENV_VAR: &str = "env_var";
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's skip_serializing_if passes a reference
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// An override or baseline approval (research R20). The host verifies the passkey assertion
@@ -323,6 +349,10 @@ pub enum Frame {
         quorum: Option<u32>,
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         params: BTreeMap<String, String>,
+        /// Spec 068: run `ansible-playbook --check`. Omitted when false, so a real run's `Assign`
+        /// is byte-identical to before; an old runner refuses one with `check: true`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        check: bool,
     },
     /// S → R. A slice of the Git pack; the last chunk carries the whole pack's SHA-256 (hex).
     Pack {
@@ -584,6 +614,7 @@ impl fmt::Debug for Frame {
                 pack_size,
                 quorum,
                 params,
+                check,
             } => d
                 .field("run_id", run_id)
                 .field("workspace", workspace)
@@ -594,7 +625,8 @@ impl fmt::Debug for Frame {
                 .field("deadline", deadline)
                 .field("pack_size", pack_size)
                 .field("quorum", quorum)
-                .field("params", params),
+                .field("params", params)
+                .field("check", check),
             Frame::Pack {
                 run_id,
                 chunk,

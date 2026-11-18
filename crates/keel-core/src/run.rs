@@ -5,6 +5,7 @@
 //! pending_approval ──approve──▶ queued                       ──deny / ttl──▶ denied | expired
 //! queued ──dispatch──▶ running ──▶ succeeded | failed | refused
 //! queued, running ──cancel──▶ cancelled; needs_review, pending_approval, queued ──binding disabled──▶ cancelled
+//! waiting_checks (spec 068) ──cancel / binding disabled──▶ cancelled; the server moves it on
 //! ```
 //!
 //! A queued run that cannot start (bad inventory, missing artifact, unavailable credential) fails;
@@ -19,6 +20,8 @@ str_enum!(
     RunState, "run state" {
         NeedsReview => "needs_review",
         PendingApproval => "pending_approval",
+        // Spec 068: waiting for the commit's required forge checks.
+        WaitingChecks => "waiting_checks",
         Queued => "queued",
         Running => "running",
         Succeeded => "succeeded",
@@ -57,12 +60,22 @@ str_enum!(
         ArtifactMissing => "artifact_missing",
         CredentialUnavailable => "credential_unavailable",
         HostRefused => "host_refused",
+        // Spec 068: a required forge check failed.
+        ChecksFailed => "checks_failed",
+        // Spec 068: the required forge checks did not finish in time.
+        ChecksTimeout => "checks_timeout",
+        // Spec 068: an unapproved converge superseded by a newer one for the same host.
+        Replaced => "replaced",
+        // Spec 068: the host's runner does not read the binding's manifest.
+        RunnerTooOld => "runner_too_old",
     }
 );
 
 str_enum!(
     /// One host's state within a run (`run_hosts.state`).
     HostState, "host state" {
+        // Spec 068: a converge step waiting on approval or the host's previous step.
+        Blocked => "blocked",
         Queued => "queued",
         Sent => "sent",
         Running => "running",
@@ -71,6 +84,10 @@ str_enum!(
         Refused => "refused",
         Lost => "lost",
         Cancelled => "cancelled",
+        // Spec 068: not run because an earlier converge step on the host did not succeed.
+        Skipped => "skipped",
+        // Spec 068: applied in full by a converge step (`covers`).
+        Covered => "covered",
     }
 );
 
@@ -79,7 +96,7 @@ impl HostState {
     pub const fn is_terminal(self) -> bool {
         !matches!(
             self,
-            HostState::Queued | HostState::Sent | HostState::Running
+            HostState::Blocked | HostState::Queued | HostState::Sent | HostState::Running
         )
     }
 }
@@ -213,10 +230,12 @@ pub fn transition(from: RunState, event: &RunEvent) -> Result<RunStatus, Illegal
         (S::NeedsReview | S::PendingApproval, RunEvent::Expired) => {
             RunStatus::because(S::Expired, R::ApprovalExpired)
         }
-        (S::NeedsReview | S::PendingApproval | S::Queued, RunEvent::BindingDisabled) => {
-            RunStatus::because(S::Cancelled, R::BindingDisabled)
-        }
-        (S::Queued | S::Running, RunEvent::CancelledByUser) => {
+        (
+            S::NeedsReview | S::PendingApproval | S::WaitingChecks | S::Queued,
+            RunEvent::BindingDisabled,
+        ) => RunStatus::because(S::Cancelled, R::BindingDisabled),
+        // Spec 068: a run waiting on its commit's checks can be cancelled like a queued one.
+        (S::WaitingChecks | S::Queued | S::Running, RunEvent::CancelledByUser) => {
             RunStatus::because(S::Cancelled, R::CancelledByUser)
         }
         (S::Queued, RunEvent::Dispatched) => RunStatus::of(S::Running),
@@ -243,7 +262,8 @@ pub fn transition(from: RunState, event: &RunEvent) -> Result<RunStatus, Illegal
 
 /// Summarizes a run's hosts. `None` while any host is still in flight.
 ///
-/// `refused` if any host refused; `succeeded` only if every host succeeded; otherwise `failed`
+/// `refused` if any host refused; `succeeded` only if every host succeeded or was covered
+/// (spec 068); otherwise `failed`
 /// (with `runner_lost` when a host was lost). A run with no hosts fails: there is nothing that
 /// could have succeeded.
 #[must_use]
@@ -257,7 +277,11 @@ pub fn summarize(hosts: &[HostState]) -> Option<RunStatus> {
             StateReason::HostRefused,
         ));
     }
-    if !hosts.is_empty() && hosts.iter().all(|h| *h == HostState::Succeeded) {
+    if !hosts.is_empty()
+        && hosts
+            .iter()
+            .all(|h| matches!(h, HostState::Succeeded | HostState::Covered))
+    {
         return Some(RunStatus::of(RunState::Succeeded));
     }
     let reason = hosts
@@ -326,12 +350,13 @@ mod tests {
             (S::NeedsReview | S::PendingApproval, RunEvent::Expired) => {
                 because(S::Expired, R::ApprovalExpired)
             }
-            (S::NeedsReview | S::PendingApproval | S::Queued, RunEvent::BindingDisabled) => {
-                because(S::Cancelled, R::BindingDisabled)
-            }
+            (
+                S::NeedsReview | S::PendingApproval | S::WaitingChecks | S::Queued,
+                RunEvent::BindingDisabled,
+            ) => because(S::Cancelled, R::BindingDisabled),
             (S::PendingApproval, RunEvent::Approved) => st(S::Queued),
             (S::Queued, RunEvent::Dispatched) => st(S::Running),
-            (S::Queued | S::Running, RunEvent::CancelledByUser) => {
+            (S::WaitingChecks | S::Queued | S::Running, RunEvent::CancelledByUser) => {
                 because(S::Cancelled, R::CancelledByUser)
             }
             (S::Queued, RunEvent::Unrunnable(Unrunnable::InventoryInvalid)) => {
@@ -364,7 +389,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(allowed_count, 18);
+        assert_eq!(allowed_count, 20);
     }
 
     #[test]
@@ -415,7 +440,10 @@ mod tests {
         );
         assert_eq!(s(&[H::Succeeded, H::Cancelled]).unwrap().state, S::Failed);
         assert_eq!(s(&[]).unwrap().state, S::Failed, "no hosts fails closed");
-        for in_flight in [H::Queued, H::Sent, H::Running] {
+        // Spec 068: covered counts as done, skipped does not.
+        assert_eq!(s(&[H::Succeeded, H::Covered]).unwrap().state, S::Succeeded);
+        assert_eq!(s(&[H::Succeeded, H::Skipped]).unwrap().state, S::Failed);
+        for in_flight in [H::Blocked, H::Queued, H::Sent, H::Running] {
             assert_eq!(s(&[H::Succeeded, in_flight]), None);
             assert!(transition(S::Running, &RunEvent::HostsFinished(vec![in_flight])).is_err());
         }
@@ -434,7 +462,12 @@ mod tests {
             "credential_unavailable".parse::<R>().unwrap(),
             R::CredentialUnavailable
         );
-        assert_eq!(R::ALL.len(), 9);
-        assert_eq!(S::ALL.len(), 10);
+        assert_eq!(R::ALL.len(), 13);
+        assert_eq!(S::ALL.len(), 11);
+        assert_eq!(HostState::ALL.len(), 11);
+        assert_eq!("blocked".parse::<HostState>().unwrap(), HostState::Blocked);
+        assert!(!HostState::Blocked.is_terminal());
+        assert!(HostState::Skipped.is_terminal() && HostState::Covered.is_terminal());
+        assert!(!S::WaitingChecks.is_terminal());
     }
 }

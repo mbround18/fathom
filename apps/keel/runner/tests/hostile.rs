@@ -410,6 +410,7 @@ fn run(
         pack_size: pack.len() as u64,
         quorum: None,
         params: Default::default(),
+        check: false,
     }];
     frames.extend(pack_builder::frames(run_id, pack));
     frames.push(Frame::Secrets {

@@ -1,0 +1,212 @@
+---
+# What Keel may run from this repo (fathom: specs/055-ansible-repo-control-plane/
+# contracts/repo-manifest.md; the content is specs/058-keel-onboard-ansible/
+# contracts/jobs-manifest.md). Keel decides whether and when; nothing here can
+# widen what a node accepts: each functional group's
+# keel_runner_allowed_profiles (inventory/group_vars/) does that.
+#
+# Each node runs a job against itself only: the executor forces
+# `--limit <its inventory name>` and a local connection, so a node must be
+# listed in inventory/hosts.yml under its hostname for these jobs to reach it.
+#
+# Paths are derived, not chosen: a job lists its playbook, every role it
+# reaches (roles:, import_playbook, include_role), the files it reads through
+# playbook_dir, and the group vars of the groups it runs on, plus the three
+# files every run reads (ansible.cfg, requirements.yml, group_vars/all.yml).
+# inventory/hosts.yml triggers nothing: adding a host must not run every job.
+# `make lint` checks all of this (scripts/keel-manifest-check.py).
+version: 1
+profiles:
+  debian: {description: "Baseline only: a host with no bigger profile (make debian)"}
+  prox-vm: {description: "Proxmox VM running a compose stack (make prox-vm)"}
+  gameserver: {description: "Game server VM: prox-vm plus the steam user (make gameserver)"}
+  host: {description: "The Proxmox host itself (make host)"}
+  k3s-master: {description: "k3s server (make k3s-master)"}
+  k3s-agent: {description: "k3s agent (make k3s-agent)"}
+  keel-server: {description: "Keel's own server (make keel-server)"}
+  keel-node: {description: "Keel's runner on every node (make keel-node)"}
+  keel-relay: {description: "Keel relay for a zone Keel cannot reach (make keel-relay)"}
+inventories:
+  fleet:
+    path: inventory/hosts.yml
+jobs:
+  debian:
+    playbook: playbooks/debian.yaml
+    profiles: [debian]
+    inventory: fleet
+    paths:
+      - ansible.cfg
+      - requirements.yml
+      - inventory/group_vars/all.yml
+      - inventory/group_vars/compose_hosts.yml
+      - inventory/group_vars/gameservers.yml
+      - inventory/group_vars/k3s_agents.yml
+      - inventory/group_vars/k3s_servers.yml
+      - inventory/group_vars/keel_servers.yml
+      - inventory/group_vars/pve_hosts.yml
+      - playbooks/debian.yaml
+      - roles/base/**
+    timeout: 30m
+
+  prox-vm:
+    playbook: playbooks/prox-vm.yaml
+    profiles: [prox-vm]
+    inventory: fleet
+    paths:
+      - ansible.cfg
+      - requirements.yml
+      - inventory/group_vars/all.yml
+      - inventory/group_vars/compose_hosts.yml
+      - playbooks/prox-vm.yaml
+      - roles/base/**
+      - roles/cleanup/**
+      - roles/storage/**
+      - roles/docker/**
+      - roles/tailscale/**
+      - roles/devtools/**
+      - roles/github_release/**
+    timeout: 30m
+
+  # Imports prox-vm.yaml, so it reaches everything that does, and reads the
+  # starter game stacks from playbooks/files/gamestacks/.
+  gameserver:
+    playbook: playbooks/gameserver.yaml
+    profiles: [gameserver]
+    inventory: fleet
+    paths:
+      - ansible.cfg
+      - requirements.yml
+      - inventory/group_vars/all.yml
+      - inventory/group_vars/compose_hosts.yml
+      - inventory/group_vars/gameservers.yml
+      - playbooks/gameserver.yaml
+      - playbooks/prox-vm.yaml
+      - playbooks/files/gamestacks/**
+      - roles/base/**
+      - roles/cleanup/**
+      - roles/storage/**
+      - roles/docker/**
+      - roles/tailscale/**
+      - roles/devtools/**
+      - roles/github_release/**
+    timeout: 30m
+
+  host:
+    playbook: playbooks/pve.yaml
+    profiles: [host]
+    inventory: fleet
+    paths:
+      - ansible.cfg
+      - requirements.yml
+      - inventory/group_vars/all.yml
+      - inventory/group_vars/pve_hosts.yml
+      - playbooks/pve.yaml
+      - roles/base/**
+    timeout: 30m
+
+  k3s-master:
+    playbook: playbooks/k3s-master.yaml
+    profiles: [k3s-master]
+    inventory: fleet
+    paths:
+      - ansible.cfg
+      - requirements.yml
+      - inventory/group_vars/all.yml
+      - inventory/group_vars/k3s_servers.yml
+      - secrets/k3s_servers.sops.yaml
+      - playbooks/k3s-master.yaml
+      - roles/base/**
+      - roles/k3s_addons/**
+      - roles/k3s_node/**
+      - roles/k3s_audit/**
+      - roles/k3s_io_priority/**
+      - roles/sops/**
+      - roles/k3s_backup/**
+    timeout: 45m
+
+  k3s-agent:
+    playbook: playbooks/k3s-agent.yaml
+    profiles: [k3s-agent]
+    inventory: fleet
+    paths:
+      - ansible.cfg
+      - requirements.yml
+      - inventory/group_vars/all.yml
+      - inventory/group_vars/k3s_agents.yml
+      - playbooks/k3s-agent.yaml
+      - roles/base/**
+      - roles/k3s_addons/**
+      - roles/k3s_node/**
+    timeout: 45m
+
+  keel-server:
+    playbook: playbooks/keel-server.yaml
+    profiles: [keel-server]
+    inventory: fleet
+    paths:
+      - ansible.cfg
+      - requirements.yml
+      - inventory/group_vars/all.yml
+      - inventory/group_vars/keel_servers.yml
+      - secrets/keel_servers.sops.yaml
+      - playbooks/keel-server.yaml
+      - roles/base/**
+      - roles/docker/**
+      - roles/sops/**
+      - roles/keel_server/**
+    timeout: 30m
+    params:
+      keel_server_image_digest: { kind: oci_digest }
+
+  # Keeps every node's runner in line with this repo. Bumping
+  # keel_runner_sha256 is the upgrade: the commit triggers this job, and the
+  # role restarts its own runner only after the job is over.
+  #
+  # It also lists every functional group's vars, because the role writes each
+  # node's keel_runner_allowed_profiles (set per group, never in
+  # keel_nodes.yml) into the runner's policy: a change to a group's profiles
+  # only takes effect on its nodes when this job runs.
+  keel-node:
+    playbook: playbooks/keel-node.yaml
+    profiles: [keel-node]
+    inventory: fleet
+    paths:
+      - ansible.cfg
+      - requirements.yml
+      - inventory/group_vars/all.yml
+      - inventory/group_vars/keel_nodes.yml
+      - inventory/group_vars/compose_hosts.yml
+      - inventory/group_vars/gameservers.yml
+      - inventory/group_vars/pve_hosts.yml
+      - inventory/group_vars/k3s_servers.yml
+      - inventory/group_vars/k3s_agents.yml
+      - inventory/group_vars/keel_servers.yml
+      - playbooks/keel-node.yaml
+      - roles/keel_runner/**
+    timeout: 30m
+
+  # Host vars only: a relay is configured per host (roles/keel_relay).
+  keel-relay:
+    playbook: playbooks/keel-relay.yaml
+    profiles: [keel-relay]
+    inventory: fleet
+    paths:
+      - ansible.cfg
+      - requirements.yml
+      - inventory/group_vars/all.yml
+      - playbooks/keel-relay.yaml
+      - roles/keel_relay/**
+    timeout: 30m
+
+  # Manual only (no paths): Keel runs these when asked, on any profile.
+  upgrade:
+    playbook: playbooks/upgrade.yaml
+    profiles: [debian, prox-vm, gameserver, host, k3s-master, k3s-agent, keel-server, keel-node]
+    inventory: fleet
+    timeout: 60m
+
+  clean:
+    playbook: playbooks/cleanup.yaml
+    profiles: [debian, prox-vm, gameserver, host, k3s-master, k3s-agent, keel-server, keel-node]
+    inventory: fleet
+    timeout: 30m

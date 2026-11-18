@@ -245,16 +245,19 @@ fn secrets(run_id: &str, sleep: bool) -> Frame {
                 value: SecretString::new(
                     serde_json::json!({ "db_password": LOOKUP, "port": 5432 }).to_string(),
                 ),
+                env_name: None,
             },
             SecretItem {
                 name: "prod-vault".to_owned(),
                 kind: "vault_password".to_owned(),
                 value: SecretString::new("vault-pass"),
+                env_name: None,
             },
             SecretItem {
                 name: "env".to_owned(),
                 kind: "env".to_owned(),
                 value: SecretString::new(env),
+                env_name: None,
             },
         ],
     }
@@ -272,6 +275,7 @@ fn assign(run_id: &str, job: &str, base: Option<&str>, target: &str, pack: &[u8]
         pack_size: pack.len() as u64,
         quorum: None,
         params: Default::default(),
+        check: false,
     }
 }
 

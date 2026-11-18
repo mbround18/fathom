@@ -1,0 +1,9 @@
+# Writes a marker so a test can tell which steps ran, in order.
+- hosts: all
+  gather_facts: false
+  tasks:
+    - name: marker
+      ansible.builtin.lineinfile:
+        path: /tmp/keel-converge-markers
+        line: tailscale
+        create: true

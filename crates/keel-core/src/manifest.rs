@@ -34,6 +34,15 @@ pub enum PathKind {
 pub trait RepoTree {
     /// What `path` (relative, `/`-separated, no symlinks followed) is, or `None` when absent.
     fn kind(&self, path: &str) -> Option<PathKind>;
+
+    /// The names of the directories directly inside directory `path` (not symbolic links to
+    /// directories), in name order; `None` when `path` is absent or not a directory. Used by
+    /// `choice` params with `from:` (spec 068). The default cannot list, so a `from:` choice
+    /// fails closed on a tree that does not implement it.
+    fn list_dirs(&self, path: &str) -> Option<Vec<String>> {
+        let _ = path;
+        None
+    }
 }
 
 /// One validation problem: where it is and what is wrong. Never contains file contents.
@@ -42,6 +51,10 @@ pub struct ManifestIssue {
     /// A dotted location, such as `jobs.web-deploy.playbook`.
     pub at: String,
     pub message: String,
+    /// A stable code for the rules added by spec 068 (`profile_cycle`, `env_name_reserved`, …;
+    /// contracts/manifest.md). Absent for older rules, and omitted from JSON when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
 }
 
 impl ManifestIssue {
@@ -49,6 +62,15 @@ impl ManifestIssue {
         Self {
             at: at.into(),
             message: message.into(),
+            code: None,
+        }
+    }
+
+    fn coded(at: impl Into<String>, code: &str, message: impl Into<String>) -> Self {
+        Self {
+            at: at.into(),
+            message: message.into(),
+            code: Some(code.to_owned()),
         }
     }
 }
@@ -63,18 +85,36 @@ pub struct Context {
 }
 
 /// A validated manifest.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Manifest {
     pub profiles: BTreeMap<String, Profile>,
     pub inventories: BTreeMap<String, RepoInventory>,
     pub jobs: BTreeMap<String, Job>,
+    /// Inventory group → profiles it suggests (spec 068 `groups:`). Never assigns.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub groups: BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
     #[serde(default)]
     pub description: Option<String>,
+    /// Profiles applied first, in order, recursively (spec 068 recipe).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub includes: Vec<String>,
+    /// Jobs applied after the includes, in order (spec 068 recipe).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub jobs: Vec<String>,
+}
+
+impl Profile {
+    /// Whether the profile declares a recipe. Without one, a converge runs every job whose
+    /// `profiles` names it, as before spec 068.
+    #[must_use]
+    pub fn has_recipe(&self) -> bool {
+        !self.includes.is_empty() || !self.jobs.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,6 +167,14 @@ pub struct JobDefinition {
     /// before 061 reads back, and one without params stores exactly as before.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub params: BTreeMap<String, ParamSpec>,
+    /// Jobs this one applies in full at the same commit (spec 068 `covers`). Omitted when empty,
+    /// so a definition without it stores exactly as before.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub covers: Vec<String>,
+    /// Environment name → credential name (an `env_value` credential), set for
+    /// `ansible-playbook` (spec 068 `env`). Omitted when empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub env: BTreeMap<String, String>,
 }
 
 /// The most params one job may declare.
@@ -137,6 +185,118 @@ pub const MAX_PARAMS: usize = 8;
 #[serde(deny_unknown_fields)]
 pub struct ParamSpec {
     pub kind: ParamKind,
+    /// `choice` only: the allowed values (1–[`MAX_CHOICE_VALUES`]). Exactly one of `values` and
+    /// `from`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub values: Option<Vec<String>>,
+    /// `choice` only: a repo-relative directory whose subdirectory names are the allowed values
+    /// at the commit (hidden and ill-formed names ignored; more than [`MAX_CHOICE_FROM`] is
+    /// refused).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    /// `choice` only: the value a form starts with. Must be one of the values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+}
+
+impl ParamSpec {
+    /// A param of `kind` with no `choice` fields.
+    #[must_use]
+    pub const fn of(kind: ParamKind) -> Self {
+        Self {
+            kind,
+            values: None,
+            from: None,
+            default: None,
+        }
+    }
+
+    /// A `choice` param's allowed values at `tree`: `values`, or the matching subdirectory names
+    /// of `from`, in order. `None` for other kinds.
+    ///
+    /// # Errors
+    ///
+    /// `from` is missing or not a directory at the tree, or lists more than [`MAX_CHOICE_FROM`]
+    /// entries; or the spec has neither or both of `values` and `from`.
+    pub fn choices(&self, tree: &dyn RepoTree) -> Option<Result<Vec<String>, ChoiceError>> {
+        if self.kind != ParamKind::Choice {
+            return None;
+        }
+        Some(match (&self.values, &self.from) {
+            (Some(values), None) => Ok(values.clone()),
+            (None, Some(from)) => choices_from(tree, from),
+            _ => Err(ChoiceError::Shape),
+        })
+    }
+
+    /// Whether `value` may be passed for this param at `tree`: of the right kind and, for a
+    /// `choice`, one of the choices there. The error names no value.
+    ///
+    /// # Errors
+    ///
+    /// Why the value doesn't fit.
+    pub fn check_value(&self, value: &str, tree: &dyn RepoTree) -> Result<(), String> {
+        self.kind.validate(value).map_err(str::to_owned)?;
+        match self.choices(tree) {
+            None => Ok(()),
+            Some(Err(e)) => Err(e.to_string()),
+            Some(Ok(c)) if c.iter().any(|v| v == value) => Ok(()),
+            Some(Ok(_)) => Err("not one of the choices at the commit".to_owned()),
+        }
+    }
+}
+
+/// The most `values` a `choice` param may list.
+pub const MAX_CHOICE_VALUES: usize = 64;
+
+/// The most entries a `choice` param's `from:` directory may hold, counting only matching names.
+pub const MAX_CHOICE_FROM: usize = 256;
+
+/// Why a `choice` param's values cannot be listed. `code` is the manifest validation code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ChoiceError {
+    #[error("a choice has exactly one of values (1-64 valid names) or from")]
+    Shape,
+    #[error("the choice's from directory is missing at the commit")]
+    FromMissing,
+    #[error("the choice's from directory has more than 256 entries")]
+    FromTooMany,
+}
+
+impl ChoiceError {
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Shape => "choice_shape",
+            Self::FromMissing => "choice_from_missing",
+            Self::FromTooMany => "choice_from_too_many",
+        }
+    }
+}
+
+/// `^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`: a `choice` value.
+#[must_use]
+pub fn is_choice_value(v: &str) -> bool {
+    let mut bytes = v.bytes();
+    v.len() <= 63
+        && matches!(bytes.next(), Some(b) if b.is_ascii_alphanumeric())
+        && bytes.all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+fn choices_from(tree: &dyn RepoTree, from: &str) -> Result<Vec<String>, ChoiceError> {
+    if check_relative(from).is_err() || tree.kind(from.trim_end_matches('/')) != Some(PathKind::Dir)
+    {
+        return Err(ChoiceError::FromMissing);
+    }
+    let names = tree
+        .list_dirs(from.trim_end_matches('/'))
+        .ok_or(ChoiceError::FromMissing)?;
+    // Hidden names fail `is_choice_value` (they start with '.').
+    let names: Vec<String> = names.into_iter().filter(|n| is_choice_value(n)).collect();
+    if names.len() > MAX_CHOICE_FROM {
+        return Err(ChoiceError::FromTooMany);
+    }
+    Ok(names)
 }
 
 /// The kinds a parameter can be. Closed: anything else is refused at parse.
@@ -145,6 +305,10 @@ pub struct ParamSpec {
 pub enum ParamKind {
     /// `sha256:` and 64 lowercase hex characters.
     OciDigest,
+    /// One of a list of names (spec 068): `values`, or the directories under `from` at the
+    /// commit. [`ParamKind::validate`] checks only the name's shape; [`ParamSpec::check_value`]
+    /// checks it is one of the choices.
+    Choice,
 }
 
 impl ParamKind {
@@ -163,6 +327,13 @@ impl ParamKind {
                     Ok(())
                 } else {
                     Err("not an OCI digest (sha256: and 64 lowercase hex characters)")
+                }
+            }
+            Self::Choice => {
+                if is_choice_value(value) {
+                    Ok(())
+                } else {
+                    Err("not a choice value ([A-Za-z0-9][A-Za-z0-9._-]{0,62})")
                 }
             }
         }
@@ -196,6 +367,8 @@ struct RawManifest {
     inventories: BTreeMap<String, RepoInventory>,
     #[serde(default)]
     jobs: BTreeMap<String, RawJob>,
+    #[serde(default)]
+    groups: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -219,6 +392,10 @@ struct RawJob {
     rollback: Option<Rollback>,
     #[serde(default)]
     params: BTreeMap<String, ParamSpec>,
+    #[serde(default)]
+    covers: Vec<String>,
+    #[serde(default)]
+    env: BTreeMap<String, String>,
 }
 
 /// Parses and validates `bytes` (the manifest at the fetched head) against `tree`.
@@ -258,7 +435,7 @@ pub fn validate(
                 "profile names use a-z, 0-9, '-' and '_' (at most 63)",
             ));
         }
-        profiles.insert(name, profile.unwrap_or(Profile { description: None }));
+        profiles.insert(name, profile.unwrap_or_default());
     }
 
     for (name, inv) in &raw.inventories {
@@ -275,6 +452,7 @@ pub fn validate(
         }
     }
 
+    let declared_jobs: BTreeSet<String> = raw.jobs.keys().cloned().collect();
     let mut jobs = BTreeMap::new();
     for (name, job) in raw.jobs {
         let at = format!("jobs.{name}");
@@ -284,6 +462,7 @@ pub fn validate(
                 "job names use a-z, 0-9, '-' and '_' (at most 63)",
             ));
         }
+        validate_covers(&at, &job.covers, &declared_jobs, &mut issues);
         if let Some(job) = validate_job(
             &at,
             job,
@@ -297,12 +476,22 @@ pub fn validate(
         }
     }
 
+    validate_recipes(&profiles, &declared_jobs, &mut issues);
+    validate_groups(&raw.groups, &profiles, &mut issues);
+
     if issues.is_empty() {
-        Ok(Manifest {
+        let manifest = Manifest {
             profiles,
             inventories: raw.inventories,
             jobs,
-        })
+            groups: raw.groups,
+        };
+        validate_plans(&manifest, &mut issues);
+        if issues.is_empty() {
+            Ok(manifest)
+        } else {
+            Err(issues)
+        }
     } else {
         Err(issues)
     }
@@ -374,11 +563,12 @@ fn validate_job(
             format!("a job declares at most {MAX_PARAMS} params"),
         ));
     }
-    for name in job.params.keys() {
+    for (name, spec) in &job.params {
         let pat = format!("{at}.params.{name}");
         if let Err(why) = check_param_name(name) {
             issues.push(ManifestIssue::new(&pat, why));
         }
+        validate_param(&pat, spec, tree, issues);
         if job.vars.contains_key(name) {
             issues.push(ManifestIssue::new(
                 &pat,
@@ -435,6 +625,8 @@ fn validate_job(
         }
     }
 
+    validate_env(at, &job.env, issues);
+
     if issues.len() != before {
         return None;
     }
@@ -457,9 +649,165 @@ fn validate_job(
             timeout_secs,
             rollback: job.rollback,
             params: job.params,
+            covers: job.covers,
+            env: job.env,
         },
         missing_credentials,
     })
+}
+
+/// `jobs.<j>.covers`: declared jobs, not itself, each once. Cycles are found by
+/// [`validate_plans`] once every job is valid.
+fn validate_covers(
+    at: &str,
+    covers: &[String],
+    declared_jobs: &BTreeSet<String>,
+    issues: &mut Vec<ManifestIssue>,
+) {
+    let me = at.strip_prefix("jobs.").unwrap_or(at);
+    let cat = format!("{at}.covers");
+    let mut seen = BTreeSet::new();
+    for c in covers {
+        if c == me {
+            issues.push(ManifestIssue::coded(
+                &cat,
+                "self_cover",
+                format!("job '{me}' covers itself"),
+            ));
+        } else if !declared_jobs.contains(c) {
+            issues.push(ManifestIssue::coded(
+                &cat,
+                "unknown_cover",
+                format!("'{c}' is not a job in this manifest"),
+            ));
+        } else if !seen.insert(c) {
+            issues.push(ManifestIssue::coded(
+                &cat,
+                "unknown_cover",
+                format!("'{c}' is listed twice"),
+            ));
+        }
+    }
+}
+
+/// `jobs.<j>.env`: at most [`crate::env_names::MAX_JOB_ENV`] entries, each a valid, unreserved
+/// name mapped to a credential name. Whether the credential exists is the server's concern
+/// (a warning at sync, `credential_unavailable` at dispatch).
+fn validate_env(at: &str, env: &BTreeMap<String, String>, issues: &mut Vec<ManifestIssue>) {
+    use crate::env_names::{self, MAX_JOB_ENV};
+    if env.len() > MAX_JOB_ENV {
+        issues.push(ManifestIssue::coded(
+            format!("{at}.env"),
+            "env_too_many",
+            format!("a job sets at most {MAX_JOB_ENV} environment names"),
+        ));
+    }
+    for (name, credential) in env {
+        let nat = format!("{at}.env.{name}");
+        if let Err(e) = env_names::check(name) {
+            issues.push(ManifestIssue::coded(&nat, e.code(), e.to_string()));
+        }
+        if !is_name(credential) {
+            issues.push(ManifestIssue::coded(
+                &nat,
+                "env_name_invalid",
+                "the value is a credential name: a-z, 0-9, '-' and '_' (at most 63)",
+            ));
+        }
+    }
+}
+
+/// `profiles.<p>.includes` and `.jobs`: declared names, no job twice in one recipe.
+fn validate_recipes(
+    profiles: &BTreeMap<String, Profile>,
+    declared_jobs: &BTreeSet<String>,
+    issues: &mut Vec<ManifestIssue>,
+) {
+    for (name, p) in profiles {
+        for inc in &p.includes {
+            if !profiles.contains_key(inc) {
+                issues.push(ManifestIssue::coded(
+                    format!("profiles.{name}.includes"),
+                    "unknown_include",
+                    format!("profile '{inc}' is not declared under profiles"),
+                ));
+            }
+        }
+        let at = format!("profiles.{name}.jobs");
+        let mut seen = BTreeSet::new();
+        for job in &p.jobs {
+            if !declared_jobs.contains(job) {
+                issues.push(ManifestIssue::coded(
+                    &at,
+                    "unknown_recipe_job",
+                    format!("job '{job}' is not declared under jobs"),
+                ));
+            } else if !seen.insert(job) {
+                issues.push(ManifestIssue::coded(
+                    &at,
+                    "duplicate_recipe_job",
+                    format!("job '{job}' is listed twice"),
+                ));
+            }
+        }
+    }
+}
+
+/// `groups:` values must be declared profiles. Keys are inventory groups and are not checked:
+/// an unknown group simply matches no host.
+fn validate_groups(
+    groups: &BTreeMap<String, Vec<String>>,
+    profiles: &BTreeMap<String, Profile>,
+    issues: &mut Vec<ManifestIssue>,
+) {
+    for (group, targets) in groups {
+        for p in targets {
+            if !profiles.contains_key(p) {
+                issues.push(ManifestIssue::coded(
+                    format!("groups.{group}"),
+                    "unknown_group_profile",
+                    format!("profile '{p}' is not declared under profiles"),
+                ));
+            }
+        }
+    }
+}
+
+/// What needs the whole manifest: every profile expands (no cycle, at most 32 steps and 8
+/// deep) and `covers` closes without a cycle. Each cycle is reported once.
+fn validate_plans(m: &Manifest, issues: &mut Vec<ManifestIssue>) {
+    use crate::converge::{self, CoverError, ExpandError};
+    let mut cycles: BTreeSet<BTreeSet<String>> = BTreeSet::new();
+    for name in m.profiles.keys() {
+        match converge::expand(std::slice::from_ref(name), m) {
+            Ok(_) => {}
+            Err(ExpandError::Cycle(c)) => {
+                if cycles.insert(c.iter().cloned().collect()) {
+                    issues.push(ManifestIssue::coded(
+                        format!("profiles.{name}.includes"),
+                        "profile_cycle",
+                        ExpandError::Cycle(c).to_string(),
+                    ));
+                }
+            }
+            Err(e) => issues.push(ManifestIssue::coded(
+                format!("profiles.{name}"),
+                e.code(),
+                e.to_string(),
+            )),
+        }
+    }
+    if let Err(e) = converge::coverage(m) {
+        let at = match &e {
+            CoverError::SelfCover(j) | CoverError::Unknown { job: j, .. } => j.clone(),
+            CoverError::Cycle(c) => c.first().cloned().unwrap_or_default(),
+        };
+        issues.push(ManifestIssue::coded(
+            format!("jobs.{at}.covers"),
+            e.code(),
+            e.to_string(),
+        ));
+    }
 }
 
 /// Names of profiles, jobs, inventories and credentials.
@@ -470,6 +818,66 @@ fn is_name(s: &str) -> bool {
         && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit())
         && b.iter()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-' || *c == b'_')
+}
+
+/// A param's `choice` fields (spec 068): only on kind `choice`; exactly one of `values` (1–64
+/// distinct valid names) or `from` (a directory at the commit, at most 256 matching entries); a
+/// `default` that is one of the values.
+fn validate_param(
+    at: &str,
+    spec: &ParamSpec,
+    tree: &dyn RepoTree,
+    issues: &mut Vec<ManifestIssue>,
+) {
+    if spec.kind != ParamKind::Choice {
+        if spec.values.is_some() || spec.from.is_some() || spec.default.is_some() {
+            issues.push(ManifestIssue::coded(
+                at,
+                ChoiceError::Shape.code(),
+                "values, from and default are only for kind choice",
+            ));
+        }
+        return;
+    }
+    if let Some(values) = &spec.values {
+        let distinct: BTreeSet<&String> = values.iter().collect();
+        if values.is_empty()
+            || values.len() > MAX_CHOICE_VALUES
+            || distinct.len() != values.len()
+            || !values.iter().all(|v| is_choice_value(v))
+        {
+            issues.push(ManifestIssue::coded(
+                format!("{at}.values"),
+                ChoiceError::Shape.code(),
+                format!(
+                    "1 to {MAX_CHOICE_VALUES} distinct values matching [A-Za-z0-9][A-Za-z0-9._-]{{0,62}}"
+                ),
+            ));
+            return;
+        }
+    }
+    let choices = match spec.choices(tree) {
+        Some(Ok(c)) => c,
+        Some(Err(e)) => {
+            let at = if e == ChoiceError::Shape {
+                at.to_owned()
+            } else {
+                format!("{at}.from")
+            };
+            issues.push(ManifestIssue::coded(at, e.code(), e.to_string()));
+            return;
+        }
+        None => return,
+    };
+    if let Some(d) = &spec.default
+        && !choices.contains(d)
+    {
+        issues.push(ManifestIssue::coded(
+            format!("{at}.default"),
+            "choice_default",
+            "the default is not one of the choices",
+        ));
+    }
 }
 
 /// A path relative to the repository root that cannot leave it lexically.

@@ -16,15 +16,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use keel_core::WorkspaceId;
 use keel_core::authz::{self, Capability};
-use keel_core::manifest::JobDefinition;
+use keel_core::manifest::{JobDefinition, ParamSpec, PathKind, RepoTree};
 use keel_core::policy::{self, Policy, PolicyMatch};
 use keel_core::ports::CommitId;
 use keel_core::run::{RunEvent, RunState, RunStatus, StateReason};
 use keel_core::target::{self, Target};
-use keel_git::Mirror;
+use keel_git::{Mirror, TreeAt};
 use keel_protocol::{
-    ApprovalEntry, Cmd, Event, FirstFailure, HostStats, JobInfo, PolicyCheck, PolicyInfo,
-    PolicySpec, RunApproval, RunHostInfo, RunInfo, RunPhase, RunSummary,
+    ApprovalEntry, Cmd, Event, FirstFailure, HostStats, JobInfo, ParamView, PolicyCheck,
+    PolicyInfo, PolicySpec, RunApproval, RunHostInfo, RunInfo, RunPhase, RunSummary,
 };
 use serde_json::{Value, json};
 use sqlx::PgConnection;
@@ -96,6 +96,7 @@ pub async fn on_push(app: &AppState, p: Push<'_>) {
         Trigger::Create(a) | Trigger::Manual(a) => ("manual", None, user_of(a)),
     };
     let actor = p.trigger.actor();
+    let changed: Vec<String> = changed.into_iter().collect();
     for (job, name, def) in jobs {
         let Ok(def) = serde_json::from_value::<JobDefinition>(def) else {
             continue;
@@ -104,6 +105,10 @@ pub async fn on_push(app: &AppState, p: Push<'_>) {
         if !target::paths_match(paths, &changed) {
             continue;
         }
+        let path = PathRun {
+            changed: &changed,
+            paths,
+        };
         let new = NewRun {
             workspace: p.workspace,
             binding,
@@ -121,6 +126,8 @@ pub async fn on_push(app: &AppState, p: Push<'_>) {
             only_hosts: None,
             params: &BTreeMap::new(),
             update: None,
+            path: Some(path),
+            check: false,
         };
         if let Err(e) = create_run(app, &new).await {
             tracing::error!(error = %e, job = %name, "creating a run failed");
@@ -156,6 +163,18 @@ struct NewRun<'a> {
     params: &'a BTreeMap<String, String>,
     /// Set for a Keel update run (spec 061 US4): one at a time, audited.
     update: Option<&'a UpdateAudit>,
+    /// Set for a path-triggered run (spec 068): narrowed by vars files (FR-020) and covered by
+    /// pending converges (FR-010).
+    path: Option<PathRun<'a>>,
+    /// `ansible-playbook --check --diff` (spec 068 FR-011): matched by policy as a check run,
+    /// sent as `Assign.check`, and records no host revision.
+    check: bool,
+}
+
+/// What a push changed and the job's `paths` globs.
+struct PathRun<'a> {
+    changed: &'a [String],
+    paths: &'a [String],
 }
 
 /// What a Keel update run audits as `keel_update_requested` (spec 061 data-model.md).
@@ -184,6 +203,90 @@ pub fn check_params(def: &JobDefinition, params: &BTreeMap<String, String>) -> R
         }
     }
     Ok(())
+}
+
+/// [`check_params`], and each `choice` value is one of the choices at `tree` (spec 068 FR-014).
+/// The error names the param, never the value.
+///
+/// # Errors
+///
+/// What is wrong with the first bad param.
+pub fn check_params_at(
+    def: &JobDefinition,
+    params: &BTreeMap<String, String>,
+    tree: &dyn RepoTree,
+) -> Result<(), String> {
+    for (name, value) in params {
+        let Some(spec) = def.params.get(name) else {
+            return Err(format!("the job does not declare the param {name}"));
+        };
+        if let Err(why) = spec.check_value(value, tree) {
+            return Err(format!("param {name}: {why}"));
+        }
+    }
+    Ok(())
+}
+
+/// A tree with nothing in it: a `from:` choice reads as missing, so it fails closed.
+struct EmptyTree;
+
+impl RepoTree for EmptyTree {
+    fn kind(&self, _: &str) -> Option<PathKind> {
+        None
+    }
+}
+
+/// Runs `f` against the binding's tree at `commit` (spec 068 `choice` params). No commit, or a
+/// mirror that cannot be opened, reads as an empty tree.
+async fn with_tree<T, F>(app: &AppState, binding: Uuid, commit: Option<String>, f: F) -> T
+where
+    T: Send + 'static,
+    F: FnOnce(&dyn RepoTree) -> T + Send + 'static,
+{
+    let dir = crate::sync::data_dir(app);
+    tokio::task::spawn_blocking(move || {
+        let mirror = commit
+            .as_ref()
+            .and_then(|_| Mirror::open(&dir, binding).ok());
+        match (mirror, commit) {
+            (Some(mirror), Some(commit)) => f(&TreeAt {
+                mirror: &mirror,
+                commit: &CommitId(commit),
+            }),
+            _ => f(&EmptyTree),
+        }
+    })
+    .await
+    .unwrap_or_else(|e| std::panic::resume_unwind(e.into_panic()))
+}
+
+/// A declared param as a start form shows it, its `choice` values resolved at `tree`.
+fn param_view(spec: &ParamSpec, tree: &dyn RepoTree) -> ParamView {
+    let kind = serde_json::to_value(spec.kind)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_default();
+    let (allowed, unavailable) = match spec.choices(tree) {
+        None => (None, None),
+        Some(Ok(values)) => (Some(values), None),
+        Some(Err(e)) => (None, Some(e.code().to_owned())),
+    };
+    ParamView {
+        kind,
+        allowed,
+        default: spec.default.clone(),
+        unavailable,
+    }
+}
+
+/// " Params: name=value, …." for a preview summary; empty when there are none. Param values are
+/// digests and choice names, never secrets.
+fn params_note(params: &BTreeMap<String, String>) -> String {
+    if params.is_empty() {
+        return String::new();
+    }
+    let list: Vec<String> = params.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    format!(" Params: {}.", list.join(", "))
 }
 
 /// Locks out a concurrent update request and returns the update run already pending, queued or
@@ -222,16 +325,18 @@ async fn plan(
     job_name: &str,
     def: &JobDefinition,
     run_limit: Option<&str>,
+    check: bool,
 ) -> Result<Result<Plan, target::LimitError>, sqlx::Error> {
     let policies = load_policies(&mut *conn, workspace).await?;
     let limit = run_limit.or(def.limit.as_deref());
-    let explanation = policy::resolve(
+    let explanation = policy::resolve_check(
         &policies,
         &policy::Subject {
             job: job_name,
             inventory: &def.inventory,
             limit,
         },
+        check,
     );
     let policy = explanation.winner.clone();
     let pinned = crate::inventory::pin_latest(&mut *conn, workspace, &def.inventory).await?;
@@ -331,7 +436,16 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     })
     .await;
     let pinned = matches!(pinned, Ok(Ok(())));
-    let plan = match plan(&mut tx, new.workspace, new.job_name, new.def, new.run_limit).await? {
+    let plan = match plan(
+        &mut tx,
+        new.workspace,
+        new.job_name,
+        new.def,
+        new.run_limit,
+        new.check,
+    )
+    .await?
+    {
         Ok(p) => p,
         Err(e) => {
             // A job limit the manifest accepted but targeting cannot read: fail closed.
@@ -355,6 +469,38 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     let mut plan = plan;
     if let Some(only) = new.only_hosts {
         plan.hosts.retain(|h| only.contains(&h.1));
+    }
+    let mut narrowed_by: Option<Vec<String>> = None;
+    if let (Some(path), Some(revision)) = (&new.path, plan.revision)
+        && !plan.hosts.is_empty()
+        && let Some(keep) = narrowing(&mut tx, revision, path).await?
+    {
+        plan.hosts.retain(|h| keep.contains(&h.1));
+        let by = target::matching_paths(path.paths, path.changed);
+        if plan.hosts.is_empty() {
+            // FR-020: the vars files name no host this job reaches: no run.
+            audit::record(
+                &mut tx,
+                Entry {
+                    actor: new.actor,
+                    action: "run.skipped",
+                    workspace: Some(WorkspaceId(new.workspace)),
+                    target: json!({ "job": new.job }),
+                    decision: Decision::Allowed,
+                    reason: Some("no_hosts"),
+                    context: json!({
+                        "trigger": new.trigger,
+                        "commit": new.commit,
+                        "inventory_revision": plan.revision,
+                        "narrowed_by": by,
+                    }),
+                },
+            )
+            .await?;
+            tx.commit().await?;
+            return Ok(id);
+        }
+        narrowed_by = Some(by);
     }
     let mut unrunnable = if pinned {
         plan.unrunnable
@@ -394,17 +540,38 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     };
     let names: Vec<String> = plan.hosts.iter().map(|h| h.1.clone()).collect();
     let ended = status.state == RunState::Failed;
+    // FR-010: a path run's host with a pending converge that applies this job ends `covered`.
+    let covered: BTreeMap<Uuid, Uuid> = if new.path.is_some() && !ended {
+        coverage(app, &mut tx, new, &plan.hosts).await?
+    } else {
+        BTreeMap::new()
+    };
+    // Spec 068 US7: a run from a binding with required checks waits for them before review,
+    // approval or the queue. One whose every host is covered has nothing to wait for.
+    let all_covered = !covered.is_empty() && covered.len() == plan.hosts.len();
+    let contexts = if all_covered {
+        Vec::new()
+    } else {
+        crate::checks::required(&mut tx, new.binding).await?
+    };
+    let then = status;
+    let status = if crate::checks::gates(status, &contexts) {
+        crate::checks::waiting()
+    } else {
+        status
+    };
     sqlx::query(
         "insert into runs (id, workspace_id, job_id, binding_id, job_name, trigger, delivery_id, \
          requested_by, commit, inventory_revision_id, inventory_name, resolved_hosts, run_limit, \
          policy_id, signed_mode, state, state_reason, queued_at, ended_at, summary, params, \
-         approvals_needed, four_eyes, approval_expires_at) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
-         case when $16 = 'queued' then now() end, case when $18 then now() end, \
+         approvals_needed, four_eyes, approval_expires_at, narrowed_by, check_mode) \
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $26, $17, \
+         case when $26 = 'queued' then now() end, case when $18 then now() end, \
          case when $18 then $19 end, $20, \
          case when $16 = 'pending_approval' then $21 end, \
          case when $16 = 'pending_approval' then $22 end, \
-         case when $16 = 'pending_approval' then now() + $23 * interval '1 second' end)",
+         case when $16 = 'pending_approval' then now() + $23 * interval '1 second' end, $24, \
+         $25)",
     )
     .bind(id)
     .bind(new.workspace)
@@ -421,7 +588,7 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     .bind(new.run_limit)
     .bind((!plan.policy.id.is_nil()).then_some(plan.policy.id))
     .bind(new.signed_mode)
-    .bind(status.state.as_str())
+    .bind(then.state.as_str())
     .bind(status.reason.map(|r| r.as_str()))
     .bind(ended)
     .bind(json!(RunSummary::default()))
@@ -430,19 +597,48 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     .bind(i32::from(plan.policy.approvals_needed.max(1)))
     .bind(plan.policy.four_eyes)
     .bind(i64::from(plan.policy.approval_ttl_secs))
+    .bind(&narrowed_by)
+    .bind(new.check)
+    // $16 is where the run goes once any required checks pass; $26 is where it starts.
+    .bind(status.state.as_str())
     .execute(&mut *tx)
     .await?;
+    if status.state == RunState::WaitingChecks {
+        crate::checks::hold(&mut tx, id, &contexts).await?;
+    }
     if !ended {
         let ids: Vec<Uuid> = plan.hosts.iter().map(|h| h.0).collect();
+        let by: Vec<Option<Uuid>> = ids.iter().map(|h| covered.get(h).copied()).collect();
         sqlx::query(
-            "insert into run_hosts (run_id, host_id, host_name) \
-             select $1, * from unnest($2::uuid[], $3::text[])",
+            "insert into run_hosts (run_id, host_id, host_name, state, covered_by, ended_at) \
+             select $1, h, n, case when c is null then 'queued' else 'covered' end, c, \
+                    case when c is not null then now() end \
+             from unnest($2::uuid[], $3::text[], $4::uuid[]) as t(h, n, c)",
         )
         .bind(id)
         .bind(&ids)
         .bind(&names)
+        .bind(&by)
         .execute(&mut *tx)
         .await?;
+        for (host, name) in &plan.hosts {
+            let Some(converge) = covered.get(host) else {
+                continue;
+            };
+            audit::record(
+                &mut tx,
+                Entry {
+                    actor: new.actor,
+                    action: "run_host.covered",
+                    workspace: Some(WorkspaceId(new.workspace)),
+                    target: json!({ "run": id, "host": host }),
+                    decision: Decision::Allowed,
+                    reason: None,
+                    context: json!({ "host_name": name, "covered_by": converge, "job": new.job_name }),
+                },
+            )
+            .await?;
+        }
     }
     let mut groups = Vec::new();
     if !ended && let Some((bases, drafts)) = &early {
@@ -479,6 +675,10 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
                 "policy_reason": plan.explanation.reason,
                 "review_groups": groups,
                 "params": new.params,
+                "narrowed_by": narrowed_by,
+                "covered": covered.len(),
+                "check": new.check,
+                "required_checks": contexts,
             }),
         },
     )
@@ -517,10 +717,109 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
         );
     }
     crate::queue::push_state(app, new.workspace, id, status);
-    if status.state == RunState::Queued {
+    if all_covered {
+        // Every host is covered: nothing will run, so the run ends now.
+        crate::queue::maybe_finish(app, id).await;
+    } else if status.state == RunState::Queued {
         crate::queue::kick(app);
     }
     Ok(id)
+}
+
+/// FR-020: the hosts a path run narrows to, from the pinned revision's groups; `None` keeps
+/// every host.
+async fn narrowing(
+    conn: &mut PgConnection,
+    revision: Uuid,
+    path: &PathRun<'_>,
+) -> Result<Option<BTreeSet<String>>, sqlx::Error> {
+    let inventory: Vec<(String, Vec<String>)> =
+        sqlx::query_as("select host, groups from inventory_hosts where revision_id = $1")
+            .bind(revision)
+            .fetch_all(&mut *conn)
+            .await?;
+    let inventory: Vec<keel_core::inventory::HostGroups> = inventory
+        .into_iter()
+        .map(|(host, groups)| keel_core::inventory::HostGroups { host, groups })
+        .collect();
+    Ok(keel_core::converge::narrow_by_vars(
+        path.changed,
+        path.paths,
+        &inventory,
+    ))
+}
+
+/// FR-010: for each of `hosts`, the open converge of the same binding that still has a step
+/// applying `new.job_name` on it (the job itself, or one that covers it) at `new.commit` or a
+/// descendant of it. Converges are tried oldest first.
+async fn coverage(
+    app: &AppState,
+    conn: &mut PgConnection,
+    new: &NewRun<'_>,
+    hosts: &[(Uuid, String)],
+) -> Result<BTreeMap<Uuid, Uuid>, sqlx::Error> {
+    let ids: Vec<Uuid> = hosts.iter().map(|h| h.0).collect();
+    let open: Vec<(Uuid, Uuid, String, Vec<String>)> = sqlx::query_as(
+        "select ch.host_id, cr.id, cr.commit, array_agg(s.job_name order by s.position) \
+         from converge_hosts ch \
+         join runs cr on cr.id = ch.run_id \
+         join converge_steps s on s.run_id = ch.run_id and s.host_id = ch.host_id \
+         join run_hosts rh on rh.run_id = s.step_run_id and rh.host_id = s.host_id \
+         where ch.host_id = any($1) and ch.state in ('waiting', 'holding') \
+           and cr.kind = 'converge' and cr.binding_id = $2 and cr.ended_at is null \
+           and not cr.check_mode \
+           and rh.state in ('blocked', 'queued', 'sent', 'running') \
+         group by ch.host_id, cr.id, cr.commit, cr.created_at \
+         order by cr.created_at, cr.id",
+    )
+    .bind(&ids)
+    .bind(new.binding)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut out = BTreeMap::new();
+    // Per converge: whether its commit is the run's or a descendant, and its coverage.
+    let mut seen: BTreeMap<Uuid, Option<keel_core::converge::Coverage>> = BTreeMap::new();
+    for (host, converge, commit, remaining) in open {
+        if out.contains_key(&host) {
+            continue;
+        }
+        if let std::collections::btree_map::Entry::Vacant(slot) = seen.entry(converge) {
+            let usable = if newer_or_same(app, new.binding, new.commit, &commit).await {
+                match crate::sync::manifest_at(app, new.binding, &commit, new.signed_mode).await? {
+                    Ok(m) => keel_core::converge::coverage(&m).ok(),
+                    Err(_) => None,
+                }
+            } else {
+                None
+            };
+            slot.insert(usable);
+        }
+        if let Some(Some(cov)) = seen.get(&converge)
+            && keel_core::converge::covers(&remaining, new.job_name, cov)
+        {
+            out.insert(host, converge);
+        }
+    }
+    Ok(out)
+}
+
+/// Whether `converge` is `run` or a descendant of it, by the binding's mirror.
+async fn newer_or_same(app: &AppState, binding: Uuid, run: &str, converge: &str) -> bool {
+    if run == converge {
+        return true;
+    }
+    let dir = crate::sync::data_dir(app);
+    let (run, converge) = (CommitId(run.to_owned()), CommitId(converge.to_owned()));
+    let ancestry = tokio::task::spawn_blocking(move || {
+        Mirror::open(&dir, binding)?.classify(Some(&run), &converge)
+    })
+    .await;
+    matches!(
+        ancestry,
+        Ok(Ok(
+            keel_git::Ancestry::Same | keel_git::Ancestry::FastForward
+        ))
+    )
 }
 
 /// What a baseline run is made from (spec 055 US8: the run id is signed before it exists).
@@ -561,6 +860,8 @@ pub(crate) async fn create_baseline_run(
             only_hosts: Some(b.hosts),
             params: &BTreeMap::new(),
             update: None,
+            path: None,
+            check: false,
         },
     )
     .await
@@ -603,6 +904,8 @@ pub(crate) async fn create_update_run(
             only_hosts: None,
             params: &params,
             update: Some(audit),
+            path: None,
+            check: false,
         },
     )
     .await
@@ -616,7 +919,7 @@ pub(crate) async fn plan_summary(
     job_name: &str,
     def: &JobDefinition,
 ) -> Result<Option<(Vec<String>, String)>, sqlx::Error> {
-    let Ok(p) = plan(conn, workspace, job_name, def, None).await? else {
+    let Ok(p) = plan(conn, workspace, job_name, def, None, false).await? else {
         return Ok(None);
     };
     if p.unrunnable.is_some() || p.hosts.is_empty() {
@@ -649,18 +952,20 @@ pub(crate) async fn plan_hosts(
     job_name: &str,
     def: &JobDefinition,
 ) -> Result<Option<(Vec<(Uuid, String)>, bool, i64)>, sqlx::Error> {
-    Ok(match plan(conn, workspace, job_name, def, None).await? {
-        Ok(p) if p.unrunnable.is_none() => Some((
-            p.hosts,
-            p.policy.id.is_nil() || p.policy.four_eyes,
-            if p.policy.id.is_nil() {
-                crate::review::MAX_OVERRIDE_SECS
-            } else {
-                i64::from(p.policy.approval_ttl_secs)
-            },
-        )),
-        _ => None,
-    })
+    Ok(
+        match plan(conn, workspace, job_name, def, None, false).await? {
+            Ok(p) if p.unrunnable.is_none() => Some((
+                p.hosts,
+                p.policy.id.is_nil() || p.policy.four_eyes,
+                if p.policy.id.is_nil() {
+                    crate::review::MAX_OVERRIDE_SECS
+                } else {
+                    i64::from(p.policy.approval_ttl_secs)
+                },
+            )),
+            _ => None,
+        },
+    )
 }
 
 // ---- commands --------------------------------------------------------------------------------
@@ -744,8 +1049,21 @@ pub async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
         }
         // The socket drops the subscription before dispatching; nothing to answer.
         Cmd::UnsubscribeRun { .. } => Vec::new(),
-        Cmd::PreviewRunStart { job, limit } => {
-            preview_run_start(app, req, job, limit.map(|l| l.as_str().to_owned())).await
+        Cmd::PreviewRunStart {
+            job,
+            limit,
+            params,
+            check,
+        } => {
+            preview_run_start(
+                app,
+                req,
+                job,
+                limit.map(|l| l.as_str().to_owned()),
+                params,
+                check,
+            )
+            .await
         }
         Cmd::PreviewCancel { run } => preview_cancel(app, req, run).await,
         Cmd::ListJobs { binding } => {
@@ -880,11 +1198,29 @@ pub(crate) async fn load_job(app: &AppState, job: Uuid) -> Result<Option<JobRow>
     }))
 }
 
+/// The credential names a job uses, for a preview: names only, never values (spec 068 T055).
+/// Empty when it uses none; otherwise a sentence to append to a summary.
+pub(crate) fn credentials_note(def: &JobDefinition) -> String {
+    let mut names: Vec<String> = def.credentials.clone();
+    names.extend(
+        def.env
+            .iter()
+            .map(|(var, cred)| format!("{cred} (as ${var})")),
+    );
+    if names.is_empty() {
+        String::new()
+    } else {
+        format!(" Credentials sent: {}.", names.join(", "))
+    }
+}
+
 async fn preview_run_start(
     app: &AppState,
     req: &Request<'_>,
     job: Uuid,
     limit: Option<String>,
+    params: BTreeMap<String, String>,
+    check: bool,
 ) -> Vec<Event> {
     const ACTION: &str = "preview_run_start";
     let Some((binding, ws, name, def, blocked)) = (match load_job(app, job).await {
@@ -915,11 +1251,23 @@ async fn preview_run_start(
     if status != "active" {
         return op_error("binding_disabled", "The binding is disabled.");
     }
+    // Spec 068 FR-014: a `choice` value must be listed at the commit the run pins; anything else
+    // is refused here, before any approval.
+    if !params.is_empty() {
+        let (d, p) = (def.clone(), params.clone());
+        let checked = with_tree(app, binding, Some(commit.clone()), move |tree| {
+            check_params_at(&d, &p, tree)
+        })
+        .await;
+        if let Err(why) = checked {
+            return op_error("param_invalid", &format!("The run's {why}."));
+        }
+    }
     let mut conn = match app.db.acquire().await {
         Ok(c) => c,
         Err(e) => return db_failed(&e),
     };
-    let p = match plan(&mut conn, ws, &name, &def, limit.as_deref()).await {
+    let p = match plan(&mut conn, ws, &name, &def, limit.as_deref(), check).await {
         Ok(Ok(p)) => p,
         Ok(Err(e)) => return op_error(e.code(), &e.to_string()),
         Err(e) => return db_failed(&e),
@@ -939,7 +1287,12 @@ async fn preview_run_start(
     }
     let affected: Vec<String> = p.hosts.iter().map(|h| h.1.clone()).collect();
     let summary = format!(
-        "Run job {name} at {} on {} host(s) of inventory {} (revision {}){}{}.",
+        "{} job {name} at {} on {} host(s) of inventory {} (revision {}){}{}.",
+        if check {
+            "Check (ansible-playbook --check --diff, changes nothing)"
+        } else {
+            "Run"
+        },
         &commit[..commit.len().min(12)],
         affected.len(),
         def.inventory,
@@ -953,7 +1306,8 @@ async fn preview_run_start(
         } else {
             ""
         },
-    );
+    ) + &params_note(&params)
+        + &credentials_note(&def);
     // Spec 066 FR-018: hosts that cannot decrypt the sops files the job reads. Warns only.
     let mut warnings =
         match crate::repo_catalog::run_warnings(&app.db, ws, binding, &name, &affected).await {
@@ -986,8 +1340,10 @@ async fn preview_run_start(
             actor: &actor,
             id: None,
             only_hosts: None,
-            params: &BTreeMap::new(),
+            params: &params,
             update: None,
+            path: None,
+            check,
         };
         match create_run(&app, &new).await {
             Ok(run) => match get_run(&app, run).await {
@@ -1156,7 +1512,11 @@ const RUN_COLUMNS: &str = "r.id, r.workspace_id, r.binding_id, r.job_id, r.job_n
        where cur.id = r.inventory_revision_id) as newer, \
      r.run_limit, r.resolved_hosts, r.policy_id, r.state, r.state_reason, r.created_at, \
      r.started_at, r.ended_at, r.summary, r.params, \
-     r.approvals_needed, r.four_eyes, r.approval_expires_at, \
+     r.approvals_needed, r.four_eyes, r.approval_expires_at, r.kind, r.check_mode, \
+     r.parent_run_id, r.narrowed_by, \
+     (select jsonb_agg(jsonb_build_object('context', c.context, 'state', c.state, \
+         'target_url', c.target_url) order by c.context) \
+       from run_check_states c where c.run_id = r.id) as checks, \
      (select coalesce(jsonb_agg(jsonb_build_object( \
          'user', a.approver_user_id, \
          'name', case when u.id is null or u.disabled_at is not null then 'Deleted user' \
@@ -1249,6 +1609,11 @@ struct RunRow {
     approvals_needed: Option<i32>,
     four_eyes: Option<bool>,
     approval_expires_at: Option<OffsetDateTime>,
+    kind: String,
+    check_mode: bool,
+    parent_run_id: Option<Uuid>,
+    narrowed_by: Option<Vec<String>>,
+    checks: Option<Value>,
     answers: Value,
 }
 
@@ -1282,6 +1647,11 @@ impl RunRow {
                 self.approval_expires_at,
                 self.answers,
             ),
+            kind: enum_from(&self.kind).unwrap_or_default(),
+            check: self.check_mode,
+            parent_run: self.parent_run_id,
+            narrowed_by: self.narrowed_by,
+            checks: self.checks.and_then(|c| serde_json::from_value(c).ok()),
         }
     }
 }
@@ -1329,13 +1699,15 @@ pub(crate) async fn get_run(app: &AppState, run: Uuid) -> Result<Option<Event>, 
         Option<OffsetDateTime>,
         Option<Value>,
         Option<Value>,
+        Option<Uuid>,
+        Option<String>,
     );
     let hosts: Vec<HostRow> = sqlx::query_as(
         "select rh.host_id, rh.host_name, rh.state, rh.refusal, rh.started_at, rh.ended_at, \
          case when rr.run_id is null then null else json_build_object( \
            'ok', rr.ok, 'changed', rr.changed, 'failed', rr.failed, \
            'unreachable', rr.unreachable, 'skipped', rr.skipped, 'rescued', rr.rescued, \
-           'ignored', rr.ignored)::jsonb end, rr.first_failure \
+           'ignored', rr.ignored)::jsonb end, rr.first_failure, rh.covered_by, rh.skip_reason \
          from run_hosts rh left join run_host_results rr \
            on rr.run_id = rh.run_id and rr.host_id = rh.host_id \
          where rh.run_id = $1 order by rh.host_name",
@@ -1346,15 +1718,19 @@ pub(crate) async fn get_run(app: &AppState, run: Uuid) -> Result<Option<Event>, 
     let hosts = hosts
         .into_iter()
         .map(
-            |(host, name, state, refusal, started, ended, stats, ff)| RunHostInfo {
-                host,
-                name,
-                state: enum_from(&state).unwrap_or(keel_protocol::HostPhase::Failed),
-                refusal,
-                started_at: started.map(ts),
-                ended_at: ended.map(ts),
-                stats: stats.and_then(|s| serde_json::from_value::<HostStats>(s).ok()),
-                first_failure: ff.and_then(|f| serde_json::from_value::<FirstFailure>(f).ok()),
+            |(host, name, state, refusal, started, ended, stats, ff, covered_by, skip_reason)| {
+                RunHostInfo {
+                    host,
+                    name,
+                    state: enum_from(&state).unwrap_or(keel_protocol::HostPhase::Failed),
+                    refusal,
+                    started_at: started.map(ts),
+                    ended_at: ended.map(ts),
+                    stats: stats.and_then(|s| serde_json::from_value::<HostStats>(s).ok()),
+                    first_failure: ff.and_then(|f| serde_json::from_value::<FirstFailure>(f).ok()),
+                    covered_by,
+                    skip_reason,
+                }
             },
         )
         .collect();
@@ -1362,6 +1738,21 @@ pub(crate) async fn get_run(app: &AppState, run: Uuid) -> Result<Option<Event>, 
         run: row.info(),
         hosts,
     }))
+}
+
+/// The run's `RunInfo`, without its hosts (spec 068: a converge's view carries it).
+///
+/// # Errors
+///
+/// The database failed.
+pub(crate) async fn run_info(app: &AppState, run: Uuid) -> Result<Option<RunInfo>, sqlx::Error> {
+    let row: Option<RunRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "select {RUN_COLUMNS} from runs r where r.id = $1"
+    )))
+    .bind(run)
+    .fetch_optional(&app.db)
+    .await?;
+    Ok(row.map(RunRow::info))
 }
 
 async fn list_jobs(app: &AppState, binding: Uuid) -> Result<Vec<JobInfo>, sqlx::Error> {
@@ -1372,23 +1763,51 @@ async fn list_jobs(app: &AppState, binding: Uuid) -> Result<Vec<JobInfo>, sqlx::
     .bind(binding)
     .fetch_all(&app.db)
     .await?;
-    Ok(rows
+    let jobs: Vec<(Uuid, String, JobDefinition, Option<String>, String)> = rows
         .into_iter()
         .filter_map(|(id, name, def, blocked, at)| {
-            let d: JobDefinition = serde_json::from_value(def).ok()?;
-            Some(JobInfo {
-                id,
-                binding,
-                name,
-                playbook: d.playbook,
-                profiles: d.profiles,
-                inventory: d.inventory,
-                limit: d.limit,
-                paths: d.paths,
-                credentials: d.credentials,
-                blocked,
-                defined_at_commit: at,
-            })
+            Some((id, name, serde_json::from_value(def).ok()?, blocked, at))
+        })
+        .collect();
+    // Spec 068: `choice` values as a run started now would see them, at the binding's head.
+    let head: Option<String> =
+        sqlx::query_scalar("select last_commit from repo_bindings where id = $1")
+            .bind(binding)
+            .fetch_optional(&app.db)
+            .await?
+            .flatten();
+    let specs: Vec<BTreeMap<String, ParamSpec>> = jobs.iter().map(|j| j.2.params.clone()).collect();
+    let needs_tree = specs.iter().any(|ps| ps.values().any(|p| p.from.is_some()));
+    let views: Vec<Option<BTreeMap<String, ParamView>>> =
+        with_tree(app, binding, head.filter(|_| needs_tree), move |tree| {
+            specs
+                .iter()
+                .map(|ps| {
+                    (!ps.is_empty()).then(|| {
+                        ps.iter()
+                            .map(|(n, p)| (n.clone(), param_view(p, tree)))
+                            .collect()
+                    })
+                })
+                .collect()
+        })
+        .await;
+    Ok(jobs
+        .into_iter()
+        .zip(views)
+        .map(|((id, name, d, blocked, at), params)| JobInfo {
+            id,
+            binding,
+            name,
+            playbook: d.playbook,
+            profiles: d.profiles,
+            inventory: d.inventory,
+            limit: d.limit,
+            paths: d.paths,
+            credentials: d.credentials,
+            blocked,
+            defined_at_commit: at,
+            params,
         })
         .collect())
 }
@@ -1418,7 +1837,7 @@ fn policy_of((id, priority, m, requires, needed, four_eyes, ttl): PolicyRow) -> 
     }
 }
 
-async fn load_policies<'e, E>(db: E, workspace: Uuid) -> Result<Vec<Policy>, sqlx::Error>
+pub(crate) async fn load_policies<'e, E>(db: E, workspace: Uuid) -> Result<Vec<Policy>, sqlx::Error>
 where
     E: sqlx::PgExecutor<'e>,
 {
@@ -1445,6 +1864,7 @@ fn policy_info(workspace: Uuid, p: Policy) -> PolicyInfo {
         approvals_needed: p.approvals_needed,
         four_eyes: p.four_eyes,
         approval_ttl_secs: p.approval_ttl_secs,
+        check: p.matcher.check,
     }
 }
 
@@ -1496,6 +1916,7 @@ async fn preview_policy_upsert(app: &AppState, req: &Request<'_>, spec: PolicySp
             job: spec.job.map(|j| j.as_str().to_owned()),
             inventory: spec.inventory.map(|i| i.as_str().to_owned()),
             limit: spec.limit.map(|l| l.as_str().to_owned()),
+            check: spec.check,
         },
         requires_approval: spec.requires_approval,
         approvals_needed: spec.approvals_needed,

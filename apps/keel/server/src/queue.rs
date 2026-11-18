@@ -28,11 +28,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use keel_core::WorkspaceId;
-use keel_core::ports::CommitId;
+use keel_core::ports::{CommitId, SecretResolver as _};
 use keel_core::run::{self as core_run, HostState, RunEvent, RunState};
 use keel_exec::codec;
 use keel_exec::events::{self, HostStatus, KeelEvent};
-use keel_exec::frames::{self, Frame, Peer, Refusal, SecretItem, SecretString, Subsystem};
+use keel_exec::frames::{
+    self, CAP_MANIFEST_V068, Frame, Peer, Refusal, SecretItem, SecretString, Subsystem,
+};
 use keel_git::Mirror;
 use keel_protocol::{Event, LogStream};
 use serde_json::{Value, json};
@@ -84,6 +86,8 @@ struct Link {
     close: Arc<Notify>,
     /// The runs assigned through this session: the ones it loses when it ends (spec 067 US4).
     sent: SentRuns,
+    /// `Hello.capabilities` (spec 067's shape; 068 checks `manifest-v068`).
+    capabilities: Vec<String>,
 }
 
 /// The runs assigned through one session.
@@ -154,7 +158,7 @@ impl Runs {
     }
 
     /// Sends `frame` to `host`'s runner; false if it is not connected.
-    fn send(&self, host: Uuid, frame: Frame) -> bool {
+    pub(crate) fn send(&self, host: Uuid, frame: Frame) -> bool {
         self.inner
             .links
             .lock()
@@ -170,6 +174,7 @@ impl Runs {
         tx: mpsc::UnboundedSender<Frame>,
         close: Arc<Notify>,
         sent: SentRuns,
+        capabilities: Vec<String>,
     ) -> u64 {
         let session = self.inner.sessions.fetch_add(1, Ordering::Relaxed) + 1;
         if let Ok(mut l) = self.inner.links.lock() {
@@ -182,6 +187,7 @@ impl Runs {
                     tx,
                     close,
                     sent,
+                    capabilities,
                 },
             );
         }
@@ -214,6 +220,30 @@ impl Runs {
             .lock()
             .ok()
             .and_then(|l| l.get(&host).map(|link| link.path.clone()))
+    }
+
+    /// Whether `host`'s current session advertised `cap`; false when it is not connected.
+    #[must_use]
+    pub fn has_capability(&self, host: Uuid, cap: &str) -> bool {
+        self.inner.links.lock().ok().is_some_and(|l| {
+            l.get(&host)
+                .is_some_and(|link| link.capabilities.iter().any(|c| c == cap))
+        })
+    }
+
+    /// Of `hosts`, the connected ones whose session lacks `cap` (a disconnected host is unknown).
+    #[must_use]
+    pub fn lacking(&self, hosts: impl IntoIterator<Item = Uuid>, cap: &str) -> Vec<Uuid> {
+        let Ok(l) = self.inner.links.lock() else {
+            return Vec::new();
+        };
+        hosts
+            .into_iter()
+            .filter(|h| {
+                l.get(h)
+                    .is_some_and(|link| !link.capabilities.iter().any(|c| c == cap))
+            })
+            .collect()
     }
 
     /// Ends `host`'s session, if it has one: its in-flight hosts become `lost`.
@@ -657,6 +687,7 @@ where
         override_quorum,
         ledger_head,
         age_recipient,
+        capabilities,
         ..
     }) = hello
     else {
@@ -724,12 +755,18 @@ where
     });
     let close = Arc::new(Notify::new());
     let sent = SentRuns::default();
+    let capabilities: Vec<String> = capabilities
+        .into_iter()
+        .take(32)
+        .map(|c| truncate(&c, 64))
+        .collect();
     let session = app.runs.register(
         host,
         path.clone(),
         out_tx.clone(),
         Arc::clone(&close),
         Arc::clone(&sent),
+        capabilities,
     );
     if let Some(cas) = app.ssh.get() {
         let _ = out_tx.send(Frame::Krl {
@@ -1305,14 +1342,19 @@ async fn host_revision(
     ledger_hash: Option<&str>,
     ledger_line: &str,
 ) -> Result<(), sqlx::Error> {
-    let (job, commit, signed, name): (Option<Uuid>, String, bool, String) = sqlx::query_as(
-        "select r.job_id, r.commit, r.signed_mode, rh.host_name from runs r \
-         join run_hosts rh on rh.run_id = r.id and rh.host_id = $2 where r.id = $1",
-    )
-    .bind(run)
-    .bind(host)
-    .fetch_one(&mut *tx)
-    .await?;
+    let (job, commit, signed, name, check): (Option<Uuid>, String, bool, String, bool) =
+        sqlx::query_as(
+            "select r.job_id, r.commit, r.signed_mode, rh.host_name, r.check_mode from runs r \
+             join run_hosts rh on rh.run_id = r.id and rh.host_id = $2 where r.id = $1",
+        )
+        .bind(run)
+        .bind(host)
+        .fetch_one(&mut *tx)
+        .await?;
+    // A check run (spec 068 FR-011) applied nothing: no base, drift or rollback point moves.
+    if check {
+        return Ok(());
+    }
     let outcome = if signed {
         match ledger_outcome(ledger_line, &run.to_string()) {
             Some(o) => o,
@@ -1488,37 +1530,122 @@ pub async fn recover_in_flight(app: &AppState) -> Result<usize, sqlx::Error> {
     for run in runs {
         maybe_finish(app, run).await;
     }
+    // A converge hold with no step queued or out would never be released (spec 068 T021).
+    for parent in release_stale_holds(app).await? {
+        tracing::warn!(run = %parent, "a converge hold with no live step was released");
+        settle_converge(app, parent).await;
+    }
     if count > 0 {
         tracing::warn!(hosts = count, "hosts in flight at start-up marked lost");
     }
     Ok(count)
 }
 
+/// Fails each converge host held with no step queued, sent or running, and skips its blocked
+/// steps. Returns the converges touched.
+async fn release_stale_holds(app: &AppState) -> Result<Vec<Uuid>, sqlx::Error> {
+    let mut tx = app.db.begin().await?;
+    let stale: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        "update converge_hosts ch set state = 'failed', ended_at = now() \
+         where ch.state = 'holding' and not exists ( \
+             select 1 from converge_steps s join run_hosts rh \
+               on rh.run_id = s.step_run_id and rh.host_id = s.host_id \
+              where s.run_id = ch.run_id and s.host_id = ch.host_id \
+                and rh.state in ('queued', 'sent', 'running')) \
+         returning ch.run_id, ch.host_id",
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    if stale.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (runs, hosts): (Vec<Uuid>, Vec<Uuid>) = stale.iter().copied().unzip();
+    sqlx::query(
+        "update run_hosts rh set state = 'skipped', ended_at = now(), \
+                skip_reason = 'dependency_failed' \
+         from converge_steps s, unnest($1::uuid[], $2::uuid[]) c(run, host) \
+         where s.run_id = c.run and s.host_id = c.host \
+           and rh.run_id = s.step_run_id and rh.host_id = s.host_id and rh.state = 'blocked'",
+    )
+    .bind(&runs)
+    .bind(&hosts)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let parents: std::collections::BTreeSet<Uuid> = runs.into_iter().collect();
+    Ok(parents.into_iter().collect())
+}
+
 /// Ends `run` once every host is terminal: its state, summary, log tail, audit and push.
 pub(crate) async fn maybe_finish(app: &AppState, run: Uuid) {
-    if let Err(e) = try_finish(app, run).await {
-        tracing::error!(error = %e, run = %run, "finishing a run failed");
+    match try_finish(app, run).await {
+        Ok(Some(parent)) => {
+            use tracing::Instrument as _;
+            let span = tracing::info_span!("converge.step", converge = %parent, step = %run);
+            settle_converge(app, parent).instrument(span).await;
+        }
+        Ok(None) => {}
+        Err(e) => tracing::error!(error = %e, run = %run, "finishing a run failed"),
     }
 }
 
-/// A run's state, reason, workspace, whether it ended, and its update digest param.
-type FinishRow = (String, Option<String>, Uuid, bool, Option<String>);
+/// After a converge step's host ended (spec 068): the `converge_advance` trigger may have
+/// skipped later steps, so each open step run is finished if it can be, then the converge
+/// itself, and its hosts' states are pushed.
+async fn settle_converge(app: &AppState, parent: Uuid) {
+    let open: Result<Vec<Uuid>, sqlx::Error> = sqlx::query_scalar(
+        "select id from runs where parent_run_id = $1 and ended_at is null order by id",
+    )
+    .bind(parent)
+    .fetch_all(&app.db)
+    .await;
+    for child in open.unwrap_or_default() {
+        if let Err(e) = try_finish(app, child).await {
+            tracing::error!(error = %e, run = %child, "finishing a converge step failed");
+        }
+    }
+    if let Err(e) = try_finish(app, parent).await {
+        tracing::error!(error = %e, run = %parent, "finishing a converge failed");
+    }
+    crate::converge::push_hosts(app, parent).await;
+    // A host whose converge ended is no longer held: what waited behind the hold goes out now.
+    kick(app);
+}
 
-async fn try_finish(app: &AppState, run: Uuid) -> Result<(), sqlx::Error> {
+/// A run's state, reason, workspace, whether it ended, its update digest param, kind and
+/// converge parent.
+type FinishRow = (
+    String,
+    Option<String>,
+    Uuid,
+    bool,
+    Option<String>,
+    String,
+    Option<Uuid>,
+);
+
+/// Ends `run` if every host is terminal. Returns the run's converge parent, if it has one, for
+/// [`settle_converge`].
+async fn try_finish(app: &AppState, run: Uuid) -> Result<Option<Uuid>, sqlx::Error> {
     let mut tx = app.db.begin().await?;
     let row: Option<FinishRow> = sqlx::query_as(
         "select state, state_reason, workspace_id, ended_at is not null, \
-                params ->> 'keel_server_image_digest' from runs \
+                params ->> 'keel_server_image_digest', kind, parent_run_id from runs \
          where id = $1 for no key update",
     )
     .bind(run)
     .fetch_optional(&mut *tx)
     .await?;
-    let Some((state, reason, workspace, ended, update_digest)) = row else {
-        return Ok(());
+    let Some((state, reason, workspace, ended, update_digest, kind, parent)) = row else {
+        return Ok(None);
     };
     if ended {
-        return Ok(());
+        return Ok(parent);
+    }
+    if kind == "converge" {
+        finish_converge(app, &mut tx, run, workspace, &state).await?;
+        tx.commit().await?;
+        return Ok(None);
     }
     let hosts: Vec<(String,)> = sqlx::query_as("select state from run_hosts where run_id = $1")
         .bind(run)
@@ -1526,7 +1653,7 @@ async fn try_finish(app: &AppState, run: Uuid) -> Result<(), sqlx::Error> {
         .await?;
     let hosts: Vec<HostState> = hosts.iter().filter_map(|h| h.0.parse().ok()).collect();
     if hosts.iter().any(|h| !h.is_terminal()) {
-        return Ok(());
+        return Ok(parent);
     }
     let from: RunState = state.parse().unwrap_or(RunState::Failed);
     let next = if from.is_terminal() {
@@ -1537,13 +1664,13 @@ async fn try_finish(app: &AppState, run: Uuid) -> Result<(), sqlx::Error> {
     } else if from == RunState::Running {
         match core_run::transition(from, &RunEvent::HostsFinished(hosts.clone())) {
             Ok(s) => s,
-            Err(_) => return Ok(()),
+            Err(_) => return Ok(parent),
         }
     } else {
         // Hosts finished before the run was dispatched: only a cancel or a failure gets here.
         match core_run::summarize(&hosts) {
             Some(s) => s,
-            None => return Ok(()),
+            None => return Ok(parent),
         }
     };
     // The tail goes in before the run reads as ended.
@@ -1576,6 +1703,48 @@ async fn try_finish(app: &AppState, run: Uuid) -> Result<(), sqlx::Error> {
         update_result(app, &mut tx, run, workspace, next, &new_digest).await?;
     }
     tx.commit().await?;
+    push_state(app, workspace, run, next);
+    Ok(parent)
+}
+
+/// Ends a converge parent once none of its hosts is waiting or holding (spec 068).
+async fn finish_converge(
+    app: &AppState,
+    tx: &mut PgConnection,
+    run: Uuid,
+    workspace: Uuid,
+    state: &str,
+) -> Result<(), sqlx::Error> {
+    let from: RunState = state.parse().unwrap_or(RunState::Failed);
+    if !matches!(from, RunState::Queued | RunState::Running) {
+        return Ok(());
+    }
+    let Some((next, summary)) = crate::converge::outcome(tx, run).await? else {
+        return Ok(());
+    };
+    sqlx::query(
+        "update runs set state = $2, state_reason = $3, ended_at = now(), summary = $4 \
+         where id = $1",
+    )
+    .bind(run)
+    .bind(next.state.as_str())
+    .bind(next.reason.map(|r| r.as_str()))
+    .bind(json!(summary))
+    .execute(&mut *tx)
+    .await?;
+    audit::record(
+        tx,
+        Entry {
+            actor: &Actor::System,
+            action: "run_finished",
+            workspace: Some(WorkspaceId(workspace)),
+            target: json!({ "run": run }),
+            decision: Decision::Allowed,
+            reason: None,
+            context: json!({ "state": next.state.as_str(), "hosts": summary.hosts }),
+        },
+    )
+    .await?;
     push_state(app, workspace, run, next);
     Ok(())
 }
@@ -1718,6 +1887,9 @@ async fn dispatch_ready(app: &AppState) -> Result<(), sqlx::Error> {
                 and r.state in ('queued', 'running') \
                 and not exists (select 1 from run_hosts b \
                                  where b.host_id = q.host_id and b.state in ('sent', 'running')) \
+                and not exists (select 1 from converge_hosts ch \
+                                 where ch.host_id = q.host_id and ch.state = 'holding' \
+                                   and ch.run_id is distinct from r.parent_run_id) \
               order by q.host_id, r.created_at, r.id) \
          for update of rh skip locked",
     )
@@ -1736,14 +1908,44 @@ async fn dispatch_ready(app: &AppState) -> Result<(), sqlx::Error> {
     .bind(&hosts)
     .execute(&mut *tx)
     .await?;
-    let started: Vec<(Uuid, Uuid)> = sqlx::query_as(
+    let mut started: Vec<(Uuid, Uuid)> = sqlx::query_as(
         "update runs set state = 'running', started_at = now() \
          where id = any($1) and state = 'queued' returning id, workspace_id",
     )
     .bind(&runs)
     .fetch_all(&mut *tx)
     .await?;
+    // A converge step going out holds its host until the host's converge ends (spec 068), and
+    // the converge itself is running from its first step.
+    let held: Vec<Uuid> = sqlx::query_scalar(
+        "update converge_hosts ch set state = 'holding', started_at = now() \
+         from converge_steps s, unnest($1::uuid[], $2::uuid[]) c(run, host) \
+         where s.step_run_id = c.run and s.host_id = c.host \
+           and ch.run_id = s.run_id and ch.host_id = s.host_id and ch.state = 'waiting' \
+         returning ch.run_id",
+    )
+    .bind(&runs)
+    .bind(&hosts)
+    .fetch_all(&mut *tx)
+    .await?;
+    if !held.is_empty() {
+        let parents: Vec<(Uuid, Uuid)> = sqlx::query_as(
+            "update runs set state = 'running', started_at = coalesce(started_at, now()) \
+             where id = any($1) and kind = 'converge' and state = 'queued' \
+             returning id, workspace_id",
+        )
+        .bind(&held)
+        .fetch_all(&mut *tx)
+        .await?;
+        started.extend(parents);
+    }
     tx.commit().await?;
+    let mut pushed = std::collections::BTreeSet::new();
+    for parent in held {
+        if pushed.insert(parent) {
+            crate::converge::push_hosts(app, parent).await;
+        }
+    }
     for (run, ws) in started {
         if let Ok(s) = core_run::transition(RunState::Queued, &RunEvent::Dispatched) {
             push_state(app, ws, run, s);
@@ -1766,6 +1968,7 @@ enum AssignError {
     ArtifactMissing,
     CredentialUnavailable,
     NotConnected,
+    RunnerTooOld,
     Internal,
 }
 
@@ -1775,6 +1978,7 @@ impl AssignError {
             Self::ArtifactMissing => "artifact_missing",
             Self::CredentialUnavailable => "credential_unavailable",
             Self::NotConnected => "runner_lost",
+            Self::RunnerTooOld => "runner_too_old",
             Self::Internal => "internal",
         }
     }
@@ -1792,6 +1996,8 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
         String,
         Option<i32>,
         Value,
+        bool,
+        bool,
     );
     let row: Option<Row> = sqlx::query_as(
         "select r.binding_id, r.job_name, r.commit, j.definition, r.workspace_id, r.signed_mode, \
@@ -1800,7 +2006,8 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
                     and hr.authorization_kind <> 'unchecked' \
                   order by hr.applied_at desc, hr.id desc limit 1), \
                 rh.host_name, \
-                greatest(b.override_quorum, h.override_quorum, 1), r.params \
+                greatest(b.override_quorum, h.override_quorum, 1), r.params, \
+                coalesce(b.manifest_v068, false), r.check_mode \
          from runs r \
          join run_hosts rh on rh.run_id = r.id and rh.host_id = $2 \
          join hosts h on h.id = rh.host_id \
@@ -1813,11 +2020,27 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
     .fetch_optional(&app.db)
     .await
     .map_err(|_| AssignError::Internal)?;
-    let Some((Some(binding), job, commit, def, workspace, signed, base, host_name, quorum, params)) =
-        row
+    let Some((
+        Some(binding),
+        job,
+        commit,
+        def,
+        workspace,
+        signed,
+        base,
+        host_name,
+        quorum,
+        params,
+        v068,
+        check,
+    )) = row
     else {
         return Err(AssignError::ArtifactMissing);
     };
+    // Spec 068 runner floor: a runner that cannot read this manifest's keys is not sent it.
+    if v068 && !app.runs.has_capability(host, CAP_MANIFEST_V068) {
+        return Err(AssignError::RunnerTooOld);
+    }
     let def: Option<keel_core::manifest::JobDefinition> =
         def.and_then(|d| serde_json::from_value(d).ok());
     let Some(def) = def else {
@@ -1831,7 +2054,7 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
     .await
     .map_err(|_| AssignError::Internal)?
     .map_err(|_| AssignError::ArtifactMissing)?;
-    let items = secrets(app, binding, host, &def.credentials).await?;
+    let items = secrets(app, workspace, binding, host, &def).await?;
     let timeout = def.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS);
     let deadline = u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp())
         .unwrap_or(0)
@@ -1849,6 +2072,7 @@ async fn assign(app: &AppState, run: Uuid, host: Uuid) -> Result<(), AssignError
             pack_size: pack.bytes.len() as u64,
             quorum: quorum.and_then(|q| u32::try_from(q).ok()),
             params: serde_json::from_value::<BTreeMap<String, String>>(params).unwrap_or_default(),
+            check,
         },
         Frame::Secrets {
             run_id: run_id.clone(),
@@ -1936,47 +2160,58 @@ async fn approvals(
     Ok(out)
 }
 
-/// The job's credentials, as granted to the binding for one of the host's profiles.
+/// The job's credentials, as granted to the binding for one of the host's profiles, resolved
+/// through [`SecretResolver`] (spec 068 T055). `credentials:` go out under their own kind;
+/// each `env:` entry goes out as an `env_var` item naming its variable, and must be an
+/// `env_value` credential. Anything missing, of the wrong kind, or that does not open fails the
+/// assignment with `credential_unavailable` before the host sees a frame of the run.
 async fn secrets(
     app: &AppState,
+    workspace: Uuid,
     binding: Uuid,
     host: Uuid,
-    names: &[String],
+    def: &keel_core::manifest::JobDefinition,
 ) -> Result<Vec<SecretItem>, AssignError> {
-    if names.is_empty() {
+    if def.credentials.is_empty() && def.env.is_empty() {
         return Ok(Vec::new());
     }
-    let rows: Vec<(Uuid, String)> = sqlx::query_as(
-        "select distinct c.id, c.name from credentials c \
-         join credential_grants g on g.credential_id = c.id \
-         where g.binding_id = $1 and c.name = any($2) and c.kind not like 'git_%' \
-           and (cardinality(g.profiles) = 0 or g.profiles && coalesce((select array_agg(p.name) \
-                from host_profiles hp join profiles p on p.id = hp.profile_id \
-                where hp.host_id = $3), '{}'))",
-    )
-    .bind(binding)
-    .bind(names)
-    .bind(host)
-    .fetch_all(&app.db)
-    .await
-    .map_err(|_| AssignError::Internal)?;
-    if rows.len() != names.len() {
-        return Err(AssignError::CredentialUnavailable);
-    }
-    let mut items = Vec::with_capacity(rows.len());
-    for (id, name) in rows {
-        let (kind, value) = crate::credentials::open(app, id)
-            .await
+    let mut names: Vec<String> = def.credentials.clone();
+    names.extend(def.env.values().cloned());
+    names.sort();
+    names.dedup();
+    let granted = crate::credentials::Granted::load(app, workspace, binding, host, &names)
+        .await
+        .map_err(|_| AssignError::Internal)?;
+    let open = |name: &str| -> Result<SecretString, AssignError> {
+        let bytes = granted
+            .resolve(WorkspaceId(workspace), name)
             .map_err(|_| AssignError::CredentialUnavailable)?;
-        let value = {
-            use secrecy::ExposeSecret as _;
-            String::from_utf8(value.expose_secret().to_vec())
-                .map_err(|_| AssignError::CredentialUnavailable)?
-        };
+        String::from_utf8(bytes)
+            .map(SecretString::new)
+            .map_err(|_| AssignError::CredentialUnavailable)
+    };
+    let mut items = Vec::with_capacity(def.credentials.len() + def.env.len());
+    for name in &def.credentials {
+        let kind = granted
+            .kind(name)
+            .ok_or(AssignError::CredentialUnavailable)?
+            .to_owned();
         items.push(SecretItem {
-            name,
+            name: name.clone(),
             kind,
-            value: SecretString::new(value),
+            value: open(name)?,
+            env_name: None,
+        });
+    }
+    for (var, name) in &def.env {
+        if granted.kind(name) != Some("env_value") {
+            return Err(AssignError::CredentialUnavailable);
+        }
+        items.push(SecretItem {
+            name: name.clone(),
+            kind: frames::SECRET_KIND_ENV_VAR.into(),
+            value: open(name)?,
+            env_name: Some(var.clone()),
         });
     }
     Ok(items)
@@ -1984,16 +2219,17 @@ async fn secrets(
 
 async fn fail_host(app: &AppState, run: Uuid, host: Uuid, why: AssignError) {
     let name: Option<(String,)> = sqlx::query_as(
-        "update run_hosts set state = $3, ended_at = now() \
+        "update run_hosts set state = $3, refusal = $4, ended_at = now() \
          where run_id = $1 and host_id = $2 and state = 'sent' returning host_name",
     )
     .bind(run)
     .bind(host)
-    .bind(if matches!(why, AssignError::NotConnected) {
-        "lost"
-    } else {
-        "failed"
+    .bind(match why {
+        AssignError::NotConnected => "lost",
+        AssignError::RunnerTooOld => "refused",
+        _ => "failed",
     })
+    .bind(matches!(why, AssignError::RunnerTooOld).then_some("runner_too_old"))
     .fetch_optional(&app.db)
     .await
     .ok()

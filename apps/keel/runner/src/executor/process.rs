@@ -1,4 +1,4 @@
-//! Runs `ansible-playbook` in its own process group and streams what it produces.
+//! Runs `ansible-playbook` in its own session and process group and streams what it produces.
 //!
 //! - `keel_events` lines arrive on fd 3 (`KEEL_EVENT_FD=3`); each line that parses is sent as an
 //!   `Event`, verbatim; the last `stats` event gives `Finished.stats`.
@@ -188,10 +188,14 @@ pub async fn run(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    // SAFETY: only async-signal-safe calls (setpgid, dup2, fcntl) between fork and exec.
+    // SAFETY: only async-signal-safe calls (setsid, dup2, fcntl) between fork and exec.
     unsafe {
         cmd.pre_exec(move || {
-            if libc::setpgid(0, 0) != 0 {
+            // A new session (spec 068 FR-015), not just a process group: no controlling
+            // terminal, so a prompt that opens /dev/tty fails at once instead of hanging the run.
+            // The session leader leads its own process group, so killing `-pid` still reaches
+            // every descendant.
+            if libc::setsid() < 0 {
                 return Err(std::io::Error::last_os_error());
             }
             if event_w_raw == EVENT_FD {

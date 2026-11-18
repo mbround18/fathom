@@ -5,4 +5,8 @@ import type { Pattern } from "./Pattern";
 /**
  * `PreviewPolicyUpsert`: a new policy (`id` absent) or a change to one.
  */
-export type PolicySpec = { workspace: string, id: string | null, priority: number, job: Pattern | null, inventory: ObjectName | null, limit: Pattern | null, requires_approval: boolean, approvals_needed: number, four_eyes: boolean, approval_ttl_secs: number, };
+export type PolicySpec = { workspace: string, id: string | null, priority: number, job: Pattern | null, inventory: ObjectName | null, limit: Pattern | null, requires_approval: boolean, approvals_needed: number, four_eyes: boolean, approval_ttl_secs: number, 
+/**
+ * Spec 068: `true` matches only check runs, `false` only real runs; absent matches both.
+ */
+check?: boolean, };

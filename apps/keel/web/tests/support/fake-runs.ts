@@ -32,6 +32,7 @@ import type {
   WorkspaceCount,
 } from '../../src/protocol/wire'
 import type { FakeBackend } from './fake-backend'
+import { RUN_068, runHost, type RunHostInput } from './defaults'
 import { HEAD, NOW, WORKSPACE } from './fake-repos'
 
 const EXPIRES = '2026-10-27T12:10:00Z'
@@ -67,6 +68,7 @@ export function runInfo(over: Partial<RunInfo> = {}): RunInfo {
     summary: null,
     params: {},
     approval: null,
+    ...RUN_068,
     ...over,
   }
 }
@@ -137,9 +139,9 @@ export class FakeRuns {
     backend.on('Confirm', (cmd) => this.respond(cmd))
   }
 
-  add(run: RunInfo, hosts: RunHostInfo[] = []): void {
+  add(run: RunInfo, hosts: RunHostInput[] = []): void {
     this.runs = [run, ...this.runs.filter((r) => r.id !== run.id)]
-    this.hosts.set(run.id, hosts)
+    this.hosts.set(run.id, hosts.map(runHost))
   }
 
   private lastSeq(run: string): number {
@@ -170,9 +172,9 @@ export class FakeRuns {
   }
 
   /** Moves a run to `state`, with its hosts as they ended, and pushes `RunState`. */
-  finish(run: string, state: RunPhase, reason: RunReason | null, hosts?: RunHostInfo[]): void {
+  finish(run: string, state: RunPhase, reason: RunReason | null, hosts?: RunHostInput[]): void {
     this.runs = this.runs.map((r) => (r.id === run ? { ...r, state, reason, ended_at: NOW } : r))
-    if (hosts) this.hosts.set(run, hosts)
+    if (hosts) this.hosts.set(run, hosts.map(runHost))
     this.backend.push({ type: 'RunState', data: { run, state, reason } })
   }
 

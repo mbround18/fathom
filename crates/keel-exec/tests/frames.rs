@@ -96,6 +96,7 @@ fn every_frame() -> Vec<Frame> {
             pack_size: 1234,
             quorum: Some(2),
             params: BTreeMap::new(),
+            check: false,
         },
         Frame::Assign {
             run_id: "r-2".into(),
@@ -111,6 +112,7 @@ fn every_frame() -> Vec<Frame> {
                 "keel_server_image_digest".to_string(),
                 format!("sha256:{}", "0".repeat(64)),
             )]),
+            check: false,
         },
         Frame::Pack {
             run_id: "r-1".into(),
@@ -130,6 +132,7 @@ fn every_frame() -> Vec<Frame> {
                 name: "db_password".into(),
                 kind: "password".into(),
                 value: "hunter2".into(),
+                env_name: None,
             }],
         },
         Frame::Approvals {
@@ -286,6 +289,8 @@ fn every_refusal_value_of_the_data_model_is_spelled_as_in_run_hosts() {
         (Refusal::LedgerCorrupt, "ledger_corrupt"),
         (Refusal::VersionTooOld, "version_too_old"),
         (Refusal::ParamsMismatch, "params_mismatch"),
+        (Refusal::EnvRefused, "env_refused"),
+        (Refusal::ChoiceMismatch, "choice_mismatch"),
     ];
     for (r, s) in all {
         assert_eq!(
@@ -320,6 +325,7 @@ fn assign(params: BTreeMap<String, String>) -> Frame {
         pack_size: 1234,
         quorum: Some(2),
         params,
+        check: false,
     }
 }
 
@@ -393,6 +399,7 @@ fn secrets_and_enroll_tokens_never_reach_debug_output() {
             name: "db_password".into(),
             kind: "password".into(),
             value: "hunter2".into(),
+            env_name: None,
         }],
     };
     let shown = format!("{secrets:?} {:#?}", secrets);
@@ -621,6 +628,89 @@ fn hello_age_recipient_is_optional_on_the_wire() {
         }
     ));
     assert_eq!(serde_json::to_value(&frame).unwrap(), old);
+}
+
+/// The 061-era `Assign` (params, no `check`), as a runner before spec 068 decodes it.
+#[derive(Debug, serde::Deserialize)]
+#[serde(tag = "frame", deny_unknown_fields)]
+#[allow(dead_code)]
+enum Frame061 {
+    Assign {
+        run_id: String,
+        workspace: String,
+        binding: String,
+        job: String,
+        base: Option<String>,
+        target: String,
+        deadline: u64,
+        pack_size: u64,
+        quorum: Option<u32>,
+        #[serde(default)]
+        params: BTreeMap<String, String>,
+    },
+}
+
+#[test]
+fn a_check_assign_round_trips_and_runners_before_068_refuse_it() {
+    // A real run is unchanged on the wire and still reads under the old shape.
+    let real = codec::encode_body(&assign(BTreeMap::new())).unwrap();
+    assert!(!std::str::from_utf8(&real).unwrap().contains("check"));
+    serde_json::from_slice::<Frame061>(&real).unwrap();
+
+    let mut frame = assign(BTreeMap::new());
+    if let Frame::Assign { check, .. } = &mut frame {
+        *check = true;
+    }
+    let json = codec::encode_body(&frame).unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&json).unwrap();
+    assert_eq!(v["check"], true);
+    assert_eq!(codec::decode_body(&json).unwrap(), frame);
+    // Fail closed: an old runner can't run a check as a real run.
+    assert!(serde_json::from_slice::<Frame061>(&json).is_err());
+    assert!(format!("{frame:?}").contains("check: true"));
+}
+
+/// `SecretItem` before spec 068.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(dead_code)]
+struct SecretItem061 {
+    name: String,
+    kind: String,
+    value: String,
+}
+
+#[test]
+fn an_env_var_secret_round_trips_and_old_runners_refuse_it() {
+    use keel_exec::frames::{CAP_MANIFEST_V068, SECRET_KIND_ENV_VAR};
+    assert_eq!(CAP_MANIFEST_V068, "manifest-v068");
+
+    let plain = SecretItem {
+        name: "prod-vault".into(),
+        kind: "vault_password".into(),
+        value: "pw".into(),
+        env_name: None,
+    };
+    let json = serde_json::to_string(&plain).unwrap();
+    assert!(!json.contains("env_name"), "{json}");
+    serde_json::from_str::<SecretItem061>(&json).unwrap();
+
+    let item = SecretItem {
+        name: "cf-token".into(),
+        kind: SECRET_KIND_ENV_VAR.into(),
+        value: "tok".into(),
+        env_name: Some("CLOUDFLARE_API_TOKEN".into()),
+    };
+    let frame = Frame::Secrets {
+        run_id: "r-1".into(),
+        items: vec![item],
+    };
+    let bytes = codec::encode_body(&frame).unwrap();
+    assert_eq!(codec::decode_body(&bytes).unwrap(), frame);
+    let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(v["items"][0]["env_name"], "CLOUDFLARE_API_TOKEN");
+    assert!(serde_json::from_value::<SecretItem061>(v["items"][0].clone()).is_err());
+    assert!(!format!("{frame:?}").contains("\"tok\""));
 }
 
 /// Spec 067 T009: `capabilities` round-trips, an old runner's `Hello` without it still parses,

@@ -79,6 +79,13 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         // Everyone signed in may read themselves. A `Confirm` was authorized when its preview
         // was made, and the operation re-checks what it needs when it runs.
         Cmd::GetMe | Cmd::Confirm { .. } => Ok(()),
+        // Converge (spec 068): checked in the handler, on the binding's or run's workspace.
+        Cmd::PreviewConverge(_)
+        | Cmd::ConfirmConverge { .. }
+        | Cmd::PreviewConvergeRetry { .. }
+        | Cmd::ConfirmConvergeRetry { .. }
+        | Cmd::CancelConverge { .. }
+        | Cmd::GetConverge { .. } => Ok(()),
         // Bindings and receivers (US1): each checks its capability on the object's workspace,
         // which needs the database, so the check runs in the handler.
         Cmd::ListBindings { .. }
@@ -86,6 +93,7 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::PreviewBindingCreate(_)
         | Cmd::PreviewBindingUpdate(_)
         | Cmd::PreviewSignedMode { .. }
+        | Cmd::PreviewRequiredChecks { .. }
         | Cmd::PreviewBindingDisable { .. }
         | Cmd::PreviewBindingEnable { .. }
         | Cmd::PreviewBindingRemove { .. }
@@ -177,6 +185,9 @@ pub fn authorize(caller: &Caller, cmd: &Cmd) -> Result<(), Refused> {
         | Cmd::GetHost { .. }
         | Cmd::PreviewHostEnroll { .. }
         | Cmd::PreviewHostRevoke { .. }
+        | Cmd::PreviewHostProfiles(_)
+        | Cmd::ListProfileSuggestions { .. }
+        | Cmd::DismissProfileSuggestion { .. }
         | Cmd::GetSshCa
         | Cmd::PreviewSshCaRotate { .. } => Ok(()),
         // Join tokens and join requests: each handler checks the workspace capability (or, for
@@ -298,6 +309,14 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         Cmd::PreviewSignedMode { binding, on } => {
             bindings::preview_signed_mode(app, req, binding, on).await
         }
+        Cmd::PreviewRequiredChecks {
+            binding_id,
+            contexts,
+            timeout_secs,
+        } => {
+            crate::checks::preview_required_checks(app, req, binding_id, contexts, timeout_secs)
+                .await
+        }
         Cmd::PreviewBindingDisable { binding } => {
             bindings::preview_status(app, req, binding, false).await
         }
@@ -400,46 +419,14 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         Cmd::Confirm {
             preview_id,
             step_up,
-        } => {
-            let key = req.caller.preview_key(req.session);
-            let window = time::Duration::try_from(app.cfg.step_up_window)
-                .unwrap_or(time::Duration::minutes(5));
-            let confirmation = Confirmation {
-                session: &key,
-                preview_id,
-                step_up: step_up.as_ref(),
-                verified_at: req.caller.verified_at,
-                window,
-            };
-            // An override or baseline must carry a passkey assertion over its own challenge:
-            // a recent step-up does not stand in for it (spec 055 US8, research R20).
-            let bound = app.reviews.verifier(&app.passkeys, preview_id);
-            let result = match &bound {
-                Some(v) => {
-                    let confirmation = Confirmation {
-                        verified_at: None,
-                        ..confirmation
-                    };
-                    app.previews.confirm(confirmation, v).await
-                }
-                None => {
-                    app.previews
-                        .confirm(confirmation, app.step_up.as_ref())
-                        .await
-                }
-            };
-            match result {
-                Ok(op) => {
-                    let mut out = vec![Event::Confirmed { preview_id }];
-                    out.extend(op(app.clone(), req.caller.clone()).await);
-                    out
-                }
-                Err(e) => match passkeys::confirm_refused(app, req, &e).await {
-                    Some(events) => events,
-                    None => vec![Event::op_error(e.code(), e.message())],
-                },
-            }
-        }
+        } => confirm(app, req, preview_id, step_up).await,
+        // Converge (spec 068): each checks its capability on the binding's workspace.
+        other @ (Cmd::PreviewConverge(_)
+        | Cmd::ConfirmConverge { .. }
+        | Cmd::PreviewConvergeRetry { .. }
+        | Cmd::ConfirmConvergeRetry { .. }
+        | Cmd::CancelConverge { .. }
+        | Cmd::GetConverge { .. }) => crate::converge::handle(app, req, other).await,
         Cmd::GetVerification => passkeys::get_verification(app, req).await,
         Cmd::PasskeyBegin { purpose } => passkeys::begin(app, req, purpose).await,
         Cmd::PasskeyFinish(response) => passkeys::finish(app, req, response).await,
@@ -484,6 +471,9 @@ pub async fn dispatch(app: &AppState, req: &Request<'_>, env: CmdEnvelope) -> Ve
         | Cmd::GetHost { .. }
         | Cmd::PreviewHostEnroll { .. }
         | Cmd::PreviewHostRevoke { .. }
+        | Cmd::PreviewHostProfiles(_)
+        | Cmd::ListProfileSuggestions { .. }
+        | Cmd::DismissProfileSuggestion { .. }
         | Cmd::GetSshCa
         | Cmd::PreviewSshCaRotate { .. }) => crate::hosts::handle(app, req, other).await,
         other @ (Cmd::ListJoinRequests { .. }
@@ -579,6 +569,54 @@ fn internal() -> Event {
 }
 
 /// Audits a refusal; a failed write is logged, never shown to the caller.
+/// Carries out a preview: `Confirmed`, then the operation's own events. `ConfirmConverge` and
+/// `ConfirmConvergeRetry` share it.
+pub(crate) async fn confirm(
+    app: &AppState,
+    req: &Request<'_>,
+    preview_id: keel_protocol::PreviewId,
+    step_up: Option<keel_protocol::PasskeyAssertion>,
+) -> Vec<Event> {
+    let key = req.caller.preview_key(req.session);
+    let window =
+        time::Duration::try_from(app.cfg.step_up_window).unwrap_or(time::Duration::minutes(5));
+    let confirmation = Confirmation {
+        session: &key,
+        preview_id,
+        step_up: step_up.as_ref(),
+        verified_at: req.caller.verified_at,
+        window,
+    };
+    // An override or baseline must carry a passkey assertion over its own challenge:
+    // a recent step-up does not stand in for it (spec 055 US8, research R20).
+    let bound = app.reviews.verifier(&app.passkeys, preview_id);
+    let result = match &bound {
+        Some(v) => {
+            let confirmation = Confirmation {
+                verified_at: None,
+                ..confirmation
+            };
+            app.previews.confirm(confirmation, v).await
+        }
+        None => {
+            app.previews
+                .confirm(confirmation, app.step_up.as_ref())
+                .await
+        }
+    };
+    match result {
+        Ok(op) => {
+            let mut out = vec![Event::Confirmed { preview_id }];
+            out.extend(op(app.clone(), req.caller.clone()).await);
+            out
+        }
+        Err(e) => match passkeys::confirm_refused(app, req, &e).await {
+            Some(events) => events,
+            None => vec![Event::op_error(e.code(), e.message())],
+        },
+    }
+}
+
 async fn deny(app: &AppState, req: &Request<'_>, action: &str, refused: Refused) {
     let mut context = json!({ "channel": req.channel.as_str() });
     if let Some(t) = &req.caller.token {

@@ -39,6 +39,7 @@ fn enroll_cmd(h: &Harness, name: &str) -> Cmd {
         workspace: h.workspace,
         inventory_name: HostName::new(name).expect("name"),
         profiles: HostProfiles(vec![ProfileName::new("debian").expect("profile")]),
+        auto_converge: None,
     }
 }
 

@@ -10,6 +10,8 @@
  * Spec 067 US3 (T034): once the workspace has zones, hosts are grouped by zone (`direct` first),
  * each group headed by its relays as chips; the Path column says how each host reaches Keel; the
  * inspector shows the host's zone and path, with Change zone for a workspace admin.
+ * Spec 068 T028: a Converge column, "Converge…" on a selection of hosts, and in a host's panel a
+ * Converge button and its last converge (features/converge/HostConverge.tsx).
  */
 import { DesktopTowerIcon, DoorOpenIcon, KeyIcon, PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Checkbox } from '@companion/ui'
@@ -47,12 +49,15 @@ import { keyInRules } from '@/features/repository/catalog'
 import { ChangeOutcomeView } from '@/features/repository/ChangeOutcomeView'
 import { useCatalog } from '@/features/repository/store'
 import { useRelays } from '@/features/settings/relays-store'
+import { ConvergePreview } from '@/features/converge/ConvergePreview'
+import { ConvergeCell, ConvergeSelected, HostConverge } from '@/features/converge/HostConverge'
 import { useGovernance } from '@/features/teams/store'
 import type { ChangeOutcome, HostInfo, HostStatus } from '@/protocol/wire'
 
 import { AddHostDialog } from './AddHostDialog'
 import { useAddHost } from './add-host-store'
 import { EnrollDialog } from './EnrollDialog'
+import { ProfilesCard, ProfilesDialog, SuggestionDot } from './HostProfiles'
 import { useEnroll } from './enroll-store'
 import { groupHosts, hasZones } from './reach'
 import { useHosts } from './store'
@@ -182,6 +187,7 @@ function HostDetailPanel() {
   const detail = useHosts((s) => s.detail)
   const show = useHosts((s) => s.show)
   const reveal = useReveal<HTMLElement>(open)
+  const binding = useCurrentWorkspace()?.primary_binding ?? null
   if (open === null) return null
   const name = detail?.host.inventory_name ?? '…'
   return (
@@ -206,7 +212,9 @@ function HostDetailPanel() {
       {detail && (
         <div className="flex min-w-0 flex-col gap-2 p-3">
           <HostZone host={detail.host} />
+          <ProfilesCard host={detail.host} />
           <AgeKey host={detail.host} />
+          <HostConverge host={detail.host} binding={binding} />
           <h3 className={LABEL}>Runs outside Keel</h3>
           <SectionIntro guide={{ guide: 'hosts', anchor: 'hosts-in-the-list' }}>
             These are the host&apos;s claims, which Keel cannot verify.
@@ -439,7 +447,25 @@ export default function HostsPage() {
       },
       { key: 'state', header: 'State', cell: (h) => <StateBadge state={h.state} /> },
       { key: 'path', header: 'Path', className: 'w-[17%]', cell: (h) => <PathCell host={h} relays={relays ?? []} /> },
-      { key: 'profiles', header: 'Profiles', tip: <TermTip term="profile" />, cell: (h) => <span className="font-mono">{h.profiles.join(', ')}</span> },
+      { key: 'converge', header: 'Converge', cell: (h) => <ConvergeCell host={h} /> },
+      { key: 'profiles', header: 'Profiles', tip: <TermTip term="profile" />, cell: (h) => (
+          <span className="flex min-w-0 items-start gap-1">
+            {/* Wraps between profiles, never inside one (a name broken at its hyphen reads as two). */}
+            <span className="min-w-0 font-mono">
+              {h.profiles.map((p, i) => (
+                <span key={p}>
+                  <span className="whitespace-nowrap">
+                    {p}
+                    {i < h.profiles.length - 1 && ','}
+                  </span>
+                  {i < h.profiles.length - 1 && ' '}
+                </span>
+              ))}
+            </span>
+            <SuggestionDot host={h} />
+          </span>
+        ),
+      },
       { key: 'runner', header: 'Runner', className: 'w-20', cell: (h) => h.runner_version ?? '—' },
       { key: 'ansible', header: 'Ansible', className: 'w-20', cell: (h) => h.ansible_version ?? '—' },
       { key: 'seen', header: 'Last seen', cell: (h) => <span className="tabular-nums">{h.last_seen_at ?? '—'}</span> },
@@ -457,6 +483,10 @@ export default function HostsPage() {
   const guided = !failed && loaded && hosts.length === 0 && variant !== 'no-match'
   // Revoking a host needs Administer (keel-server hosts.rs), more than enrolling one.
   const canRevoke = workspace !== null && canAdminister(me, workspace)
+  // Selecting hosts is for converging them: offered to whoever can operate here.
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
+  const canPick = workspace !== null && primary !== null && canOperate(me, workspace)
+  const selected = useMemo(() => hosts.filter((h) => picked.has(h.id)), [hosts, picked])
 
   const grouped = hasZones(zones ?? [], hosts)
   const groups = grouped ? groupHosts(hosts, zones ?? [], relays ?? [], changedOnly) : []
@@ -469,6 +499,13 @@ export default function HostsPage() {
     />
   ) : (
     <LoadState loading label="Loading hosts…" />
+  )
+
+  const toolbar = (
+    <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+      <ChangedFilter />
+      {canPick && <ConvergeSelected hosts={selected} binding={primary} />}
+    </div>
   )
 
   const list = (workspace: string) => (
@@ -487,7 +524,7 @@ export default function HostsPage() {
         <>
           {grouped ? (
             <>
-              <ChangedFilter />
+              {toolbar}
               {groups.map((g) => (
                 <section
                   key={g.id ?? 'direct'}
@@ -508,7 +545,7 @@ export default function HostsPage() {
               {groups.length === 0 && empty}
             </>
           ) : (
-            table('Hosts', hosts, empty, <ChangedFilter />)
+            table('Hosts', hosts, empty, toolbar)
           )}
           <HostDetailPanel />
         </>
@@ -521,6 +558,8 @@ export default function HostsPage() {
       <DataTable
         label={label}
         filter={filter}
+        {...(canPick ? { selection: { value: picked, onChange: setPicked } } : {})}
+        rowLabel={(h) => h.inventory_name}
         columns={columns}
         rows={rows}
         rowKey={(h) => h.id}
@@ -592,6 +631,8 @@ export default function HostsPage() {
       <ConfirmDialog />
       <EnrollDialog suggestions={suggestions} />
       <AddHostDialog />
+      <ConvergePreview />
+      <ProfilesDialog />
     </Page>
   )
 }

@@ -8,6 +8,8 @@
  * store resubscribes from the last seq it holds and nothing is shown twice or skipped. A run that
  * changes state is re-read, so its host table and summary follow.
  *
+ * `RunChecksChanged` (spec 068 US7) updates a run's required checks in place.
+ *
  * Cancelling is two-step, like every change: `PreviewCancel` answers a `Preview`, shown in a
  * confirm dialog, then `Confirm`.
  */
@@ -22,7 +24,7 @@ export function short(commit: string | null): string {
   return commit ? commit.slice(0, 12) : '—'
 }
 
-const ACTIVE: readonly RunPhase[] = ['needs_review', 'pending_approval', 'queued', 'running']
+const ACTIVE: readonly RunPhase[] = ['waiting_checks', 'needs_review', 'pending_approval', 'queued', 'running']
 
 /** A run that can still change: one that has not ended. */
 export function active(state: RunPhase): boolean {
@@ -37,6 +39,10 @@ const REASON_LABEL: Record<string, string> = {
   params_mismatch: 'Inputs don’t match the job',
   approval_denied: 'Approval denied',
   approval_expired: 'Approval expired',
+  checks_failed: 'A required check failed',
+  checks_timeout: 'Required checks timed out',
+  runner_too_old: 'A runner is too old for this manifest',
+  replaced: 'Replaced by a newer converge',
 }
 
 /** `cancelled_by_user` as "cancelled by user". */
@@ -207,6 +213,15 @@ onServerEvent(({ reply_to, event }) => {
           data: { workspace: s.workspace, binding: null, host: null, actor: null, state: s.state, from: null, to: null },
         })
       }
+      break
+    }
+    // Spec 068 US7: the required checks a waiting run sees moved.
+    case 'RunChecksChanged': {
+      const { run_id, checks } = event.data
+      useRuns.setState({
+        runs: s.runs.map((r) => (r.id === run_id ? { ...r, checks } : r)),
+        ...(s.detail?.run.id === run_id ? { detail: { ...s.detail, run: { ...s.detail.run, checks } } } : {}),
+      })
       break
     }
     // `RunSubscribed` names the head seq; the stored lines after `from_seq` follow it, each

@@ -3,13 +3,18 @@
  * the per-host results with each host’s first failure. The job params it was queued with sit next to
  * its commit (spec 061). A run pinned to an inventory revision that has since been replaced says so.
  * A run that has not ended can be cancelled, previewed first. A run held for approval (spec 064) shows
- * its approval panel above the output.
+ * its approval panel above the output. A converge run (spec 068) is its own page,
+ * `features/converge/ConvergePage.tsx`, loaded once the run says its kind.
+ *
+ * Spec 068 on a plain run: a `check` badge, the vars files a path-triggered run was narrowed by, the
+ * required forge checks it waits on (live, from `RunChecksChanged`), and per host whether a converge
+ * covered it (with a link to that converge) or why a converge step was skipped.
  */
 import { ArrowLeftIcon, StopIcon } from '@phosphor-icons/react'
 import { LogView } from '@companion/terminal'
 import { Button } from '@companion/ui'
-import { ConfirmDialog, DataTable, H2, LABEL, Link, LINK, Page, PageHeader, type Params } from '@companion/ui/kit'
-import { useEffect, useMemo, useState } from 'react'
+import { ConfirmDialog, DataTable, H2, LABEL, Link, LINK, LoadState, Page, PageHeader, type Params } from '@companion/ui/kit'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { canOperate } from '@/features/hosts/workspaces'
@@ -17,8 +22,12 @@ import type { HostStats, RunHostInfo, RunInfo, RunSummary } from '@/protocol/wir
 import { when } from '@/features/settings/updates'
 
 import { ApprovalPanel, DecisionDialog } from './ApprovalPanel'
+import { CheckBadge, RunChecks } from './checks'
 import { ErrorLine, StateBadge } from './parts'
+import { narrowedText, skipText } from './run-068'
 import { active, reasonText, short, useRuns } from './store'
+
+const ConvergePage = lazy(() => import('@/features/converge/ConvergePage'))
 
 const STATS: (keyof HostStats)[] = ['ok', 'changed', 'failed', 'unreachable', 'skipped', 'rescued', 'ignored']
 
@@ -75,6 +84,25 @@ function Summary({ summary }: { summary: RunSummary }) {
   )
 }
 
+/** A host's state; covered names the converge that applies it, skipped says why (spec 068). */
+function HostState({ host: h }: { host: RunHostInfo }) {
+  return (
+    <span className="flex min-w-0 flex-wrap items-baseline gap-x-1">
+      <StateBadge state={h.state} />
+      {h.state === 'covered' && h.covered_by && (
+        <span data-covered-by={h.covered_by} className="text-muted-foreground">
+          by{' '}
+          <Link to={`/runs/${h.covered_by}`} className={LINK}>
+            converge {h.covered_by.slice(0, 8)}
+          </Link>
+        </span>
+      )}
+      {h.state === 'skipped' && <span className="text-muted-foreground">({skipText(h.skip_reason).replace(/^skipped: /, '')})</span>}
+      {h.refusal && h.state !== 'skipped' && <span className="text-status-err">({h.refusal})</span>}
+    </span>
+  )
+}
+
 function Hosts({ hosts }: { hosts: RunHostInfo[] }) {
   return (
     <section aria-labelledby="run-hosts-title" className="flex min-w-0 flex-col gap-2">
@@ -91,12 +119,7 @@ function Hosts({ hosts }: { hosts: RunHostInfo[] }) {
           {
             key: 'state',
             header: 'State',
-            cell: (h) => (
-              <>
-                <StateBadge state={h.state} />
-                {h.refusal && <span className="ml-1 text-status-err">({h.refusal})</span>}
-              </>
-            ),
+            cell: (h) => <HostState host={h} />,
           },
           { key: 'results', header: 'Results', cell: (h) => <span className="font-mono">{statsText(h.stats)}</span> },
           {
@@ -144,6 +167,7 @@ function Header({ run }: { run: RunInfo }) {
             <span data-run-state={run.state}>
               <StateBadge state={run.state} />
             </span>
+            <CheckBadge run={run} />
             {run.reason && <span>{reasonText(run.reason)}</span>}
           </span>
         }
@@ -162,6 +186,11 @@ function Header({ run }: { run: RunInfo }) {
         <p role="note" aria-label="Newer inventory" className="border border-status-warn/50 px-3 py-2 text-xs text-status-warn">
           This run used an older revision: a newer revision of inventory {run.inventory} exists, and the next run uses
           it.
+        </p>
+      )}
+      {run.narrowed_by && run.narrowed_by.length > 0 && (
+        <p role="note" aria-label="Narrowed" data-narrowed-by className="min-w-0 text-xs break-words text-muted-foreground">
+          {narrowedText(run.narrowed_by)}.
         </p>
       )}
       <dl className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs sm:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
@@ -211,6 +240,13 @@ export default function RunPage({ params }: { params: Params }) {
   const shown = useMemo(() => (partial ? [...lines, partial] : lines), [lines, partial])
   const run = detail?.run.id === id ? detail.run : null
 
+  if (run?.kind === 'converge')
+    return (
+      <Suspense fallback={<LoadState loading label="Loading the converge…" />}>
+        <ConvergePage run={run} />
+      </Suspense>
+    )
+
   return (
     <Page name="run" labelledBy="run-title">
       <Link to="/runs" className={`${LINK} flex w-fit items-center gap-1 text-xs text-muted-foreground`}>
@@ -219,6 +255,7 @@ export default function RunPage({ params }: { params: Params }) {
       </Link>
       <ErrorLine />
       {run ? <Header run={run} /> : <PageHeader id="run-title" title="Run" description="Loading the run…" />}
+      {run && <RunChecks run={run} />}
       {run && <ApprovalPanel run={run} />}
       {run?.summary && <Summary summary={run.summary} />}
       <LogView

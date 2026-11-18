@@ -281,6 +281,47 @@ impl Source {
         s
     }
 
+    /// A source whose first commit is the tree under `tests/fixtures/<name>/` (spec 068 T004).
+    pub fn fixture(name: &str) -> Self {
+        fn copy(from: &Path, to: &Path) {
+            std::fs::create_dir_all(to).expect("dir");
+            for e in std::fs::read_dir(from).expect("fixture dir") {
+                let e = e.expect("entry");
+                let dest = to.join(e.file_name());
+                if e.file_type().expect("type").is_dir() {
+                    copy(&e.path(), &dest);
+                } else {
+                    std::fs::copy(e.path(), dest).expect("copy");
+                }
+            }
+        }
+        let dir = tempfile::tempdir().expect("tempdir");
+        let bare = dir.path().join("origin.git");
+        let work = dir.path().join("work");
+        std::fs::create_dir_all(&bare).expect("bare");
+        git(&bare, &["init", "--bare", "-q", "-b", "main"]);
+        copy(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures")
+                .join(name),
+            &work,
+        );
+        git(&work, &["init", "-q", "-b", "main"]);
+        git(
+            &work,
+            &["remote", "add", "origin", bare.to_str().expect("utf8")],
+        );
+        git(&work, &["add", "-A"]);
+        git(&work, &["commit", "-q", "-m", name]);
+        let s = Self {
+            _dir: dir,
+            bare,
+            work,
+        };
+        s.push();
+        s
+    }
+
     pub fn url(&self) -> String {
         format!("file://{}", self.bare.display())
     }
@@ -320,6 +361,15 @@ pub fn spec(h: &Harness, src: &Source) -> keel_protocol::BindingSpec {
         signed_mode: false,
         override_quorum: 1,
     }
+}
+
+/// Binds the spec 068 fixture repo (`tests/fixtures/converge-repo`): recipes for `debian`,
+/// `keel-node` and `k3s-master`, `k3s-master` covering `k3s-audit`, and a `tailscale` job with
+/// an `env` binding.
+pub async fn bind_converge_repo(h: &Harness) -> (Source, Uuid) {
+    let src = Source::fixture("converge-repo");
+    let binding = bind(h, &src).await;
+    (src, binding)
 }
 
 /// Creates a binding for `src` and returns its id.

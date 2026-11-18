@@ -178,6 +178,8 @@ pub enum CredentialKind {
     GitSshKey,
     /// A forge API token, used only to open pull requests on a new branch (spec 066).
     ForgeToken,
+    /// One value set as an environment variable named by a job's `env:` (spec 068).
+    EnvValue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
@@ -259,6 +261,9 @@ pub struct BindingUpdate {
 pub struct ManifestProblem {
     pub at: String,
     pub message: String,
+    /// The validation code for spec 068's rules (`profile_cycle`, `env_name_reserved`, ...).
+    #[serde(default)]
+    pub code: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -286,6 +291,15 @@ pub struct BindingInfo {
     /// A stable code (`manifest_invalid`, `sync_failed`, `history_rewritten`, ...).
     pub last_sync_error: Option<String>,
     pub manifest_problems: Vec<ManifestProblem>,
+    /// Commit status contexts a converge waits for (spec 068).
+    #[serde(default)]
+    pub required_checks: Vec<crate::converge::RequiredCheck>,
+    #[serde(default)]
+    pub checks_timeout_secs: u32,
+    /// Hosts whose runner lacks `manifest-v068` while the manifest uses a 068 key (research R4).
+    #[serde(default)]
+    #[ts(type = "Array<string>")]
+    pub runners_refusing_manifest: Vec<Uuid>,
 }
 
 /// A job as the binding page lists it.

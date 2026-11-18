@@ -153,6 +153,7 @@ fn events_round_trip() {
                 expires_at: "2026-10-28T12:15:00Z".into(),
                 host: Some(id(4)),
                 rolled_from: None,
+                auto_converge: true,
             }],
         },
         Event::AllApiTokens {

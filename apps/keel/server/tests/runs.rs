@@ -881,6 +881,8 @@ async fn a_token_may_list_runs_but_never_start_or_cancel_one() {
         Cmd::PreviewRunStart {
             job: jobs[0].0,
             limit: None,
+            params: Default::default(),
+            check: false,
         },
         Cmd::PreviewCancel {
             run: Uuid::now_v7(),
@@ -932,6 +934,49 @@ async fn a_params_mismatch_refusal_is_recorded() {
     f.finish().await;
 }
 
+/// Spec 068: the runner's new refusals, `env_refused` (a reserved `env:` name) and
+/// `choice_mismatch` (a `choice` param outside the checkout's values), are recorded as such
+/// (migration 0019 widens the `run_hosts.refusal` check).
+#[tokio::test]
+async fn env_refused_and_choice_mismatch_refusals_are_recorded() {
+    let Some(f) = Fixture::new("run_068_refusals", settings()).await else {
+        return;
+    };
+    f.push("playbooks/web.yaml", "- hosts: web\n").await;
+    let run = f.runs().await[0].0;
+    let _runners = f
+        .attach(|name, id| {
+            let reason = if name == "web-1" {
+                keel_exec::frames::Refusal::EnvRefused
+            } else {
+                keel_exec::frames::Refusal::ChoiceMismatch
+            };
+            FakeRunner::new(id.to_string()).default_script(Script::refuse(reason, "refused"))
+        })
+        .await;
+    let (state, _) = f.ended(run, Duration::from_secs(10)).await;
+    assert_eq!(state, "refused");
+    let refusals: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "select host_name, state, refusal from run_hosts where run_id = $1 order by host_name",
+    )
+    .bind(run)
+    .fetch_all(&f.h.db.owner)
+    .await
+    .expect("run hosts");
+    assert_eq!(
+        refusals,
+        vec![
+            ("web-1".into(), "refused".into(), Some("env_refused".into())),
+            (
+                "web-2".into(),
+                "refused".into(),
+                Some("choice_mismatch".into())
+            ),
+        ]
+    );
+    f.finish().await;
+}
+
 #[tokio::test]
 async fn a_manual_run_previews_its_targets_and_secrets_never_reach_the_record() {
     let Some(f) = Fixture::new("run_manual", settings()).await else {
@@ -950,6 +995,8 @@ async fn a_manual_run_previews_its_targets_and_secrets_never_reach_the_record() 
         f.h.confirm(Cmd::PreviewRunStart {
             job: jobs[0].0,
             limit: Some(limit),
+            params: Default::default(),
+            check: false,
         })
         .await;
     assert!(p.affected.iter().any(|a| a == "web-2"), "{p:?}");

@@ -378,6 +378,7 @@ fn run_frames(base: &str, target: &str, pack: &[u8]) -> Vec<Frame> {
         pack_size: pack.len() as u64,
         quorum: None,
         params: Default::default(),
+        check: false,
     }];
     frames.extend(pack_builder::frames(RUN, pack));
     frames.push(Frame::Secrets {

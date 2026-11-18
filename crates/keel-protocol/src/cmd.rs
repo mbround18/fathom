@@ -20,6 +20,7 @@ use crate::inventory::InventoryText;
 use crate::governance::{ApiTokenState, GrantProfiles, Label, Slug, TokenActions};
 use crate::types::{InstanceRole, TeamRole};
 // Runs (US2)
+use crate::converge::{ConvergeTarget, HostProfilesChange, SuggestionAction};
 use crate::run::{ApprovalReason, Pattern, PolicySpec, RunPhase};
 // Hosts and the SSH CAs (US7)
 use crate::governance::ProfileName;
@@ -84,6 +85,19 @@ pub enum Cmd {
         #[ts(type = "string")]
         binding: Uuid,
         on: bool,
+    },
+    /// `Preview` (step-up) of replacing the binding's required forge check contexts (spec 068
+    /// US7), and its check timeout when given. An empty list requires none. Refused
+    /// `checks_unsupported` when the workspace's forge cannot report commit statuses. Needs
+    /// `Administer` in the binding's workspace. `Confirm` replies `Binding`.
+    PreviewRequiredChecks {
+        #[ts(type = "string")]
+        binding_id: Uuid,
+        contexts: Vec<String>,
+        /// Seconds a run waits for the checks before it ends `checks_timeout` (60 to 86400).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        timeout_secs: Option<u32>,
     },
     /// `Preview` listing the queued and pending runs it cancels (`binding_disabled`).
     PreviewBindingDisable {
@@ -487,11 +501,53 @@ pub enum Cmd {
         job: Uuid,
         #[serde(default)]
         limit: Option<Pattern>,
+        /// Values for the job's declared params (spec 068).
+        #[serde(default)]
+        params: std::collections::BTreeMap<String, String>,
+        /// Run `ansible-playbook --check` (spec 068).
+        #[serde(default)]
+        check: bool,
     },
     /// `Preview`; `Confirm` sends `Cancel` to the run's hosts and replies `RunState`.
     PreviewCancel {
         #[ts(type = "string")]
         run: Uuid,
+    },
+    /// `ConvergePlan` and its `Preview` (spec 068): each host's steps, the combined approval
+    /// terms, and the held converges it replaces. `ConfirmConverge` carries it out.
+    PreviewConverge(ConvergeTarget),
+    /// Carries out a `PreviewConverge`: replies `Confirmed` and `ConvergeStarted`.
+    ConfirmConverge {
+        preview_token: PreviewId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        step_up: Option<PasskeyAssertion>,
+    },
+    /// `ConvergePlan` and its `Preview` of retrying a finished converge on the hosts that did not
+    /// succeed: at its commit, or at the binding's newest with `replan`.
+    PreviewConvergeRetry {
+        #[ts(type = "string")]
+        run_id: Uuid,
+        #[serde(default)]
+        replan: bool,
+    },
+    /// Carries out a `PreviewConvergeRetry`: replies `Confirmed` and `ConvergeStarted`.
+    ConfirmConvergeRetry {
+        preview_token: PreviewId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        step_up: Option<PasskeyAssertion>,
+    },
+    /// Cancels a converge: steps not yet run are cancelled, running ones are sent `Cancel`.
+    /// Replies `Converge`.
+    CancelConverge {
+        #[ts(type = "string")]
+        run_id: Uuid,
+    },
+    /// `Converge`: the parent run, each host's state and steps.
+    GetConverge {
+        #[ts(type = "string")]
+        run_id: Uuid,
     },
     /// `Preview` (step-up) of approving a run held for approval (spec 064). `Confirm` replies
     /// `Run`. Needs `Approve` in the run's workspace.
@@ -560,12 +616,36 @@ pub enum Cmd {
         workspace: Uuid,
         inventory_name: HostName,
         profiles: HostProfiles,
+        /// Converge the host to its profiles once it enrolls (spec 068 US2, when `KEEL_CONVERGE`
+        /// is on). Absent means yes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        auto_converge: Option<bool>,
     },
     /// `Preview` (step-up); `Confirm` revokes the host's certificates (KRL), closes its session
     /// and replies `Host`.
     PreviewHostRevoke {
         #[ts(type = "string")]
         host: Uuid,
+    },
+    /// Spec 068 US3: `HostProfilesPreview`, then `Preview` (step-up, workspace admin); the
+    /// generic `Confirm` sets the host's profiles, re-issues its certificate and replies `Host`.
+    PreviewHostProfiles(HostProfilesChange),
+    /// `ProfileSuggestions`: open (undismissed) suggestions in `workspace`, or for one host.
+    ListProfileSuggestions {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, type = "string")]
+        host_id: Option<Uuid>,
+    },
+    /// Hides a suggestion until the groups behind it change (workspace admin). Replies
+    /// `ProfileSuggestions` for that host.
+    DismissProfileSuggestion {
+        #[ts(type = "string")]
+        host_id: Uuid,
+        profile: String,
+        action: SuggestionAction,
     },
     /// `SshCa`: CA fingerprints and the `@cert-authority` line for `keel_runner_host_ca`.
     GetSshCa,
@@ -917,6 +997,7 @@ pub const TOKEN_ACTIONS: &[&str] = &[
     // Runs (US2)
     "list_runs",
     "get_run",
+    "get_converge",
     "list_jobs",
     "list_policies",
     "explain_policy",
@@ -950,6 +1031,7 @@ impl Cmd {
             Cmd::PreviewBindingCreate(_) => "preview_binding_create",
             Cmd::PreviewBindingUpdate(_) => "preview_binding_update",
             Cmd::PreviewSignedMode { .. } => "preview_signed_mode",
+            Cmd::PreviewRequiredChecks { .. } => "preview_required_checks",
             Cmd::PreviewBindingDisable { .. } => "preview_binding_disable",
             Cmd::PreviewBindingEnable { .. } => "preview_binding_enable",
             Cmd::PreviewBindingRemove { .. } => "preview_binding_remove",
@@ -1016,6 +1098,12 @@ impl Cmd {
             Cmd::UnsubscribeRun { .. } => "unsubscribe_run",
             Cmd::PreviewRunStart { .. } => "preview_run_start",
             Cmd::PreviewCancel { .. } => "preview_cancel",
+            Cmd::PreviewConverge(_) => "preview_converge",
+            Cmd::ConfirmConverge { .. } => "confirm_converge",
+            Cmd::PreviewConvergeRetry { .. } => "preview_converge_retry",
+            Cmd::ConfirmConvergeRetry { .. } => "confirm_converge_retry",
+            Cmd::CancelConverge { .. } => "cancel_converge",
+            Cmd::GetConverge { .. } => "get_converge",
             Cmd::PreviewRunApprove { .. } => "preview_run_approve",
             Cmd::PreviewRunDeny { .. } => "preview_run_deny",
             Cmd::CountPendingApprovals => "count_pending_approvals",
@@ -1029,6 +1117,9 @@ impl Cmd {
             Cmd::GetHost { .. } => "get_host",
             Cmd::PreviewHostEnroll { .. } => "preview_host_enroll",
             Cmd::PreviewHostRevoke { .. } => "preview_host_revoke",
+            Cmd::PreviewHostProfiles(_) => "preview_host_profiles",
+            Cmd::ListProfileSuggestions { .. } => "list_profile_suggestions",
+            Cmd::DismissProfileSuggestion { .. } => "dismiss_profile_suggestion",
             Cmd::GetSshCa => "get_ssh_ca",
             Cmd::PreviewSshCaRotate { .. } => "preview_ssh_ca_rotate",
             Cmd::ListJoinRequests { .. } => "list_join_requests",
@@ -1101,6 +1192,7 @@ impl Cmd {
             | Cmd::PreviewBindingCreate(_)
             | Cmd::PreviewBindingUpdate(_)
             | Cmd::PreviewSignedMode { .. }
+            | Cmd::PreviewRequiredChecks { .. }
             | Cmd::PreviewBindingDisable { .. }
             | Cmd::PreviewBindingEnable { .. }
             | Cmd::PreviewBindingRemove { .. }
@@ -1166,6 +1258,12 @@ impl Cmd {
             | Cmd::GetRun { .. }
             | Cmd::PreviewRunStart { .. }
             | Cmd::PreviewCancel { .. }
+            | Cmd::PreviewConverge(_)
+            | Cmd::ConfirmConverge { .. }
+            | Cmd::PreviewConvergeRetry { .. }
+            | Cmd::ConfirmConvergeRetry { .. }
+            | Cmd::CancelConverge { .. }
+            | Cmd::GetConverge { .. }
             | Cmd::PreviewRunApprove { .. }
             | Cmd::PreviewRunDeny { .. }
             | Cmd::CountPendingApprovals
@@ -1179,6 +1277,9 @@ impl Cmd {
             | Cmd::GetHost { .. }
             | Cmd::PreviewHostEnroll { .. }
             | Cmd::PreviewHostRevoke { .. }
+            | Cmd::PreviewHostProfiles(_)
+            | Cmd::ListProfileSuggestions { .. }
+            | Cmd::DismissProfileSuggestion { .. }
             | Cmd::GetSshCa
             | Cmd::PreviewSshCaRotate { .. } => false,
             // Join tokens and join requests (contracts/join.md)

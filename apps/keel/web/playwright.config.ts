@@ -8,7 +8,7 @@ import { autoWorkers } from '../../../ui/tests/support/workers.js'
  *
  * Run one story: `pnpm --filter @companion/keel-web e2e --project us1`. Spec 060's specs are the
  * `s060` project, spec 061's `s061`, spec 063's `s063`, spec 064's `s064`, spec 066's `s066`,
- * spec 067's `s067`.
+ * spec 067's `s067`, spec 068's `s068`.
  */
 const STORIES = ['shell', 'us1', 'us2', 'us3', 'us4', 'us5', 'us6', 'us7', 'us8', 'us9', 'us10'] as const
 
@@ -73,6 +73,12 @@ export default defineConfig({
     {
       name: 's067',
       testDir: './tests/e2e/s067',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Spec 068 (converge). The same naming rule as `s063`.
+    {
+      name: 's068',
+      testDir: './tests/e2e/s068',
       use: { ...devices['Desktop Chrome'] },
     },
     // Spec 065: screenshot goldens taken before the shared kit move. Opt in with KEEL_GOLDENS=1:

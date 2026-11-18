@@ -40,6 +40,7 @@ fn running() -> KeelBuild {
         built_at: Some("2026-10-01T12:00:00Z".into()),
         digest: None,
         display: "0.2.0".into(),
+        flags: vec!["converge".into()],
     }
 }
 
@@ -137,6 +138,7 @@ fn events_round_trip() {
             built_at: None,
             digest: None,
             display: "development build".into(),
+            flags: vec![],
         }),
         Event::UpdateStatus(status(UpdatePath::Run)),
         Event::UpdateStatus(status(manual)),
@@ -252,6 +254,11 @@ fn run_info_carries_params() {
         summary: None,
         params: BTreeMap::new(),
         approval: None,
+        kind: RunKind::Normal,
+        check: false,
+        parent_run: None,
+        narrowed_by: None,
+        checks: None,
     };
     // Empty when there are none, and still on the wire.
     assert_eq!(round_trip(&run)["params"], json!({}));

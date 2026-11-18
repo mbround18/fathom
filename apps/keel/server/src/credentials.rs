@@ -1,7 +1,7 @@
 //! Credentials (spec 055 T047, data-model `credentials`, research R12).
 //!
 //! - Kinds: `vault_password`, `env`, `secret_vars`, `git_https_token`, `git_ssh_key`,
-//!   `forge_token` (spec 066).
+//!   `forge_token` (spec 066), `env_value` (spec 068).
 //! - Values are sealed at rest under the master key (AAD `credential:<id>`) and never returned:
 //!   lists show the name, kind and a fingerprint (SHA-256 of the plaintext, truncated).
 //! - Create, rotate and grant need step-up. Without a master key they fail closed.
@@ -10,7 +10,11 @@
 //!   "pending or queued run needs it" check joins then.)
 
 use keel_core::authz::Capability;
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use keel_core::domain::WorkspaceId;
+use keel_core::ports::{SecretError, SecretResolver};
 use keel_protocol::{
     CredentialGrantInfo, CredentialInfo, CredentialKind, Event, ObjectName, SecretValue,
 };
@@ -28,6 +32,7 @@ use crate::bindings::{
 use crate::dispatch::{PendingOp, Request};
 use crate::identity::Caller;
 use crate::preview::Draft;
+use crate::seal::MasterKey;
 use crate::serve::AppState;
 
 /// Why a credential could not be opened. Never carries the value.
@@ -85,6 +90,83 @@ pub async fn open(app: &AppState, id: Uuid) -> Result<(String, SecretSlice<u8>),
     Ok((kind, value))
 }
 
+/// The credentials granted to one binding for one host's profiles, still sealed, for one
+/// assignment (spec 068 T055). A value opens only through [`SecretResolver::resolve`], so the
+/// run path holds plaintext one credential at a time and for no longer than it needs it.
+pub struct Granted {
+    key: Option<Arc<MasterKey>>,
+    workspace: WorkspaceId,
+    /// Name to (id, kind, sealed value).
+    rows: HashMap<String, (Uuid, String, Vec<u8>)>,
+}
+
+impl Granted {
+    /// Loads the credentials among `names` that `binding` was granted for `host`'s profiles.
+    /// `git_*` credentials are for fetching and never go to a host.
+    ///
+    /// # Errors
+    ///
+    /// The database.
+    pub async fn load(
+        app: &AppState,
+        workspace: Uuid,
+        binding: Uuid,
+        host: Uuid,
+        names: &[String],
+    ) -> Result<Self, sqlx::Error> {
+        let rows: Vec<(Uuid, String, String, Vec<u8>)> = if names.is_empty() {
+            Vec::new()
+        } else {
+            sqlx::query_as(
+                "select distinct on (c.name) c.id, c.name, c.kind, c.sealed from credentials c \
+                 join credential_grants g on g.credential_id = c.id \
+                 where g.binding_id = $1 and c.name = any($2) and c.kind not like 'git_%' \
+                   and (cardinality(g.profiles) = 0 or g.profiles && coalesce(( \
+                        select array_agg(p.name) from host_profiles hp \
+                        join profiles p on p.id = hp.profile_id where hp.host_id = $3), '{}')) \
+                 order by c.name, c.id",
+            )
+            .bind(binding)
+            .bind(names)
+            .bind(host)
+            .fetch_all(&app.db)
+            .await?
+        };
+        Ok(Self {
+            key: app.repos.master_key.clone(),
+            workspace: WorkspaceId(workspace),
+            rows: rows
+                .into_iter()
+                .map(|(id, name, kind, sealed)| (name, (id, kind, sealed)))
+                .collect(),
+        })
+    }
+
+    /// The kind of a granted credential, `None` when `name` is not granted.
+    #[must_use]
+    pub fn kind(&self, name: &str) -> Option<&str> {
+        self.rows.get(name).map(|(_, kind, _)| kind.as_str())
+    }
+}
+
+impl SecretResolver for Granted {
+    fn resolve(&self, workspace: WorkspaceId, name: &str) -> Result<Vec<u8>, SecretError> {
+        if workspace != self.workspace {
+            return Err(SecretError::NotGranted);
+        }
+        let (id, _, sealed) = self.rows.get(name).ok_or(SecretError::NotGranted)?;
+        let key = self
+            .key
+            .as_ref()
+            .ok_or_else(|| SecretError::Unavailable("no master key".into()))?;
+        let value = key
+            .open(&aad(*id), sealed)
+            .map_err(|_| SecretError::Unavailable("the sealed value does not open".into()))?;
+        use secrecy::ExposeSecret as _;
+        Ok(value.expose_secret().to_vec())
+    }
+}
+
 fn sealing_unavailable() -> Vec<Event> {
     op_error(
         "sealing_unavailable",
@@ -133,6 +215,13 @@ fn check_value(kind: CredentialKind, value: &str) -> Result<(), Vec<Event>> {
             }
         }
         CredentialKind::VaultPassword => {}
+        // Spec 068: one value, set as the environment variable a job's `env:` names. A NUL or
+        // a newline would not survive `execve`'s environment.
+        CredentialKind::EnvValue => {
+            if value.is_empty() || value.contains(['\0', '\n', '\r']) {
+                return bad("An env_value is one line, with no NUL.");
+            }
+        }
     }
     Ok(())
 }

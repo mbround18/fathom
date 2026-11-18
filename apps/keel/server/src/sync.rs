@@ -329,12 +329,14 @@ fn read_manifest(
             return Err(vec![ManifestIssue {
                 at: manifest::MANIFEST_PATH.to_owned(),
                 message: "the manifest does not exist at this commit".to_owned(),
+                code: None,
             }]);
         }
         Err(_) => {
             return Err(vec![ManifestIssue {
                 at: manifest::MANIFEST_PATH.to_owned(),
                 message: "the manifest could not be read".to_owned(),
+                code: None,
             }]);
         }
     };
@@ -343,6 +345,52 @@ fn read_manifest(
         commit: head,
     };
     manifest::validate(&bytes, &tree, ctx)
+}
+
+/// The binding's validated manifest at `commit`, read from its mirror (spec 068: converge plans
+/// against the recipes at the commit it pins). `Ok(Err(..))` when it is missing or invalid.
+///
+/// # Errors
+///
+/// The database failed reading the binding's granted credentials.
+pub(crate) async fn manifest_at(
+    app: &AppState,
+    binding: Uuid,
+    commit: &str,
+    signed_mode: bool,
+) -> Result<Result<Manifest, Vec<ManifestIssue>>, sqlx::Error> {
+    let ctx = Context {
+        signed_mode,
+        granted_credentials: granted_names(app, binding).await?,
+    };
+    let dir = data_dir(app);
+    let commit = CommitId(commit.to_owned());
+    let read = tokio::task::spawn_blocking(move || match Mirror::open(&dir, binding) {
+        Ok(mirror) => read_manifest(&mirror, &commit, &ctx),
+        Err(_) => Err(vec![ManifestIssue {
+            at: manifest::MANIFEST_PATH.to_owned(),
+            message: "the binding's mirror could not be opened".to_owned(),
+            code: None,
+        }]),
+    })
+    .await;
+    Ok(read.unwrap_or_else(|_| {
+        Err(vec![ManifestIssue {
+            at: manifest::MANIFEST_PATH.to_owned(),
+            message: "the manifest could not be read".to_owned(),
+            code: None,
+        }])
+    }))
+}
+
+/// Whether `m` uses a key only a spec 068 runner reads (recipes, groups, `covers`, `env`), so a
+/// runner without `manifest-v068` is not sent its jobs (contracts/protocol.md).
+pub(crate) fn uses_v068_keys(m: &Manifest) -> bool {
+    !m.groups.is_empty()
+        || m.profiles.values().any(manifest::Profile::has_recipe)
+        || m.jobs
+            .values()
+            .any(|j| !j.definition.covers.is_empty() || !j.definition.env.is_empty())
 }
 
 /// The mirrors' parent directory.
@@ -547,6 +595,21 @@ pub async fn sync_binding(
         )
         .await;
     }
+    // Spec 068 US3: suggestions follow every applied sync, moved or not (an inventory edit in
+    // Keel changes groups without a commit). Never fails the sync.
+    if apply && let Ok(m) = &fetched.manifest {
+        match refresh_suggestions(app, binding, row.workspace, &commit, m).await {
+            Ok(hosts) if !hosts.is_empty() => app.repos.push(
+                row.workspace,
+                Event::ProfileSuggestionsChanged {
+                    binding_id: binding,
+                    hosts,
+                },
+            ),
+            Ok(_) => {}
+            Err(e) => tracing::warn!(%binding, error = %e, "refreshing profile suggestions failed"),
+        }
+    }
     if moved {
         app.repos.push(
             row.workspace,
@@ -583,6 +646,110 @@ pub async fn sync_binding(
         jobs_changed,
         inventories_changed,
     })
+}
+
+/// Spec 068 US3 (FR-009): re-derives `binding`'s profile suggestions from its manifest's
+/// `groups:` and each host's groups in the latest valid revision of the inventories its jobs use.
+/// Nothing is assigned. A dismissed suggestion stays dismissed while its groups are the same
+/// (`keel_core::converge::still_dismissed`); this binding's suggestions it no longer makes go.
+/// Returns the hosts whose open suggestions changed.
+async fn refresh_suggestions(
+    app: &AppState,
+    binding: Uuid,
+    workspace: Uuid,
+    commit: &str,
+    m: &Manifest,
+) -> Result<Vec<Uuid>, sqlx::Error> {
+    use keel_core::converge::{SuggestionAction, suggest};
+    use tracing::Instrument;
+    let span = tracing::info_span!("profile.suggest", %binding, hosts = tracing::field::Empty);
+    async move {
+        let inventories: BTreeSet<&str> = m
+            .jobs
+            .values()
+            .map(|j| j.definition.inventory.as_str())
+            .collect();
+        let mut conn = app.db.acquire().await?;
+        let mut groups: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for inventory in inventories {
+            if let Ok(p) = crate::inventory::pin_latest(&mut conn, workspace, inventory).await? {
+                for h in p.hosts {
+                    groups.entry(h.host).or_default().extend(h.groups);
+                }
+            }
+        }
+        drop(conn);
+        let hosts: Vec<(Uuid, String, Vec<String>)> = sqlx::query_as(
+            "select h.id, h.inventory_name, array(select p.name from host_profiles hp \
+               join profiles p on p.id = hp.profile_id where hp.host_id = h.id order by p.name) \
+             from hosts h where h.workspace_id = $1 and h.state <> 'revoked' order by h.id",
+        )
+        .bind(workspace)
+        .fetch_all(&app.db)
+        .await?;
+        let open = "select profile, action, groups from profile_suggestions \
+                    where host_id = $1 and dismissed_at is null order by profile, action";
+        let mut tx = app.db.begin().await?;
+        let mut changed = Vec::new();
+        for (host, name, assigned) in hosts {
+            let host_groups: Vec<String> = groups
+                .get(&name)
+                .map(|g| g.iter().cloned().collect())
+                .unwrap_or_default();
+            let fresh = suggest(&host_groups, &assigned, m);
+            let before: Vec<(String, String, Vec<String>)> =
+                sqlx::query_as(open).bind(host).fetch_all(&mut *tx).await?;
+            let (mut profiles, mut actions) = (Vec::new(), Vec::new());
+            for s in &fresh {
+                let action = match s.action {
+                    SuggestionAction::Add => "add",
+                    SuggestionAction::Remove => "remove",
+                };
+                sqlx::query(
+                    "insert into profile_suggestions (host_id, profile, action, groups, \
+                     binding_id, commit) values ($1, $2, $3, $4, $5, $6) \
+                     on conflict (host_id, profile, action) do update set \
+                       groups = excluded.groups, binding_id = excluded.binding_id, \
+                       commit = excluded.commit, last_seen_at = now(), \
+                       dismissed_at = case when profile_suggestions.groups = excluded.groups \
+                         then profile_suggestions.dismissed_at end, \
+                       dismissed_by = case when profile_suggestions.groups = excluded.groups \
+                         then profile_suggestions.dismissed_by end",
+                )
+                .bind(host)
+                .bind(&s.profile)
+                .bind(action)
+                .bind(&s.groups)
+                .bind(binding)
+                .bind(commit)
+                .execute(&mut *tx)
+                .await?;
+                profiles.push(s.profile.clone());
+                actions.push(action);
+            }
+            sqlx::query(
+                "delete from profile_suggestions s where s.host_id = $1 and s.binding_id = $2 \
+                 and not exists (select 1 from unnest($3::text[], $4::text[]) f(profile, action) \
+                   where f.profile = s.profile and f.action = s.action)",
+            )
+            .bind(host)
+            .bind(binding)
+            .bind(&profiles)
+            .bind(&actions)
+            .execute(&mut *tx)
+            .await?;
+            let after: Vec<(String, String, Vec<String>)> =
+                sqlx::query_as(open).bind(host).fetch_all(&mut *tx).await?;
+            if before != after {
+                changed.push(host);
+            }
+        }
+        tx.commit().await?;
+        tracing::Span::current().record("hosts", changed.len());
+        Ok(changed)
+    }
+    .instrument(span)
+    .await
 }
 
 fn db_error(e: &sqlx::Error) -> SyncError {
@@ -655,11 +822,13 @@ async fn record(
                     upsert_inventories(&mut tx, at, trigger, &fetched.inventories).await?;
                 sqlx::query(
                     "update repo_bindings set last_commit = $2, last_synced_at = $3, \
-                     last_sync_error = null, manifest_problems = '[]' where id = $1",
+                     last_sync_error = null, manifest_problems = '[]', manifest_v068 = $4 \
+                     where id = $1",
                 )
                 .bind(binding)
                 .bind(commit)
                 .bind(now)
+                .bind(uses_v068_keys(m))
                 .execute(&mut *tx)
                 .await?;
             }

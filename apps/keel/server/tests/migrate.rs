@@ -312,3 +312,30 @@ async fn relay_tables_constraints_and_grants() {
     }
     t.drop().await;
 }
+
+/// Spec 068 T001: every migration has its own version, and the versions run 1, 2, 3, … except
+/// 0015, which spec 067 reserved and never used.
+#[test]
+fn migration_versions_are_unique_and_contiguous() {
+    const RESERVED: &[u32] = &[15];
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations");
+    let mut versions: Vec<u32> = std::fs::read_dir(&dir)
+        .expect("migrations dir")
+        .filter_map(|e| {
+            let name = e.ok()?.file_name().into_string().ok()?;
+            let (num, _) = name.strip_suffix(".sql")?.split_once('_')?;
+            Some(num.parse().expect("a numeric version prefix"))
+        })
+        .collect();
+    versions.sort_unstable();
+    let mut seen = versions.clone();
+    seen.dedup();
+    assert_eq!(seen, versions, "duplicate migration versions");
+    let max = *versions.last().expect("some migrations");
+    for v in 1..=max {
+        assert!(
+            versions.contains(&v) || RESERVED.contains(&v),
+            "migration {v:04} is missing and not a documented reservation"
+        );
+    }
+}

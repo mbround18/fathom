@@ -175,6 +175,8 @@ impl Fx {
                     Cmd::PreviewRunStart {
                         job: self.job,
                         limit: None,
+                        params: Default::default(),
+                        check: false,
                     },
                 )
                 .await,

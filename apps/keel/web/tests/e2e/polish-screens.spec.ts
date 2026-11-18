@@ -12,6 +12,7 @@
  */
 import type { Page } from '@playwright/test'
 
+import { BINDING_068 } from '../support/defaults'
 import { expect, fixtures, test, type FakeBackend } from '../support/fake-backend'
 import { governance, people } from '../support/fake-governance'
 import { FakeHosts } from '../support/fake-hosts'
@@ -79,6 +80,7 @@ function seed(backend: FakeBackend, instance_role: 'owner' | 'admin' = 'owner'):
     last_synced_at: NOW,
     last_sync_error: null,
     manifest_problems: [],
+    ...BINDING_068,
   })
   backend.repos.jobs.set('binding-0001', [
     { name: 'web', playbook: 'playbooks/web-frontend.yaml', profiles: ['base', 'web'], inventory: 'prod', blocked: null, defined_at_commit: HEAD },

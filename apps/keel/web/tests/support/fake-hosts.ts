@@ -19,6 +19,7 @@
  */
 import type { Cmd, Event, HostDetail, HostInfo, OutsideRunInfo } from '../../src/protocol/wire'
 import type { FakeBackend } from './fake-backend'
+import { HOST_068 } from './defaults'
 import { NOW, WORKSPACE } from './fake-repos'
 
 const EXPIRES = '2026-10-27T12:15:00Z'
@@ -44,6 +45,7 @@ export function hostInfo(over: Partial<HostInfo> = {}): HostInfo {
     inventory_status: 'unknown',
     zone: null,
     reach: { kind: 'disconnected' },
+    ...HOST_068,
     ...over,
   }
 }

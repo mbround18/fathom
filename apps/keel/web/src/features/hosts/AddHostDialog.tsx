@@ -12,6 +12,7 @@ import { CopyBlock, Dialog, Field, LABEL } from '@companion/ui/kit'
 import { useEffect, useId, useMemo } from 'react'
 
 import { useCurrentWorkspace } from '@/app/workspace-store'
+import { useConverge } from '@/features/converge/store'
 import { profileOptions, yamlGroups } from '@/features/repository/catalog'
 import { ChangeOutcomeView } from '@/features/repository/ChangeOutcomeView'
 import { useCatalog } from '@/features/repository/store'
@@ -64,6 +65,7 @@ function Form({ workspace, onCancel }: { workspace: string; onCancel: () => void
   const profiles = useMemo(() => profileOptions(jobs ?? [], hosts.flatMap((h) => h.profiles)), [jobs, hosts])
   const nameId = useId()
   const profilesId = useId()
+  const convergeOff = useConverge((s) => s.disabled)
   const valid = HOST_NAME.test(name)
 
   const submit = () => {
@@ -110,6 +112,11 @@ function Form({ workspace, onCancel }: { workspace: string; onCancel: () => void
         <ProfileChips id={profilesId} value={picked} onChange={(profiles) => {
             edit({ profiles })
           }} suggestions={profiles} />
+        {!convergeOff && (
+          <p data-add-converge className="text-xs text-muted-foreground">
+            Keel converges it to these profiles once it enrolls, through the approval policy.
+          </p>
+        )}
       </div>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" onClick={onCancel}>

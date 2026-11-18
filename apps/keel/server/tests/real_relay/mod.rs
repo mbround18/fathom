@@ -291,6 +291,7 @@ pub async fn mint(h: &Harness) -> String {
         profiles: HostProfiles(vec![
             ProfileName::new("debian".to_owned()).expect("profile"),
         ]),
+        auto_converge: None,
     };
     let (_, out) = h.confirm(cmd).await;
     match out.as_slice() {

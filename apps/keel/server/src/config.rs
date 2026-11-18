@@ -121,6 +121,9 @@ pub struct Flags {
     /// [env: KEEL_JOIN_RATE] [default: 10]
     #[arg(long, global = true)]
     pub join_rate: Option<String>,
+    /// Converge hosts to their profiles (spec 068) [env: KEEL_CONVERGE] [default: false]
+    #[arg(long, global = true)]
+    pub converge: Option<String>,
     /// External origin, like https://keel.example.com (required) [env: KEEL_PUBLIC_URL]
     #[arg(long, global = true)]
     pub public_url: Option<String>,
@@ -424,6 +427,8 @@ pub struct Config {
     pub join_rate: u32,
     /// Keel's own limits on what a relay may cost it (spec 067 T060), env only.
     pub relay_limits: RelayLimits,
+    /// Converge commands (spec 068). Off: every converge command answers `feature_disabled`.
+    pub converge: bool,
     /// An origin only (no path).
     pub public_url: Url,
     /// May carry a password: never logged.
@@ -844,6 +849,16 @@ pub fn master_key_file(flags: &Flags, env: Env<'_>) -> Result<PathBuf, ConfigErr
 }
 
 impl Config {
+    /// The runtime feature flags that are on, as `KeelBuild.flags` reports them (spec 068 T003).
+    #[must_use]
+    pub fn flags(&self) -> Vec<String> {
+        let mut on = Vec::new();
+        if self.converge {
+            on.push("converge".to_owned());
+        }
+        on
+    }
+
     /// Resolves the serving configuration.
     pub fn resolve(flags: Flags, env: Env<'_>) -> Result<Self, ConfigError> {
         let mut r = Resolver {
@@ -974,6 +989,8 @@ impl Config {
         let join_rate = count(&mut r, "join_rate", flags.join_rate, "KEEL_JOIN_RATE", 10)?;
 
         let relay_limits = RelayLimits::resolve(&mut r)?;
+        let conv = r.pick("converge", flags.converge, "KEEL_CONVERGE");
+        let converge = parse_bool("KEEL_CONVERGE", conv.as_deref().unwrap_or("false"))?;
 
         let cap = r.pick("run_log_cap", flags.run_log_cap, "KEEL_RUN_LOG_CAP");
         let run_log_cap = parse_bytes("KEEL_RUN_LOG_CAP", cap.as_deref().unwrap_or("64MiB"))?;
@@ -1132,6 +1149,7 @@ impl Config {
             join_pending_max,
             join_rate,
             relay_limits,
+            converge,
             public_url,
             database_url,
             master_key_file,
@@ -1372,6 +1390,8 @@ mod tests {
         assert_eq!(c.join_pending_max, 50);
         assert_eq!(c.join_rate, 10);
         assert_eq!(c.relay_limits, RelayLimits::default());
+        assert!(!c.converge, "converge is off by default (spec 068 T003)");
+        assert!(c.flags().is_empty());
         assert_eq!(c.data_dir, PathBuf::from("/var/lib/keel"));
         assert_eq!(c.static_dir, PathBuf::from("/usr/share/keel/web"));
         assert_eq!(c.step_up_window, Duration::from_secs(300));
@@ -1472,6 +1492,7 @@ mod tests {
             run_log_cap: Some("1MiB".into()),
             signed_mode_default: Some("true".into()),
             forge_writes: Some("false".into()),
+            converge: Some("true".into()),
             otel_endpoint: Some("http://otel:4318".into()),
             ..Flags::default()
         };
@@ -1481,6 +1502,8 @@ mod tests {
         assert_eq!(c.run_log_cap, 1 << 20);
         assert!(c.signed_mode_default);
         assert!(!c.forge_writes);
+        assert!(c.converge);
+        assert_eq!(c.flags(), ["converge"]);
         assert_eq!(c.otel_endpoint.as_deref(), Some("http://otel:4318"));
         assert!(c.sources.contains(&("listen", "--listen".into())));
         assert!(

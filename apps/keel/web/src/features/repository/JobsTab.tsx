@@ -1,15 +1,15 @@
 /**
  * Repository → Jobs (spec 066 T051): the jobs `.keel/jobs.yaml` declares on the primary binding,
- * what triggers them, and Run for an operator (`PreviewRunStart`, through governance).
+ * what triggers them, and Run for an operator (the Start dialog, then `PreviewRunStart` through governance).
  */
 import { PlayIcon } from '@phosphor-icons/react'
 import { Button } from '@companion/ui'
 import { ChipList, DataTable, LoadFailed, LoadState, type Column } from '@companion/ui/kit'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
 import { canOperate } from '@/features/hosts/workspaces'
-import { useGovernance } from '@/features/teams/store'
+import { StartRunDialog } from '@/features/runs/StartRunDialog'
 import type { JobInfo } from '@/protocol/wire'
 
 import { useSelected } from './address'
@@ -21,55 +21,73 @@ function Trigger({ job }: { job: JobInfo }) {
 }
 
 function Detail({ job, canRun }: { job: JobInfo; canRun: boolean }) {
-  const propose = useGovernance((s) => s.propose)
+  const [starting, setStarting] = useState<JobInfo | null>(null)
   return (
-    <DetailPane
-      label="Job"
-      title={job.name}
-      badges={job.blocked && <Flag tone="err">blocked</Flag>}
-      actions={
-        canRun &&
-        !job.blocked && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              propose(`Run ${job.name}`, { type: 'PreviewRunStart', data: { job: job.id, limit: null } })
-            }}
-          >
-            <PlayIcon aria-hidden />
-            Run
-          </Button>
-        )
-      }
-    >
-      {job.blocked && (
-        <p role="alert" className="break-words text-status-err">
-          {job.blocked}
-        </p>
-      )}
-      <Part title="Playbook">
-        <ItemLink tab="playbooks" item={job.playbook} />
-      </Part>
-      <Part title="Profiles">
-        <ChipList label="Profiles" items={job.profiles} />
-      </Part>
-      <Part title="Inventory">
-        <code className="font-mono break-all">
-          {job.inventory}
-          {job.limit ? ` --limit ${job.limit}` : ''}
-        </code>
-      </Part>
-      <Part title="Runs on push to">
-        <Trigger job={job} />
-      </Part>
-      <Part title="Credentials">
-        <Lines label="Credentials" items={job.credentials} />
-      </Part>
-      <Part title="Declared at">
-        <code className="font-mono">{job.defined_at_commit.slice(0, 12)}</code>
-      </Part>
-    </DetailPane>
+    <>
+      <DetailPane
+        label="Job"
+        title={job.name}
+        badges={job.blocked && <Flag tone="err">blocked</Flag>}
+        actions={
+          canRun &&
+          !job.blocked && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setStarting(job)
+              }}
+            >
+              <PlayIcon aria-hidden />
+              Run
+            </Button>
+          )
+        }
+      >
+        {job.blocked && (
+          <p role="alert" className="break-words text-status-err">
+            {job.blocked}
+          </p>
+        )}
+        <Part title="Playbook">
+          <ItemLink tab="playbooks" item={job.playbook} />
+        </Part>
+        <Part title="Profiles">
+          <ChipList label="Profiles" items={job.profiles} />
+        </Part>
+        <Part title="Inventory">
+          <code className="font-mono break-all">
+            {job.inventory}
+            {job.limit ? ` --limit ${job.limit}` : ''}
+          </code>
+        </Part>
+        <Part title="Runs on push to">
+          <Trigger job={job} />
+        </Part>
+        <Part title="Credentials">
+          <Lines label="Credentials" items={job.credentials} />
+        </Part>
+        {job.params && Object.keys(job.params).length > 0 && (
+          <Part title="Params">
+            <Lines
+              label="Params"
+              items={Object.entries(job.params)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([n, v]) => `${n} (${v.kind === 'choice' ? 'choice' : 'image digest'})`)}
+            />
+          </Part>
+        )}
+        <Part title="Declared at">
+          <code className="font-mono">{job.defined_at_commit.slice(0, 12)}</code>
+        </Part>
+      </DetailPane>
+      <StartRunDialog
+        job={starting}
+        onClose={() => {
+          setStarting(null)
+        }}
+      />
+    </>
   )
 }
 

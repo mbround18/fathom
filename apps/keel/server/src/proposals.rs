@@ -79,6 +79,12 @@ impl Forges {
         self.writes = writes;
         self
     }
+
+    /// The connector, for reads (spec 068 commit statuses). The writes kill switch does not
+    /// apply: reading a status changes nothing on the forge.
+    pub(crate) fn connector(&self) -> Option<Connector> {
+        self.connect.clone()
+    }
 }
 
 /// A short suffix that keeps proposal branches unique.
@@ -447,6 +453,7 @@ async fn confirm_host_add(app: &AppState, caller: &Caller, add: HostAdd) -> Vec<
             &add.profiles,
             &new,
             None,
+            true,
         )
         .await?;
         tx.commit().await?;

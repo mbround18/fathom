@@ -3,4 +3,4 @@
 /**
  * Why a run reached its state.
  */
-export type RunReason = "approval_denied" | "approval_expired" | "binding_disabled" | "cancelled_by_user" | "runner_lost" | "inventory_invalid" | "artifact_missing" | "credential_unavailable" | "host_refused";
+export type RunReason = "approval_denied" | "approval_expired" | "binding_disabled" | "cancelled_by_user" | "runner_lost" | "inventory_invalid" | "artifact_missing" | "credential_unavailable" | "host_refused" | "checks_failed" | "checks_timeout" | "replaced" | "runner_too_old";

@@ -49,8 +49,18 @@ pub use governance::{
 pub mod run;
 pub use run::{
     ApprovalEntry, ApprovalReason, FirstFailure, HostPhase, HostStats, JobInfo, LogStream,
-    MAX_APPROVAL_REASON_CHARS, Pattern, PolicyCheck, PolicyInfo, PolicySpec, RunApproval,
-    RunHostInfo, RunInfo, RunPhase, RunReason, RunSummary, RunTrigger, WorkspaceCount,
+    MAX_APPROVAL_REASON_CHARS, ParamView, Pattern, PolicyCheck, PolicyInfo, PolicySpec,
+    RunApproval, RunHostInfo, RunInfo, RunKind, RunPhase, RunReason, RunSummary, RunTrigger,
+    WorkspaceCount,
+};
+
+// Converge (spec 068)
+pub mod converge;
+pub use converge::{
+    ApprovalTerms, CheckState, ConvergeHostState, ConvergeHostSummary, ConvergeHostView,
+    ConvergePlan, ConvergeStepView, ConvergeTarget, ConvergeView, HostPlan, HostProfilesChange,
+    HostProfilesPreview, PlannedStep, ProfileSuggestion, RequiredCheck, ReviewGroupSummary,
+    RunCheckView, StepRefusal, StepRefusalReason, StepState, SuggestionAction, TargetSelection,
 };
 
 /// The version a client states in `Hello.protocol_version`.

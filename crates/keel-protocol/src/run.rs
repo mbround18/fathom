@@ -102,6 +102,8 @@ pub enum RunPhase {
     Cancelled,
     Denied,
     Expired,
+    /// Spec 068: waiting for the binding's required commit checks before dispatch.
+    WaitingChecks,
 }
 
 /// Why a run reached its state.
@@ -117,6 +119,14 @@ pub enum RunReason {
     ArtifactMissing,
     CredentialUnavailable,
     HostRefused,
+    /// Spec 068: a required commit check failed.
+    ChecksFailed,
+    /// Spec 068: the required commit checks did not finish in time.
+    ChecksTimeout,
+    /// Spec 068: a newer converge superseded this unapproved one.
+    Replaced,
+    /// Spec 068: the host's runner does not understand the manifest keys the step needs.
+    RunnerTooOld,
 }
 
 /// One host's state within a run.
@@ -131,6 +141,24 @@ pub enum HostPhase {
     Refused,
     Lost,
     Cancelled,
+    /// Spec 068: a converge step waiting for the host's earlier steps.
+    Blocked,
+    /// Spec 068: a converge step not run because an earlier step on the host failed.
+    Skipped,
+    /// Spec 068: a converge step another step on the host applies in full (`covers`).
+    Covered,
+}
+
+/// What kind of run this is. Older servers and stored runs without it are `Normal`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum RunKind {
+    #[default]
+    Normal,
+    Rollback,
+    Baseline,
+    /// Spec 068: a converge parent; its steps are child runs (`parent_run`).
+    Converge,
 }
 
 /// What started a run.
@@ -221,6 +249,26 @@ pub struct RunInfo {
     /// Present once the run has been held for approval (spec 064).
     #[serde(default)]
     pub approval: Option<RunApproval>,
+    /// Spec 068.
+    #[serde(default)]
+    pub kind: RunKind,
+    /// `ansible-playbook --check` (spec 068).
+    #[serde(default)]
+    pub check: bool,
+    /// The converge this run is a step of (spec 068).
+    #[serde(default)]
+    #[ts(type = "string | null")]
+    pub parent_run: Option<Uuid>,
+    /// Spec 068 FR-020: the changed group/host vars files a path-triggered run was narrowed to
+    /// the hosts of. Absent when the run targets every eligible host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub narrowed_by: Option<Vec<String>>,
+    /// Spec 068 US7: the commit's required checks as this run last saw them. Absent when its
+    /// binding required none when it was made.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub checks: Option<Vec<crate::converge::RunCheckView>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -235,6 +283,14 @@ pub struct RunHostInfo {
     pub ended_at: Option<String>,
     pub stats: Option<HostStats>,
     pub first_failure: Option<FirstFailure>,
+    /// The converge (its parent run) that applies this host's part in full (spec 068
+    /// `covered`).
+    #[serde(default)]
+    #[ts(type = "string | null")]
+    pub covered_by: Option<Uuid>,
+    /// Why a converge step was `skipped` (spec 068).
+    #[serde(default)]
+    pub skip_reason: Option<String>,
 }
 
 /// A job as synced from `.keel/jobs.yaml`.
@@ -254,6 +310,26 @@ pub struct JobInfo {
     pub credentials: Vec<String>,
     pub blocked: Option<String>,
     pub defined_at_commit: String,
+    /// The job's declared params (spec 061, 068), by name. Absent when it declares none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub params: Option<BTreeMap<String, ParamView>>,
+}
+
+/// One declared job param, as a start form shows it (spec 068 FR-014).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ParamView {
+    /// `oci_digest` or `choice`.
+    #[ts(type = "\"oci_digest\" | \"choice\"")]
+    pub kind: String,
+    /// `choice` only: the values a run may take, resolved at the binding's current commit (the
+    /// one a run started now pins). `null` for other kinds, or when they cannot be listed.
+    pub allowed: Option<Vec<String>>,
+    /// `choice` only: the value a form starts with.
+    pub default: Option<String>,
+    /// `choice` only: why `allowed` could not be listed (`choice_from_missing`,
+    /// `choice_from_too_many`, `choice_shape`); such a param refuses every value.
+    pub unavailable: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -272,6 +348,10 @@ pub struct PolicyInfo {
     pub approval_ttl_secs: u32,
     /// The workspace catch-all: cannot be removed or narrowed.
     pub catch_all: bool,
+    /// Spec 068: `true` matches only check runs, `false` only real runs; absent matches both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub check: Option<bool>,
 }
 
 /// `PreviewPolicyUpsert`: a new policy (`id` absent) or a change to one.
@@ -295,6 +375,10 @@ pub struct PolicySpec {
     #[serde(default)]
     pub four_eyes: bool,
     pub approval_ttl_secs: u32,
+    /// Spec 068: `true` matches only check runs, `false` only real runs; absent matches both.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub check: Option<bool>,
 }
 
 /// One policy as `ExplainPolicy` judged it.

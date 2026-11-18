@@ -36,6 +36,10 @@ pub struct PolicyMatch {
     /// `*` matches it and `web*` does not.
     #[serde(default)]
     pub limit: Option<String>,
+    /// Check mode (spec 068): `Some(true)` matches only `--check` runs, `Some(false)` only real
+    /// runs, absent both. Omitted from JSON when absent, so stored policies read back unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check: Option<bool>,
 }
 
 /// One approval policy.
@@ -181,8 +185,20 @@ fn glob_matches(glob: &str, value: &str) -> bool {
     Glob::new(glob).is_ok_and(|g| g.compile_matcher().is_match(value))
 }
 
-fn judge(p: &Policy, s: &Subject<'_>) -> (bool, String) {
+fn judge(p: &Policy, s: &Subject<'_>, check: bool) -> (bool, String) {
     let m = &p.matcher;
+    if let Some(c) = m.check
+        && c != check
+    {
+        return (
+            false,
+            if c {
+                "matches only check runs".to_owned()
+            } else {
+                "matches only real runs, and this is a check run".to_owned()
+            },
+        );
+    }
     if let Some(g) = &m.job
         && !glob_matches(g, s.job)
     {
@@ -215,6 +231,11 @@ fn judge(p: &Policy, s: &Subject<'_>) -> (bool, String) {
     if let Some(g) = &m.limit {
         parts.push(format!("limit matches `{g}`"));
     }
+    match m.check {
+        Some(true) => parts.push("is a check run".to_owned()),
+        Some(false) => parts.push("is a real run".to_owned()),
+        None => {}
+    }
     if parts.is_empty() {
         (true, "matches every run".to_owned())
     } else {
@@ -222,15 +243,23 @@ fn judge(p: &Policy, s: &Subject<'_>) -> (bool, String) {
     }
 }
 
-/// Resolves which policy applies to `s`: the matching policy with the lowest priority.
+/// Resolves which policy applies to `s`: the matching policy with the lowest priority. `s` is a
+/// real run; see [`resolve_check`] for check-mode runs.
 #[must_use]
 pub fn resolve(policies: &[Policy], s: &Subject<'_>) -> Explanation {
+    resolve_check(policies, s, false)
+}
+
+/// [`resolve`] for a run that is (`check = true`) or is not a `--check` run (spec 068). A policy
+/// with `check: Some(_)` matches only runs of that mode.
+#[must_use]
+pub fn resolve_check(policies: &[Policy], s: &Subject<'_>, check: bool) -> Explanation {
     let mut ordered: Vec<&Policy> = policies.iter().collect();
     ordered.sort_by_key(|p| (p.priority, p.id));
     let mut checks = Vec::with_capacity(ordered.len());
     let mut winner: Option<&Policy> = None;
     for p in ordered {
-        let (matched, why) = judge(p, s);
+        let (matched, why) = judge(p, s, check);
         if matched && winner.is_none() {
             winner = Some(p);
         }
@@ -291,6 +320,7 @@ mod tests {
             job: job.map(str::to_owned),
             inventory: inventory.map(str::to_owned),
             limit: limit.map(str::to_owned),
+            check: None,
         }
     }
 
@@ -502,5 +532,43 @@ mod tests {
             "{}",
             e.checks[1].why
         );
+    }
+
+    #[test]
+    fn check_matches_only_its_mode() {
+        let mut checks_only = policy(2, 10, m(None, None, None), false);
+        checks_only.matcher.check = Some(true);
+        let mut real_only = policy(3, 20, m(None, None, None), false);
+        real_only.matcher.check = Some(false);
+        let ps = vec![Policy::catch_all(id(1)), checks_only, real_only];
+        let s = subject("j", "i", None);
+        assert_eq!(resolve_check(&ps, &s, true).winner.id, id(2));
+        assert_eq!(resolve_check(&ps, &s, false).winner.id, id(3));
+        // `resolve` is a real run.
+        assert_eq!(resolve(&ps, &s).winner.id, id(3));
+        let e = resolve_check(&ps, &s, false);
+        assert!(
+            e.checks[0].why.contains("only check runs"),
+            "{}",
+            e.checks[0].why
+        );
+        // Absent matches both modes.
+        let ps = vec![Policy::catch_all(id(1))];
+        assert!(resolve_check(&ps, &s, true).winner.is_catch_all());
+    }
+
+    #[test]
+    fn check_round_trips_and_is_omitted_when_absent() {
+        let old: PolicyMatch = serde_json::from_str(r#"{"job":"web*"}"#).unwrap();
+        assert_eq!(old.check, None);
+        assert_eq!(
+            serde_json::to_string(&old).unwrap(),
+            r#"{"job":"web*","inventory":null,"limit":null}"#
+        );
+        let new: PolicyMatch = serde_json::from_str(r#"{"check":true}"#).unwrap();
+        assert_eq!(new.check, Some(true));
+        let back: PolicyMatch =
+            serde_json::from_str(&serde_json::to_string(&new).unwrap()).unwrap();
+        assert_eq!(back, new);
     }
 }

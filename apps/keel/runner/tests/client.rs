@@ -566,6 +566,7 @@ async fn a_session_says_hello_and_relays_a_run_unchanged() {
         pack_size: 0,
         quorum: None,
         params: Default::default(),
+        check: false,
     };
     let secrets = Frame::Secrets {
         run_id: "run-1".to_owned(),
@@ -613,9 +614,15 @@ async fn a_session_says_hello_and_relays_a_run_unchanged() {
             allowed_profiles,
             ansible_core,
             age_recipient,
+            capabilities,
             ..
         } => {
             assert_eq!(host_id, "h-1");
+            // Spec 068 T025: this runner parses recipe manifests, check runs and env items.
+            assert_eq!(
+                capabilities,
+                &[keel_exec::frames::CAP_MANIFEST_V068.to_owned()]
+            );
             assert_eq!(age_recipient.as_deref(), Some(AGE_PUB));
             assert_eq!(ledger_head.as_deref(), Some("ab".repeat(32).as_str()));
             assert_eq!(bases.len(), 1);

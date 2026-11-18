@@ -29,6 +29,10 @@ use crate::review::{
     SignerInfo,
 };
 // Runs (US2)
+use crate::converge::{
+    ConvergeHostState, ConvergePlan, ConvergeView, HostProfilesPreview, ProfileSuggestion,
+    RunCheckView,
+};
 use crate::run::{
     JobInfo, LogStream, PolicyCheck, PolicyInfo, RunHostInfo, RunInfo, RunPhase, RunReason,
     WorkspaceCount,
@@ -189,6 +193,54 @@ pub enum Event {
         run: Uuid,
         state: RunPhase,
         reason: Option<RunReason>,
+    },
+    /// Reply to `PreviewConverge` and `PreviewConvergeRetry`, before their `Preview`; the token
+    /// is the preview's id, for `ConfirmConverge`/`ConfirmConvergeRetry`.
+    ConvergePlan {
+        preview_token: PreviewId,
+        plan: ConvergePlan,
+    },
+    /// Reply to `PreviewHostProfiles`, before its `Preview` (spec 068 US3).
+    HostProfilesPreview {
+        preview_token: PreviewId,
+        preview: HostProfilesPreview,
+    },
+    /// A host's assigned profiles changed (pushed to the workspace's viewers).
+    HostProfilesChanged {
+        #[ts(type = "string")]
+        host_id: Uuid,
+        profiles: Vec<String>,
+    },
+    /// Reply to `ListProfileSuggestions` and `DismissProfileSuggestion`.
+    ProfileSuggestions { items: Vec<ProfileSuggestion> },
+    /// A sync changed the suggestions of `hosts` (pushed to the workspace's viewers).
+    ProfileSuggestionsChanged {
+        #[ts(type = "string")]
+        binding_id: Uuid,
+        #[ts(type = "Array<string>")]
+        hosts: Vec<Uuid>,
+    },
+    /// Reply to `ConfirmConverge` and `ConfirmConvergeRetry`: the new parent run.
+    ConvergeStarted {
+        #[ts(type = "string")]
+        run_id: Uuid,
+    },
+    /// Reply to `GetConverge` and `CancelConverge`.
+    Converge(ConvergeView),
+    /// A run waiting on its commit's required checks saw them change (spec 068 US7; pushed to
+    /// the workspace's viewers). `checks` is every required context with its latest state.
+    RunChecksChanged {
+        #[ts(type = "string")]
+        run_id: Uuid,
+        checks: Vec<RunCheckView>,
+    },
+    /// A converge host changed state (pushed to the workspace's viewers).
+    ConvergeChanged {
+        #[ts(type = "string")]
+        run_id: Uuid,
+        #[ts(type = "string")]
+        host_id: Uuid,
+        state: ConvergeHostState,
     },
     /// Reply to `ListJobs`.
     Jobs {

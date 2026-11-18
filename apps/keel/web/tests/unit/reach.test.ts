@@ -21,6 +21,8 @@ const host = (over: Partial<HostInfo> = {}): HostInfo => ({
   inventory_status: 'unknown',
   zone: null,
   reach: { kind: 'disconnected' },
+  converge: null,
+  suggestions: 0,
   ...over,
 })
 

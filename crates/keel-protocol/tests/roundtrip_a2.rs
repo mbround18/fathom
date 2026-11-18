@@ -39,6 +39,8 @@ fn host_info() -> HostInfo {
         inventory_status: HostInventoryStatus::Unknown,
         zone: None,
         reach: HostReach::Disconnected,
+        converge: None,
+        suggestions: 0,
     }
 }
 

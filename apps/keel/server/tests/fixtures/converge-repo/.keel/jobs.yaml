@@ -1,0 +1,47 @@
+# Spec 068 test fixture: recipes, covers, groups and an env binding.
+# A converge of a `keel-node` host runs debian, then keel-node; of a `k3s-master` host,
+# debian then k3s-master (k3s-master covers k3s-audit, so k3s-audit drops out).
+# No `choice` param yet: `ParamKind::Choice` lands with US8 (T061).
+# `paths` on debian and k3s-audit drive the coverage and vars-narrowing tests (US4, FR-020).
+version: 1
+profiles:
+  debian:
+    description: Baseline
+    jobs: [debian]
+  keel-node:
+    description: Keel's runner
+    includes: [debian]
+    jobs: [keel-node]
+  k3s-master:
+    description: k3s server
+    includes: [debian]
+    jobs: [k3s-audit, k3s-master]
+groups:
+  keel_nodes: [keel-node]
+  k3s_servers: [k3s-master]
+jobs:
+  debian:
+    playbook: playbooks/debian.yaml
+    profiles: [debian, keel-node, k3s-master]
+    inventory: prod
+    paths: [playbooks/debian.yaml, "inventory/**"]
+  keel-node:
+    playbook: playbooks/keel-node.yaml
+    profiles: [keel-node]
+    inventory: prod
+  k3s-audit:
+    playbook: playbooks/k3s-audit.yaml
+    profiles: [k3s-master]
+    inventory: prod
+    paths: [playbooks/k3s-audit.yaml]
+  k3s-master:
+    playbook: playbooks/k3s-master.yaml
+    profiles: [k3s-master]
+    inventory: prod
+    covers: [k3s-audit]
+  tailscale:
+    playbook: playbooks/tailscale.yaml
+    profiles: [debian]
+    inventory: prod
+    env:
+      TS_AUTHKEY: tailscale-authkey

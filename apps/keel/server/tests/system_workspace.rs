@@ -295,6 +295,7 @@ async fn enrolment_is_limited_to_the_allowed_profiles() {
         workspace: ws,
         inventory_name: HostName::new("keel-1").unwrap(),
         profiles: profiles(names),
+        auto_converge: None,
     };
     assert_eq!(
         op_error(&h.cmd(enrol(&["debian", "web"])).await),
@@ -486,6 +487,7 @@ async fn admin_lists_leave_it_out_for_non_owners() {
                 workspace: w,
                 inventory_name: HostName::new("host-1").unwrap(),
                 profiles: profiles(&["debian"]),
+                auto_converge: None,
             })
             .await;
         match out.as_slice() {

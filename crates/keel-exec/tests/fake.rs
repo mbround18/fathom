@@ -19,6 +19,7 @@ fn assign(run_id: &str, job: &str, pack_size: u64) -> Frame {
         pack_size,
         quorum: None,
         params: Default::default(),
+        check: false,
     }
 }
 

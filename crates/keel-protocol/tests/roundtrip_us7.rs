@@ -46,6 +46,8 @@ fn host_info() -> HostInfo {
         inventory_status: HostInventoryStatus::Unknown,
         zone: None,
         reach: HostReach::Disconnected,
+        converge: None,
+        suggestions: 0,
     }
 }
 
@@ -63,6 +65,7 @@ fn host_commands() {
             workspace: id(2),
             inventory_name: HostName::new("web-1.example").unwrap(),
             profiles: profiles(&["base", "web"]),
+            auto_converge: None,
         },
         Cmd::PreviewHostRevoke { host: id(1) },
         Cmd::GetSshCa,
@@ -107,6 +110,7 @@ fn only_reads_are_token_actions() {
             workspace: id(2),
             inventory_name: HostName::new("web-1").unwrap(),
             profiles: profiles(&[]),
+            auto_converge: None,
         },
         Cmd::PreviewHostRevoke { host: id(1) },
         Cmd::PreviewSshCaRotate {

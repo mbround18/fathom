@@ -11,6 +11,7 @@
 import type { BindingInfo, CredentialInfo, Event, ForgeConnectionInfo, WorkspaceInfo } from '../../src/protocol/wire'
 import type { FakeBackend } from './fake-backend'
 import type { FakeGovernance } from './fake-governance'
+import { BINDING_068 } from './defaults'
 import { HEAD, NOW } from './fake-repos'
 
 const EXPIRES = '2026-10-27T12:15:00Z'
@@ -50,6 +51,7 @@ export class FakeWorkspaceRepo {
           last_synced_at: NOW,
           last_sync_error: null,
           manifest_problems: [],
+          ...BINDING_068,
         }
         this.backend.repos.bindings.push(binding)
         ws.primary_binding = binding.id

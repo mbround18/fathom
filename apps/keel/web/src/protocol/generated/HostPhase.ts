@@ -3,4 +3,4 @@
 /**
  * One host's state within a run.
  */
-export type HostPhase = "queued" | "sent" | "running" | "succeeded" | "failed" | "refused" | "lost" | "cancelled";
+export type HostPhase = "queued" | "sent" | "running" | "succeeded" | "failed" | "refused" | "lost" | "cancelled" | "blocked" | "skipped" | "covered";

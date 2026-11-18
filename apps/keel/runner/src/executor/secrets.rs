@@ -5,6 +5,9 @@
 //! - `env`: `NAME=value` lines, set in `ansible-playbook`'s environment. Names that would steer
 //!   Ansible, Python or the dynamic linker (`ANSIBLE_*`, `PYTHON*`, `LD_*`, `PATH`, `HOME`,
 //!   `KEEL_*`) are refused.
+//! - `env_var` (spec 068): one value, set as `env_name` in `ansible-playbook`'s environment.
+//!   The name is checked again with `keel_core::env_names` ([`check_env_items`] also checks it
+//!   against the job's `env:` map, and refuses `env_refused` before anything runs).
 //! - `secret_vars`: a JSON object whose keys become playbook variables. They are written to
 //!   `secret_vars.yaml` with every string tagged `!unsafe`, so Ansible never templates them: a
 //!   value of `{{ lookup('pipe','id') }}` reaches the playbook as that literal text.
@@ -62,18 +65,54 @@ fn valid_name(name: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
 }
 
-fn valid_env_name(name: &str) -> bool {
-    let mut bytes = name.bytes();
-    matches!(bytes.next(), Some(b) if b.is_ascii_uppercase() || b == b'_')
-        && bytes.all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+// One rule with the manifest's `jobs.<j>.env` (spec 068 T011).
+use keel_core::env_names::{is_reserved as reserved_env_name, is_shell_name as valid_env_name};
+
+/// The kind of a single-value environment credential (spec 068 `jobs.<j>.env`).
+pub const ENV_VAR_KIND: &str = "env_var";
+
+/// The credentials the job's `env:` map names that were not sent as `env_var` items for that
+/// variable: the run cannot set the variable, so it fails like any credential not sent.
+pub fn missing_env(items: &[SecretItem], job_env: &BTreeMap<String, String>) -> Vec<String> {
+    job_env
+        .iter()
+        .filter(|(var, cred)| {
+            !items.iter().any(|i| {
+                i.kind == ENV_VAR_KIND && &i.name == *cred && i.env_name.as_ref() == Some(*var)
+            })
+        })
+        .map(|(_, cred)| cred.clone())
+        .collect()
 }
 
-fn reserved_env_name(name: &str) -> bool {
-    name.starts_with("ANSIBLE_")
-        || name.starts_with("LD_")
-        || name.starts_with("PYTHON")
-        || name.starts_with("KEEL_")
-        || matches!(name, "PATH" | "HOME" | "SHELL" | "IFS" | "ENV" | "BASH_ENV")
+/// Checks every `env_var` item against `keel_core::env_names` and the job's `env:` map at the
+/// target (environment name → credential name): the item must carry an `env_name`, the name must
+/// be a valid, unreserved shell name, and the job must map that name to this credential. Keel
+/// cannot set a variable the job does not ask for. The error names the credential and the
+/// variable, never the value.
+pub fn check_env_items(
+    items: &[SecretItem],
+    job_env: &BTreeMap<String, String>,
+) -> Result<(), String> {
+    for item in items.iter().filter(|i| i.kind == ENV_VAR_KIND) {
+        let Some(env_name) = item.env_name.as_deref() else {
+            return Err(format!("credential {:?} has no env_name", item.name));
+        };
+        if let Err(e) = keel_core::env_names::check(env_name) {
+            return Err(format!(
+                "credential {:?}: environment name {env_name:?} is refused ({})",
+                item.name,
+                e.code()
+            ));
+        }
+        if job_env.get(env_name) != Some(&item.name) {
+            return Err(format!(
+                "credential {:?}: the job's env does not set {env_name:?} from it",
+                item.name
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn valid_var_name(name: &str) -> bool {
@@ -102,6 +141,12 @@ pub fn materialize(dir: &Path, items: &[SecretItem]) -> Result<Materialized, Sec
         }
         if !names.insert(name.clone()) {
             return Err(SecretError::Duplicate(name.clone()));
+        }
+        if item.env_name.is_some() && item.kind != ENV_VAR_KIND {
+            return Err(SecretError::Bad(
+                name.clone(),
+                "env_name is only for kind env_var",
+            ));
         }
         let value = item.value.expose();
         match item.kind.as_str() {
@@ -135,6 +180,27 @@ pub fn materialize(dir: &Path, items: &[SecretItem]) -> Result<Materialized, Sec
                     }
                     out.env.push((k.to_owned(), v.to_owned()));
                 }
+            }
+            ENV_VAR_KIND => {
+                let Some(k) = item.env_name.as_deref() else {
+                    return Err(SecretError::Bad(
+                        name.clone(),
+                        "an env_var without env_name",
+                    ));
+                };
+                if keel_core::env_names::check(k).is_err() {
+                    return Err(SecretError::Bad(
+                        name.clone(),
+                        "an invalid or reserved variable name",
+                    ));
+                }
+                if value.contains('\0') {
+                    return Err(SecretError::Bad(name.clone(), "the value contains NUL"));
+                }
+                if !env_names.insert(k.to_owned()) {
+                    return Err(SecretError::Bad(name.clone(), "a variable is set twice"));
+                }
+                out.env.push((k.to_owned(), value.to_owned()));
             }
             "secret_vars" => {
                 let Ok(Value::Object(map)) = serde_json::from_str::<Value>(value) else {
@@ -222,7 +288,95 @@ mod tests {
             name: name.to_owned(),
             kind: kind.to_owned(),
             value: SecretString::new(value),
+            env_name: None,
         }
+    }
+
+    fn env_item(name: &str, env_name: &str, value: &str) -> SecretItem {
+        SecretItem {
+            env_name: Some(env_name.to_owned()),
+            ..item(name, ENV_VAR_KIND, value)
+        }
+    }
+
+    #[test]
+    fn an_env_var_item_is_set_under_its_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = materialize(
+            dir.path(),
+            &[env_item("cf-token", "CLOUDFLARE_API_TOKEN", "s3cret value")],
+        )
+        .unwrap();
+        assert_eq!(
+            m.env,
+            vec![("CLOUDFLARE_API_TOKEN".to_owned(), "s3cret value".to_owned())]
+        );
+        // Debug names the variable, never the value.
+        assert!(!format!("{m:?}").contains("s3cret"));
+    }
+
+    #[test]
+    fn env_var_items_are_refused_without_a_good_name() {
+        for bad in [
+            env_item("a", "LD_PRELOAD", "x"),
+            env_item("a", "PATH", "x"),
+            env_item("a", "lower", "x"),
+            env_item("a", "A", "nul\0"),
+            item("a", ENV_VAR_KIND, "x"),
+            SecretItem {
+                env_name: Some("TOKEN".to_owned()),
+                ..item("a", "vault_password", "x")
+            },
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let e = materialize(dir.path(), &[bad]).unwrap_err().to_string();
+            assert!(!e.contains("nul"), "{e}");
+        }
+        // Two items for one variable.
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            materialize(
+                dir.path(),
+                &[env_item("a", "TOKEN", "1"), env_item("b", "TOKEN", "2")]
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn env_var_items_must_be_what_the_job_asks_for() {
+        let env = BTreeMap::from([("CF_TOKEN".to_owned(), "cf-token".to_owned())]);
+        assert!(check_env_items(&[env_item("cf-token", "CF_TOKEN", "v")], &env).is_ok());
+        // Other kinds are not looked at.
+        assert!(check_env_items(&[item("x", "vault_password", "v")], &env).is_ok());
+        for bad in [
+            env_item("cf-token", "OTHER", "v"),
+            env_item("other", "CF_TOKEN", "v"),
+            env_item("cf-token", "ANSIBLE_CONFIG", "v"),
+            item("cf-token", ENV_VAR_KIND, "v"),
+        ] {
+            let e = check_env_items(&[bad], &env).unwrap_err();
+            assert!(!e.contains("\"v\""), "{e}");
+        }
+    }
+
+    #[test]
+    fn missing_env_names_what_was_not_sent() {
+        let env = BTreeMap::from([
+            ("A_TOKEN".to_owned(), "a".to_owned()),
+            ("B_TOKEN".to_owned(), "b".to_owned()),
+        ]);
+        assert_eq!(
+            missing_env(&[env_item("a", "A_TOKEN", "v")], &env),
+            vec!["b".to_owned()]
+        );
+        assert!(
+            missing_env(
+                &[env_item("a", "A_TOKEN", "v"), env_item("b", "B_TOKEN", "v")],
+                &env
+            )
+            .is_empty()
+        );
     }
 
     #[test]

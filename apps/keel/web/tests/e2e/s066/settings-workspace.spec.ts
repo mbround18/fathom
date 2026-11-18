@@ -9,6 +9,7 @@ import type { Page } from '@playwright/test'
 import type { BindingInfo } from '../../../src/protocol/wire'
 import { expect, fixtures, test, type FakeBackend } from '../../support/fake-backend'
 import { governance, type FakeGovernance } from '../../support/fake-governance'
+import { BINDING_068 } from '../../support/defaults'
 import { HEAD, NOW } from '../../support/fake-repos'
 import { workspaceRepo, type FakeWorkspaceRepo } from '../../support/fake-workspace-repo'
 
@@ -50,6 +51,7 @@ function bound(backend: FakeBackend, g: FakeGovernance): BindingInfo {
     last_synced_at: NOW,
     last_sync_error: null,
     manifest_problems: [],
+    ...BINDING_068,
   }
   backend.repos.bindings.push(binding)
   ops.primary_binding = binding.id

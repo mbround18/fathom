@@ -107,6 +107,8 @@ pub struct EnrollmentInfo {
     /// The token this one replaced, when it was rolled.
     #[ts(type = "string | null")]
     pub rolled_from: Option<Uuid>,
+    /// The host is converged to its profiles once it enrolls (spec 068 US2).
+    pub auto_converge: bool,
 }
 
 /// A one-time enrollment token, `keel-enroll-v1.<secret>.<host CA fingerprint>`. Shown once;
@@ -153,6 +155,12 @@ pub struct HostInfo {
     /// Derived reach (spec 067, data-model.md).
     #[serde(default)]
     pub reach: crate::relay::HostReach,
+    /// The host's current converge, if one is open (spec 068).
+    #[serde(default)]
+    pub converge: Option<crate::converge::ConvergeHostSummary>,
+    /// Open profile suggestions from the inventory's `groups:` (spec 068).
+    #[serde(default)]
+    pub suggestions: u16,
 }
 
 /// One run outside Keel, as the host reported it: the host's claim, not something Keel checked
