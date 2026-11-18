@@ -33,8 +33,8 @@ RUN --mount=type=cache,id=keel-cargo-registry,target=/usr/local/cargo/registry \
     && mkdir -p /out/var/lib/keel
 
 # ---- Runner release (055 T128, T149): what hosts fetch from /runner/latest/… (contracts/join.md).
-# Static musl keel-runner and keel-executor for x86_64 and aarch64 (and keel-relay, spec 067, once
-# apps/keel/relay exists), cross-built on the build platform with cargo-zigbuild: zig is the C
+# Static musl keel-runner, keel-executor and keel-relay (spec 067 T048) for x86_64 and aarch64,
+# cross-built on the build platform with cargo-zigbuild: zig is the C
 # compiler and linker for both musl targets, so no per-arch sysroot or emulation is needed. OpenSSL
 # (webauthn-rs, via keel-trust) is built from source per target: keel-runner's `vendored-openssl`.
 FROM chef AS runner-builder
@@ -58,12 +58,10 @@ RUN --mount=type=cache,id=keel-cargo-registry,target=/usr/local/cargo/registry \
     cargo install cargo-zigbuild --locked --version 0.24.1 \
     && rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
 COPY --from=planner /src/recipe.json recipe.json
-# keel-relay's dependencies are cooked too once the recipe has the crate.
 RUN --mount=type=cache,id=keel-cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=keel-cargo-git,target=/usr/local/cargo/git \
     set -eu; \
-    pkgs="-p keel-runner"; \
-    if grep -q '"apps/keel/relay/Cargo.toml"' recipe.json; then pkgs="$pkgs -p keel-relay"; fi; \
+    pkgs="-p keel-runner -p keel-relay"; \
     for arch in x86_64 aarch64; do \
       cargo chef cook --release --zigbuild --target "$arch-unknown-linux-musl" $pkgs \
         --features keel-runner/vendored-openssl --recipe-path recipe.json; \
@@ -71,14 +69,13 @@ RUN --mount=type=cache,id=keel-cargo-registry,target=/usr/local/cargo/registry \
 COPY . .
 # The release directory: <arch>/<binary>, requirements.txt, keel_events.tar.gz (keel_events.py at
 # its top level, byte-reproducible) and SHA256SUMS keyed by those same paths, which is how the
-# Ansible roles key keel_runner_sha256. keel-relay (spec 067 T001) joins the release once its crate
-# exists; if it links OpenSSL by a path other than keel-runner's, give it its own vendored-openssl
-# feature and add it to --features here.
+# Ansible roles key keel_runner_sha256 and keel_relay_sha256: keel-relay (spec 067 T048) is in the
+# same SHA256SUMS. Neither binary links OpenSSL since 067 T067; the static check below fails the
+# build if one starts to.
 RUN --mount=type=cache,id=keel-cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=keel-cargo-git,target=/usr/local/cargo/git \
     set -eu; \
-    pkgs="-p keel-runner"; bins="keel-runner keel-executor"; \
-    if [ -f apps/keel/relay/Cargo.toml ]; then pkgs="$pkgs -p keel-relay"; bins="$bins keel-relay"; fi; \
+    pkgs="-p keel-runner -p keel-relay"; bins="keel-runner keel-executor keel-relay"; \
     for arch in x86_64 aarch64; do \
       target="$arch-unknown-linux-musl"; \
       cargo zigbuild --release --locked --target "$target" $pkgs --bins \

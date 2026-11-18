@@ -572,8 +572,23 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
     `restart: ${RESTART_POLICY:-no}`. No image was built and nothing was started.
   - **Pending: the hand walkthrough** (main session). Not yet checked: the images build, the
     executor runs under `systemd-socket-activate`, and the Expected list in quickstart §2.
-- [ ] T048 Add `keel-relay` to the release build that produces `keel-runner`: the same checksums
+- [X] T048 Add `keel-relay` to the release build that produces `keel-runner`: the same checksums
   file, x86_64 and aarch64 (`apps/keel/Makefile`, release scripts).
+  - The only release build for runner binaries is the Dockerfile's `runner-builder`/`runner-dist`
+    stages, exported by `make keel keel-runner-release` and copied into the server image
+    (`/runner/latest/…`). `scripts/` and `.github/workflows/release.yml` ship Fathom only. The
+    stage built keel-relay conditionally ("once the crate exists"); it now always cooks and
+    builds `-p keel-runner -p keel-relay` for both musl targets, copies `<arch>/keel-relay`
+    through the same static-binary check, and keys it in the one `SHA256SUMS`.
+  - `keel-runner-release` now also fails if any of the six `<arch>/<binary>` entries is missing
+    from `SHA256SUMS`. `keel-relay` joined the Makefile's `CRATES`, so `make keel test/lint`
+    cover it.
+  - Verified: `make -n keel keel-runner-release`; the SHA256SUMS check against a fake sums file
+    (passes complete, fails with `aarch64/keel-relay` removed); `cargo tree -i openssl-sys -p
+    keel-relay -p keel-runner -e normal` is empty; native `cargo build --release --locked -p
+    keel-relay` (`CARGO_BUILD_JOBS=4`) succeeds. Not run: the docker/zigbuild cross build.
+  - Gap: `scripts/ci.sh`'s `KEEL_CRATES` does not list `keel-relay`, so CI's Keel slice neither
+    lints nor tests it. Not changed here (main session's call).
 - [ ] T049 [P] Write `docs/guides/keel/relays.md`, covering:
   - when to use a relay;
   - zones;

@@ -2,7 +2,7 @@
 
 PROJECT        := keel
 CRATES         := -p keel-core -p keel-protocol -p keel-git -p keel-exec -p keel-trust \
-                  -p web-passkeys -p keel-server -p keel-runner
+                  -p web-passkeys -p keel-server -p keel-runner -p keel-relay
 CARGO_FEATURES := --features keel-exec/fake
 WEB_PKG        := @companion/keel-web
 BINDINGS_CRATE := keel-protocol
@@ -62,19 +62,22 @@ image-push: image-push-check image ## Push the image; refuses on a dirty tree or
 # The same build as the image's runner-dist stage (T149), exported instead of copied into the image,
 # so the files and sums are exactly what /runner/latest/… serves. Docker is the only host tool:
 # the stage cross-builds static musl x86_64 and aarch64 with a pinned zig and cargo-zigbuild.
-# keel-relay (spec 067) is included by the stage once apps/keel/relay exists; until then the
-# target builds keel-runner and keel-executor only. Layout: <arch>/<binary>, requirements.txt,
-# keel_events.tar.gz, SHA256SUMS (keyed by those paths, as keel_runner_sha256 is).
+# Binaries: keel-runner, keel-executor and keel-relay (spec 067 T048), all in one SHA256SUMS.
+# Layout: <arch>/<binary>, requirements.txt, keel_events.tar.gz, SHA256SUMS (keyed by those
+# paths, as keel_runner_sha256 and keel_relay_sha256 are).
 RUNNER_DIST_OUT ?= $(ROOT)/target/keel-runner-release
 
 .PHONY: keel-runner-release
-keel-runner-release: ## Static runner binaries (x86_64, aarch64) + SHA256SUMS into RUNNER_DIST_OUT
+keel-runner-release: ## Static runner and relay binaries (x86_64, aarch64) + SHA256SUMS into RUNNER_DIST_OUT
 	@$(MAKE) --no-print-directory -C $(ROOT) gc
 	rm -rf $(RUNNER_DIST_OUT)
 	docker build -f $(ROOT)/apps/keel/Dockerfile --target runner-dist \
 	  --build-arg RUST_VERSION=$(RUST_VERSION) \
 	  --output type=local,dest=$(RUNNER_DIST_OUT) $(ROOT)
 	cd $(RUNNER_DIST_OUT) && sha256sum --check --quiet SHA256SUMS
+	@cd $(RUNNER_DIST_OUT) && for f in x86_64/keel-runner x86_64/keel-executor x86_64/keel-relay \
+	  aarch64/keel-runner aarch64/keel-executor aarch64/keel-relay; do \
+	  grep -q " $$f$$" SHA256SUMS || { echo "keel: $$f is missing from SHA256SUMS" >&2; exit 1; }; done
 	@echo "keel: runner release in $(RUNNER_DIST_OUT):"; cat $(RUNNER_DIST_OUT)/SHA256SUMS
 
 compose-secrets: ## TLS cert + key and the master key into KEEL_SECRETS_DIR (from .env); never overwrites
