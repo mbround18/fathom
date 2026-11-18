@@ -853,3 +853,398 @@ async fn join_acceptance_without_auto_converge_makes_none() {
     assert_eq!(state, "offline");
     f.h.finish().await;
 }
+
+// ---- signed mode (FR-005, research R3) ------------------------------------------------------
+
+mod signed {
+    //! A signed-mode converge: every step pinned to the plan's one commit, each step (child run)
+    //! early-checked over its own hosts, its review groups bound to its own run id and job. The
+    //! converge waits in review until every step's groups are approved, and no step goes out
+    //! before.
+
+    use std::time::Duration;
+
+    use keel_exec::fake::FakeRunner;
+    use keel_exec::frames::Frame;
+    use keel_protocol::{
+        AssertionCredential, AttestationCredential, Cmd, Event, PasskeyAssertion,
+        PasskeyCredential, PasskeyName, PasskeyPurpose, PasskeyResponse, ReviewComment,
+    };
+    use serde_json::{Value, json};
+    use uuid::Uuid;
+    use webauthn_authenticator_rs::WebauthnAuthenticator;
+    use webauthn_authenticator_rs::softpasskey::SoftPasskey;
+    use webauthn_rs::prelude::{CreationChallengeResponse, RequestChallengeResponse, Url};
+
+    use crate::converge_support::Fixture;
+    use crate::repos::{self, Harness, Source, op_error};
+
+    type Authenticator = WebauthnAuthenticator<SoftPasskey>;
+
+    const JOBS: &str = include_str!("fixtures/converge-repo/.keel/jobs.yaml");
+
+    /// The converge fixture with `prod` as a repository inventory, in signed mode, under a policy
+    /// that requires `approvals` approvals (no four-eyes, so the owner may review).
+    async fn fixture(test: &str, approvals: i32) -> Option<Fixture> {
+        let mut h = Harness::new(test).await?;
+        h.app.runs = keel_server::runs::Runs::new(keel_server::runs::RunSettings {
+            ping_interval: Duration::from_millis(50),
+            flush_interval: Duration::from_millis(20),
+            ..keel_server::runs::RunSettings::default()
+        });
+        h.app.cfg = std::sync::Arc::new(keel_server::config::Config {
+            converge: true,
+            ..(*h.app.cfg).clone()
+        });
+        let src = Source::fixture("converge-repo");
+        src.commit(
+            ".keel/jobs.yaml",
+            &format!("{JOBS}inventories:\n  prod:\n    path: inventories/prod/hosts.yaml\n"),
+            "repository inventory",
+        );
+        src.commit(
+            "inventories/prod/hosts.yaml",
+            "prod:\n  hosts:\n    node-1:\n    master-1:\n",
+            "inventory",
+        );
+        src.push();
+        let binding = repos::bind(&h, &src).await;
+        let owner = &h.db.owner;
+        let mut ids = Vec::new();
+        for (name, profile) in [("node-1", "keel-node"), ("master-1", "k3s-master")] {
+            let id = Uuid::now_v7();
+            sqlx::query(
+                "insert into hosts (id, workspace_id, inventory_name, allowed_profiles) \
+                 values ($1, $2, $3, array['debian', $4])",
+            )
+            .bind(id)
+            .bind(h.workspace)
+            .bind(name)
+            .bind(profile)
+            .execute(owner)
+            .await
+            .expect("host");
+            sqlx::query(
+                "insert into host_profiles (host_id, profile_id) \
+                 select $1, id from profiles where workspace_id = $2 and name = $3",
+            )
+            .bind(id)
+            .bind(h.workspace)
+            .bind(profile)
+            .execute(owner)
+            .await
+            .expect("host profile");
+            ids.push(id);
+        }
+        sqlx::query(
+            "insert into approval_policies (id, workspace_id, priority, requires_approval, \
+             approvals_needed, four_eyes) values ($1, $2, 1, true, $3, false)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(h.workspace)
+        .bind(approvals)
+        .execute(owner)
+        .await
+        .expect("policy");
+        h.confirm(Cmd::PreviewSignedMode { binding, on: true })
+            .await;
+        Some(Fixture {
+            h,
+            src,
+            binding,
+            node: ids[0],
+            master: ids[1],
+        })
+    }
+
+    /// Each step's review groups: (group, step run, job, hosts, target commit), by job.
+    async fn groups(f: &Fixture, parent: Uuid) -> Vec<(Uuid, Uuid, String, Vec<String>, String)> {
+        sqlx::query_as(
+            "select g.id, r.id, r.job_name, g.hosts, g.target_commit from review_groups g \
+             join runs r on r.id = g.run_id where r.parent_run_id = $1 order by r.job_name",
+        )
+        .bind(parent)
+        .fetch_all(&f.h.db.owner)
+        .await
+        .expect("groups")
+    }
+
+    async fn state(f: &Fixture, run: Uuid) -> String {
+        let (s,): (String,) = sqlx::query_as("select state from runs where id = $1")
+            .bind(run)
+            .fetch_one(&f.h.db.owner)
+            .await
+            .expect("run");
+        s
+    }
+
+    /// Previews and confirms an override of `group` with a passkey assertion over its own
+    /// challenge; returns the challenge's canonical JSON.
+    async fn review(f: &Fixture, auth: &mut Authenticator, group: Uuid) -> String {
+        let out =
+            f.h.cmd(Cmd::PreviewOverride {
+                group,
+                comment: ReviewComment::new("Reviewed the diff.").expect("comment"),
+            })
+            .await;
+        let [Event::Preview(p), Event::OverrideChallenge(c)] = out.as_slice() else {
+            panic!("override preview: {out:?}");
+        };
+        let out =
+            f.h.cmd(Cmd::Confirm {
+                preview_id: p.preview_id,
+                step_up: Some(PasskeyAssertion {
+                    ceremony: c.request.ceremony,
+                    credential: assert_with(auth, &c.request.options),
+                }),
+            })
+            .await;
+        assert!(
+            matches!(out.first(), Some(Event::Confirmed { .. })),
+            "{out:?}"
+        );
+        c.canonical.clone()
+    }
+
+    /// Registers the owner's first passkey.
+    async fn passkey(h: &Harness) -> Authenticator {
+        let mut auth = WebauthnAuthenticator::new(SoftPasskey::new(true));
+        let out = h
+            .cmd(Cmd::PasskeyBegin {
+                purpose: PasskeyPurpose::Register {
+                    name: PasskeyName::new("laptop").expect("name"),
+                },
+            })
+            .await;
+        let [Event::PasskeyChallenge(r)] = out.as_slice() else {
+            panic!("challenge: {out:?}");
+        };
+        let credential = attest(&mut auth, &r.options);
+        let out = h
+            .cmd(Cmd::PasskeyFinish(PasskeyResponse {
+                ceremony: r.ceremony,
+                credential: PasskeyCredential::Attestation(credential),
+            }))
+            .await;
+        assert!(
+            !out.iter().any(|e| matches!(e, Event::OpError { .. })),
+            "{out:?}"
+        );
+        auth
+    }
+
+    fn browser_json(mut v: Value) -> Value {
+        let obj = v.as_object_mut().expect("credential object");
+        obj.remove("extensions");
+        let response = obj["response"].as_object_mut().expect("response");
+        response.retain(|_, f| !f.is_null());
+        v
+    }
+
+    fn attest(auth: &mut Authenticator, options: &Value) -> AttestationCredential {
+        let ccr: CreationChallengeResponse =
+            serde_json::from_value(json!({ "publicKey": options })).expect("creation options");
+        let reg = auth
+            .do_registration(Url::parse(repos::ORIGIN).unwrap(), ccr)
+            .expect("softpasskey registers");
+        serde_json::from_value(browser_json(serde_json::to_value(reg).unwrap()))
+            .expect("protocol attestation")
+    }
+
+    fn assert_with(auth: &mut Authenticator, options: &Value) -> AssertionCredential {
+        let rcr: RequestChallengeResponse =
+            serde_json::from_value(json!({ "publicKey": options })).expect("request options");
+        let cred = auth
+            .do_authentication(Url::parse(repos::ORIGIN).unwrap(), rcr)
+            .expect("softpasskey asserts");
+        serde_json::from_value(browser_json(serde_json::to_value(cred).unwrap()))
+            .expect("protocol assertion")
+    }
+
+    #[tokio::test]
+    async fn each_step_is_reviewed_at_one_commit_and_none_goes_out_before() {
+        let Some(f) = fixture("converge_signed", 1).await else {
+            return;
+        };
+        let mut auth = passkey(&f.h).await;
+        let mut runners = f.attach(|_, id| FakeRunner::new(id.to_string())).await;
+        let (token, plan) = f.plan(Cmd::PreviewConverge(f.target())).await;
+        // The preview lists each step's review at the plan's one commit.
+        let mut review_rows: Vec<(String, String, bool)> = plan
+            .review
+            .iter()
+            .map(|r| (r.job.clone(), r.commit.clone(), r.needs_review))
+            .collect();
+        review_rows.sort();
+        let jobs: Vec<&str> = review_rows.iter().map(|r| r.0.as_str()).collect();
+        assert_eq!(jobs, ["debian", "k3s-master", "keel-node"]);
+        assert!(
+            review_rows.iter().all(|r| r.1 == plan.commit && r.2),
+            "{review_rows:?}"
+        );
+        let parent = f.confirm(token).await;
+        assert_eq!(state(&f, parent).await, "needs_review");
+        // One child per job, each pinned to the plan's commit, each with its own group.
+        let children: Vec<(Uuid, String, String, String)> = sqlx::query_as(
+            "select id, job_name, commit, state from runs where parent_run_id = $1 \
+             order by job_name",
+        )
+        .bind(parent)
+        .fetch_all(&f.h.db.owner)
+        .await
+        .expect("children");
+        assert_eq!(children.len(), 3, "{children:?}");
+        assert!(
+            children
+                .iter()
+                .all(|c| c.2 == plan.commit && c.3 == "needs_review"),
+            "{children:?}"
+        );
+        let groups = groups(&f, parent).await;
+        let shape: Vec<(&str, Vec<String>)> = groups
+            .iter()
+            .map(|g| {
+                let mut hosts = g.3.clone();
+                hosts.sort();
+                (g.2.as_str(), hosts)
+            })
+            .collect();
+        assert_eq!(
+            shape,
+            vec![
+                ("debian", vec!["master-1".to_owned(), "node-1".to_owned()]),
+                ("k3s-master", vec!["master-1".to_owned()]),
+                ("keel-node", vec!["node-1".to_owned()]),
+            ]
+        );
+        assert!(groups.iter().all(|g| g.4 == plan.commit), "{groups:?}");
+        for (g, c) in groups.iter().zip(&children) {
+            assert_eq!(g.1, c.0, "each group belongs to its own step");
+        }
+        // The plan's approval waits for review.
+        let out = f.h.cmd(Cmd::PreviewRunApprove { run: parent }).await;
+        assert!(!op_error(&out).is_empty());
+
+        // One step reviewed: its override is bound to its own run id and job, and still nothing
+        // goes out while the other steps wait.
+        let debian = &groups[0];
+        let canonical = review(&f, &mut auth, debian.0).await;
+        assert!(
+            canonical.contains(&debian.1.to_string()) && canonical.contains("debian"),
+            "{canonical}"
+        );
+        assert_eq!(state(&f, debian.1).await, "queued");
+        assert_eq!(state(&f, parent).await, "needs_review");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(
+            f.steps(parent).await.iter().all(|s| s.3 == "blocked"),
+            "nothing runs before every step is reviewed"
+        );
+
+        // The last steps reviewed: one reviewer meets the policy, the converge goes out.
+        for g in &groups[1..] {
+            review(&f, &mut auth, g.0).await;
+        }
+        assert_eq!(f.ended(parent).await, ("succeeded".into(), None));
+        assert!(f.steps(parent).await.iter().all(|s| s.3 == "succeeded"));
+        let actions = f.h.audit_actions().await;
+        assert!(
+            actions.iter().any(|(a, _)| a == "run_overridden"),
+            "{actions:?}"
+        );
+        // Each step went out with its own step's override, nothing else.
+        let mut sent = 0;
+        for r in &mut runners {
+            while let Ok(frame) = r.received.try_recv() {
+                let Frame::Approvals { run_id, items } = frame else {
+                    continue;
+                };
+                let run: Uuid = run_id.parse().expect("run id");
+                let own: Vec<(String,)> = sqlx::query_as(
+                    "select assertion ->> 'signature' from approvals \
+                     where run_id = $1 and kind = 'override' and decision = 'approve'",
+                )
+                .bind(run)
+                .fetch_all(&f.h.db.owner)
+                .await
+                .expect("approvals");
+                assert!(!items.is_empty(), "{run}");
+                for item in &items {
+                    assert!(own.iter().any(|o| o.0 == item.signature), "{run}");
+                }
+                sent += 1;
+            }
+        }
+        // node-1: debian, keel-node; master-1: debian, k3s-master.
+        assert_eq!(sent, 4);
+        f.h.finish().await;
+    }
+
+    #[tokio::test]
+    async fn a_reviewed_plan_still_waits_for_the_approvals_it_lacks() {
+        let Some(f) = fixture("converge_signed_approval", 2).await else {
+            return;
+        };
+        let mut auth = passkey(&f.h).await;
+        let _runners = f.attach(|_, id| FakeRunner::new(id.to_string())).await;
+        let parent = f.start().await;
+        for g in groups(&f, parent).await {
+            review(&f, &mut auth, g.0).await;
+        }
+        // One reviewer of two: the converge is held for approval, its window open.
+        let (s, open): (String, bool) =
+            sqlx::query_as("select state, approval_expires_at > now() from runs where id = $1")
+                .bind(parent)
+                .fetch_one(&f.h.db.owner)
+                .await
+                .expect("parent");
+        assert_eq!((s.as_str(), open), ("pending_approval", true));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(f.steps(parent).await.iter().all(|s| s.3 == "blocked"));
+        f.h.finish().await;
+    }
+
+    #[tokio::test]
+    async fn denying_one_steps_review_denies_the_converge() {
+        let Some(f) = fixture("converge_signed_deny", 1).await else {
+            return;
+        };
+        let parent = f.start().await;
+        let groups = groups(&f, parent).await;
+        let (_, out) =
+            f.h.confirm(Cmd::PreviewOverrideDeny {
+                group: groups[1].0,
+                comment: ReviewComment::new("Not this one.").expect("comment"),
+            })
+            .await;
+        assert!(
+            matches!(out.first(), Some(Event::Confirmed { .. })),
+            "{out:?}"
+        );
+        assert_eq!(f.ended(parent).await.0, "denied");
+        assert_eq!(state(&f, groups[1].1).await, "denied");
+        let steps = f.steps(parent).await;
+        assert!(
+            steps
+                .iter()
+                .all(|s| (s.1 == 0 && s.3 == "cancelled") || (s.1 > 0 && s.3 == "skipped")),
+            "{steps:?}"
+        );
+        let open: Vec<(String,)> =
+            sqlx::query_as("select state from runs where parent_run_id = $1 and ended_at is null")
+                .bind(parent)
+                .fetch_all(&f.h.db.owner)
+                .await
+                .expect("children");
+        assert!(open.is_empty(), "{open:?}");
+        // The other steps' reviews close with it.
+        let out =
+            f.h.cmd(Cmd::PreviewOverride {
+                group: groups[0].0,
+                comment: ReviewComment::new("Too late.").expect("comment"),
+            })
+            .await;
+        assert_eq!(op_error(&out), "review_closed");
+        f.h.finish().await;
+    }
+}

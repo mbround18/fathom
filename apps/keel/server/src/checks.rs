@@ -568,7 +568,8 @@ async fn step(
 }
 
 /// Moves a run whose checks all passed to where it would have gone when it was made: review
-/// when it has review groups, approval when it was held (its window starts now), else the queue.
+/// when it (or, for a converge, one of its steps) has review groups, approval when it was held
+/// (its window starts now), else the queue.
 async fn release(tx: &mut PgConnection, run: Uuid, ws: Uuid) -> Result<RunStatus, sqlx::Error> {
     let next: String = sqlx::query_scalar(
         "update runs r set state = n.next, \
@@ -577,6 +578,8 @@ async fn release(tx: &mut PgConnection, run: Uuid, ws: Uuid) -> Result<RunStatus
              then now() + (r.approval_expires_at - r.created_at) end \
          from (select case \
                  when exists (select 1 from review_groups g where g.run_id = $1) \
+                   or exists (select 1 from runs c where c.parent_run_id = $1 \
+                                and c.state = 'needs_review') \
                    then 'needs_review' \
                  when x.approvals_needed is not null then 'pending_approval' \
                  else 'queued' end as next \

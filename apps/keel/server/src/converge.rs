@@ -12,6 +12,17 @@
 //! newer converge replaces a held one on the same hosts (`converge.replace`); a retry re-plans the
 //! hosts that did not succeed and is approved again (`converge.retry`).
 //!
+//! **Signed mode** (FR-005, research R3, Q2 decided "per step"): every child is pinned to the
+//! plan's one commit and gets its own early check ([`crate::review::early_check`]) over its hosts,
+//! so an override or baseline assertion stays bound to one run id and one job, as hosts verify it.
+//! A child whose commit is not fully signed waits in `needs_review` with its review groups, and the
+//! parent waits with it: the plan goes through review once, every step's groups listed together on
+//! the review page, before its approval. A child's review opens only while the parent is in
+//! review ([`crate::review`] reads the parent's state). When the last child's groups are approved
+//! the parent moves on like a single run ([`reviewed`]); denying any step's review denies the plan
+//! ([`review_denied`]). Dispatch takes only `queued`/`running` children, so a step whose review is
+//! not done is never sent.
+//!
 //! Every command answers `feature_disabled` unless `KEEL_CONVERGE` is on.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -22,12 +33,12 @@ use keel_core::converge as core;
 use keel_core::manifest::Manifest;
 use keel_core::policy::{self, Policy};
 use keel_core::ports::CommitId;
-use keel_core::run::{RunState, RunStatus, StateReason};
+use keel_core::run::{RunEvent, RunState, RunStatus, StateReason};
 use keel_git::Mirror;
 use keel_protocol::{
     ApprovalTerms, Cmd, ConvergeHostState, ConvergeHostView, ConvergePlan, ConvergeStepView,
-    ConvergeTarget, ConvergeView, Event, HostPlan, PlannedStep, RunSummary, StepRefusal,
-    StepRefusalReason, StepState, TargetSelection,
+    ConvergeTarget, ConvergeView, Event, HostPlan, PlannedStep, ReviewGroupSummary, RunSummary,
+    StepRefusal, StepRefusalReason, StepState, TargetSelection,
 };
 use serde_json::json;
 use sqlx::PgConnection;
@@ -87,14 +98,47 @@ struct Planned {
     terms: core::ApprovalTerms,
     replaces: Vec<Uuid>,
     blocked_by: Vec<Uuid>,
+    /// Signed mode: each child's early check, in [`Planned::jobs`] order (empty otherwise).
+    reviews: Vec<ChildReview>,
+}
+
+/// Signed mode: one child run's early check.
+struct ChildReview {
+    job: String,
+    /// Each of the child's hosts and its base for the job.
+    bases: Vec<(Uuid, Option<String>)>,
+    /// The groups that need review (none: every commit is signed).
+    groups: Vec<crate::review::GroupDraft>,
+}
+
+/// A host that will run: no refusal and at least one step.
+fn runnable(h: &HostPlan) -> bool {
+    h.refusals.is_empty() && !h.steps.is_empty()
+}
+
+/// Each job in the order it first appears, with the hosts that run it.
+fn jobs_of<'a>(hosts: impl Iterator<Item = &'a HostPlan>) -> Vec<(String, Vec<Named>)> {
+    let mut jobs: Vec<(String, Vec<Named>)> = Vec::new();
+    for h in hosts {
+        for s in &h.steps {
+            match jobs.iter_mut().find(|(j, _)| *j == s.job) {
+                Some((_, hosts)) => hosts.push((h.host_id, h.host.clone())),
+                None => jobs.push((s.job.clone(), vec![(h.host_id, h.host.clone())])),
+            }
+        }
+    }
+    jobs
 }
 
 impl Planned {
     /// The hosts that will run: no refusal and at least one step.
     fn runnable(&self) -> impl Iterator<Item = &HostPlan> {
-        self.hosts
-            .iter()
-            .filter(|h| h.refusals.is_empty() && !h.steps.is_empty())
+        self.hosts.iter().filter(|h| runnable(h))
+    }
+
+    /// Whether any child starts in review.
+    fn needs_review(&self) -> bool {
+        self.reviews.iter().any(|r| !r.groups.is_empty())
     }
 
     fn plan(&self) -> ConvergePlan {
@@ -110,7 +154,15 @@ impl Planned {
                 four_eyes: self.terms.four_eyes,
                 approval_ttl_secs: self.terms.approval_ttl_secs,
             },
-            review: Vec::new(),
+            review: self
+                .reviews
+                .iter()
+                .map(|r| ReviewGroupSummary {
+                    job: r.job.clone(),
+                    commit: self.commit.clone(),
+                    needs_review: !r.groups.is_empty(),
+                })
+                .collect(),
             replaces: self.replaces.clone(),
             blocked_by: self.blocked_by.clone(),
         }
@@ -118,16 +170,7 @@ impl Planned {
 
     /// Each job in the order it first appears, with the hosts that run it.
     fn jobs(&self) -> Vec<(String, Vec<Named>)> {
-        let mut jobs: Vec<(String, Vec<Named>)> = Vec::new();
-        for h in self.runnable() {
-            for s in &h.steps {
-                match jobs.iter_mut().find(|(j, _)| *j == s.job) {
-                    Some((_, hosts)) => hosts.push((h.host_id, h.host.clone())),
-                    None => jobs.push((s.job.clone(), vec![(h.host_id, h.host.clone())])),
-                }
-            }
-        }
-        jobs
+        jobs_of(self.runnable())
     }
 }
 
@@ -173,13 +216,6 @@ async fn plan(
                 "The binding has not synced a commit yet.".to_owned(),
             )));
         };
-        if signed_mode {
-            // Signed-mode review of a converge's steps is not built yet (068 T018 partial).
-            return Ok(Err((
-                "signed_mode_unsupported",
-                "Converge does not support signed-mode bindings yet.".to_owned(),
-            )));
-        }
         let m = match crate::sync::manifest_at(app, target.binding_id, &commit, signed_mode).await?
         {
             Ok(m) => m,
@@ -307,9 +343,43 @@ async fn plan(
         let terms = core::combine_policies(&winners);
         let ids: Vec<Uuid> = hosts
             .iter()
-            .filter(|h| h.refusals.is_empty() && !h.steps.is_empty())
+            .filter(|h| runnable(h))
             .map(|h| h.host_id)
             .collect();
+        // Signed mode: each child (one per job) is checked over its own hosts at the one commit.
+        let mut reviews = Vec::new();
+        if signed_mode {
+            for (job, named) in jobs_of(hosts.iter().filter(|h| runnable(h))) {
+                let Some(def) = m.jobs.get(&job).map(|j| &j.definition) else {
+                    continue;
+                };
+                match crate::review::early_check(
+                    app,
+                    &mut conn,
+                    workspace,
+                    target.binding_id,
+                    &job,
+                    def.inventory_source,
+                    &commit,
+                    &named,
+                )
+                .await?
+                {
+                    crate::review::Early::Managed => {
+                        return Ok(Err((
+                            "manifest_invalid",
+                            format!(
+                                "Signed mode only uses repository inventories; job {job} does \
+                                 not."
+                            ),
+                        )));
+                    }
+                    crate::review::Early::Checked { bases, groups } => {
+                        reviews.push(ChildReview { job, bases, groups });
+                    }
+                }
+            }
+        }
         let replaces = open_converges(
             &mut conn,
             workspace,
@@ -338,6 +408,7 @@ async fn plan(
             terms,
             replaces,
             blocked_by,
+            reviews,
         }))
     }
     .instrument(span)
@@ -676,7 +747,7 @@ async fn create(
             "The commit could not be pinned.".to_owned(),
         )));
     }
-    let then = RunStatus::initial(false, p.terms.requires_approval);
+    let then = RunStatus::initial(p.needs_review(), p.terms.requires_approval);
     let names: Vec<String> = p.runnable().map(|h| h.host.clone()).collect();
     let mut tx = app.db.begin().await?;
     // Spec 068 US7: with required checks the converge waits for them before approval or its
@@ -720,9 +791,8 @@ async fn create(
          approvals_needed, four_eyes, approval_expires_at) \
          values ($1, $2, 'converge', null, $3, 'converge', 'manual', $4, $5, $6, $7, $8, $9, \
          $10, $11, $17, case when $17 = 'queued' then now() end, $13, '{}', \
-         case when $12 = 'pending_approval' then $14 end, \
-         case when $12 = 'pending_approval' then $15 end, \
-         case when $12 = 'pending_approval' then now() + $16 * interval '1 second' end)",
+         case when $18 then $14 end, case when $18 then $15 end, \
+         case when $18 then now() + $16 * interval '1 second' end)",
     )
     .bind(id)
     .bind(p.workspace)
@@ -742,6 +812,9 @@ async fn create(
     .bind(p.terms.four_eyes)
     .bind(i64::from(p.terms.approval_ttl_secs))
     .bind(status.state.as_str())
+    // Approval terms are held from the start, also through review; the window is stashed as
+    // `created_at` + TTL and starts when review ends (as `checks::release` reads it).
+    .bind(p.terms.requires_approval)
     .execute(&mut *tx)
     .await?;
     if status.state == RunState::WaitingChecks {
@@ -749,13 +822,21 @@ async fn create(
     }
     for (child, job, hosts) in &children {
         let host_names: Vec<String> = hosts.iter().map(|h| h.1.clone()).collect();
+        let in_review = p
+            .reviews
+            .iter()
+            .any(|r| r.job == *job && !r.groups.is_empty());
+        // A step in review carries the plan's four-eyes term for its groups' reviewers.
         sqlx::query(
             "insert into runs (id, workspace_id, parent_run_id, job_id, binding_id, job_name, \
              trigger, requested_by, commit, inventory_revision_id, inventory_name, \
-             resolved_hosts, signed_mode, check_mode, state, queued_at, summary, params) \
+             resolved_hosts, signed_mode, check_mode, state, queued_at, summary, params, \
+             four_eyes) \
              values ($1, $2, $3, (select j.id from jobs j where j.binding_id = $4 \
                and j.name = $5 and j.removed_at_commit is null), $4, $5, 'manual', $6, $7, $8, \
-               $9, $10, $11, $12, 'queued', now(), $13, '{}')",
+               $9, $10, $11, $12, case when $14 then 'needs_review' else 'queued' end, \
+               case when $14 then null else now() end, $13, '{}', \
+               case when $14 then $15 end)",
         )
         .bind(child)
         .bind(p.workspace)
@@ -770,6 +851,8 @@ async fn create(
         .bind(p.signed_mode)
         .bind(p.check)
         .bind(json!(RunSummary::default()))
+        .bind(in_review)
+        .bind(p.terms.four_eyes)
         .execute(&mut *tx)
         .await?;
     }
@@ -808,6 +891,25 @@ async fn create(
             .await?;
         }
     }
+    // Signed mode: each step's hosts keep their base, and its groups open for review.
+    let mut groups = Vec::new();
+    for (child, job, _) in &children {
+        let Some(r) = p.reviews.iter().find(|r| r.job == *job) else {
+            continue;
+        };
+        let (hosts, base): (Vec<Uuid>, Vec<Option<String>>) = r.bases.iter().cloned().unzip();
+        sqlx::query(
+            "update run_hosts rh set base_commit = b.base \
+             from unnest($2::uuid[], $3::text[]) as b(host, base) \
+             where rh.run_id = $1 and rh.host_id = b.host",
+        )
+        .bind(child)
+        .bind(&hosts)
+        .bind(&base)
+        .execute(&mut *tx)
+        .await?;
+        groups.extend(crate::review::insert_groups(&mut tx, *child, &p.commit, &r.groups).await?);
+    }
     audit::record(
         &mut tx,
         Entry {
@@ -833,6 +935,7 @@ async fn create(
                 "four_eyes": p.terms.four_eyes,
                 "replaces": replaced,
                 "retry_of": retry_of,
+                "review_groups": groups,
             }),
         },
     )
@@ -993,6 +1096,136 @@ pub(crate) async fn abandon(tx: &mut PgConnection, run: Uuid) -> Result<(), sqlx
     .execute(&mut *tx)
     .await?;
     Ok(())
+}
+
+// ---- review (signed mode) ---------------------------------------------------------------------
+
+/// A step of `parent` was reviewed (its every group approved): once no step is left in review,
+/// the converge leaves `needs_review` like a single run. Its approval is satisfied when it
+/// requires none, or when the distinct reviewers across its steps number at least its
+/// `approvals_needed`; else it waits for approval, its window starting now. A queued converge's
+/// first steps go out. Returns the converge's new status, or `None` when it stays.
+///
+/// # Errors
+///
+/// A database error.
+pub(crate) async fn reviewed(
+    tx: &mut PgConnection,
+    caller: &Caller,
+    parent: Uuid,
+    ws: Uuid,
+) -> Result<Option<RunStatus>, sqlx::Error> {
+    // Lock first, so a concurrent last review reads this one's step as reviewed.
+    let state: Option<String> =
+        sqlx::query_scalar("select state from runs where id = $1 and kind = 'converge' for update")
+            .bind(parent)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if state.as_deref() != Some("needs_review") {
+        return Ok(None);
+    }
+    let (open, needed, reviewers): (bool, Option<i32>, i64) = sqlx::query_as(
+        "select exists (select 1 from runs c where c.parent_run_id = r.id \
+                          and c.state = 'needs_review'), \
+           r.approvals_needed, \
+           (select count(distinct a.approver_user_id) from approvals a \
+              join runs c on c.id = a.run_id where c.parent_run_id = r.id \
+                and a.kind = 'override' and a.decision = 'approve') \
+         from runs r where r.id = $1",
+    )
+    .bind(parent)
+    .fetch_one(&mut *tx)
+    .await?;
+    if open {
+        return Ok(None);
+    }
+    let satisfied = needed.is_none_or(|n| reviewers >= i64::from(n.max(1)));
+    let Ok(next) = keel_core::run::transition(
+        RunState::NeedsReview,
+        &RunEvent::Overridden {
+            approval_satisfied: satisfied,
+        },
+    ) else {
+        return Ok(None);
+    };
+    sqlx::query(
+        "update runs set state = $2, state_reason = $3, \
+         queued_at = case when $2 = 'queued' then now() else queued_at end, \
+         approval_expires_at = case when $2 = 'pending_approval' \
+           then now() + (approval_expires_at - created_at) else approval_expires_at end \
+         where id = $1",
+    )
+    .bind(parent)
+    .bind(next.state.as_str())
+    .bind(next.reason.map(|r| r.as_str()))
+    .execute(&mut *tx)
+    .await?;
+    if next.state == RunState::Queued {
+        release(tx, parent).await?;
+    }
+    audit::record(
+        &mut *tx,
+        Entry {
+            actor: &caller.actor(),
+            action: "run_overridden",
+            workspace: Some(WorkspaceId(ws)),
+            target: json!({ "run": parent }),
+            decision: Decision::Allowed,
+            reason: None,
+            context: json!({
+                "state": next.state.as_str(),
+                "approval_satisfied": satisfied,
+                "reviewers": reviewers,
+            }),
+        },
+    )
+    .await?;
+    Ok(Some(next))
+}
+
+/// A step of `parent` was denied in review: the converge is denied with it and abandons every
+/// step. Returns the converge's new status, or `None` when it was not in review.
+///
+/// # Errors
+///
+/// A database error.
+pub(crate) async fn review_denied(
+    tx: &mut PgConnection,
+    caller: &Caller,
+    parent: Uuid,
+    ws: Uuid,
+    step: Uuid,
+) -> Result<Option<RunStatus>, sqlx::Error> {
+    let Ok(next) = keel_core::run::transition(RunState::NeedsReview, &RunEvent::Denied) else {
+        return Ok(None);
+    };
+    let denied: Option<Uuid> = sqlx::query_scalar(
+        "update runs set state = $2, state_reason = $3, ended_at = now() \
+         where id = $1 and kind = 'converge' and state = 'needs_review' returning id",
+    )
+    .bind(parent)
+    .bind(next.state.as_str())
+    .bind(next.reason.map(|r| r.as_str()))
+    .fetch_optional(&mut *tx)
+    .await?;
+    if denied.is_none() {
+        return Ok(None);
+    }
+    abandon(tx, parent).await?;
+    audit::record(
+        &mut *tx,
+        Entry {
+            actor: &caller.actor(),
+            action: "run_denied",
+            workspace: Some(WorkspaceId(ws)),
+            target: json!({ "run": parent }),
+            decision: Decision::Allowed,
+            reason: Some("review_denied"),
+            context: json!({ "step": step }),
+        },
+    )
+    .await?;
+    Ok(Some(next))
 }
 
 // ---- cancelling ------------------------------------------------------------------------------

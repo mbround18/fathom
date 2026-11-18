@@ -933,9 +933,13 @@ struct GroupCtx {
     target: String,
     hosts: Vec<String>,
     state: String,
+    /// The run's state; a converge step in review reads its converge's (spec 068), so a step's
+    /// groups open only while the whole plan is in review.
     run_state: String,
     four_eyes: bool,
     ttl_secs: i64,
+    /// The converge this run is a step of (spec 068).
+    parent: Option<Uuid>,
 }
 
 async fn group_ctx(
@@ -955,12 +959,18 @@ async fn group_ctx(
         String,
         bool,
         i64,
+        Option<Uuid>,
     );
-    // Constants only: no caller input reaches the text.
+    // Constants only: no caller input reaches the text. A converge step has no policy of its
+    // own: it carries the plan's combined four-eyes term.
     let row: Option<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "select g.run_id, r.workspace_id, r.binding_id, r.job_name, g.base_commit, \
-         g.target_commit, g.hosts, g.state, r.state, coalesce(p.four_eyes, true), \
-         coalesce(extract(epoch from p.approval_ttl)::bigint, {MAX_OVERRIDE_SECS}) \
+         g.target_commit, g.hosts, g.state, \
+         case when r.parent_run_id is not null and r.state = 'needs_review' \
+           then (select c.state from runs c where c.id = r.parent_run_id) else r.state end, \
+         coalesce(p.four_eyes, r.four_eyes, true), \
+         coalesce(extract(epoch from p.approval_ttl)::bigint, {MAX_OVERRIDE_SECS}), \
+         r.parent_run_id \
          from review_groups g join runs r on r.id = g.run_id \
          left join approval_policies p on p.id = r.policy_id where g.id = $1{}",
         if lock { " for update of g, r" } else { "" }
@@ -969,7 +979,20 @@ async fn group_ctx(
     .fetch_optional(conn)
     .await?;
     Ok(row.map(
-        |(run, ws, binding, job_name, base, target, hosts, state, run_state, four_eyes, ttl)| {
+        |(
+            run,
+            ws,
+            binding,
+            job_name,
+            base,
+            target,
+            hosts,
+            state,
+            run_state,
+            four_eyes,
+            ttl,
+            parent,
+        )| {
             GroupCtx {
                 run,
                 ws,
@@ -982,6 +1005,7 @@ async fn group_ctx(
                 run_state,
                 four_eyes,
                 ttl_secs: ttl,
+                parent,
             }
         },
     ))
@@ -1342,6 +1366,7 @@ async fn approve(
     )
     .await?;
     let mut next = None;
+    let mut converge = None;
     let mut cleared = Vec::new();
     if group_done {
         sqlx::query("update review_groups set state = 'approved' where id = $1")
@@ -1367,12 +1392,24 @@ async fn approve(
         .await?;
         if open == 0 {
             next = Some(overridden(&mut tx, caller, ctx.run, ctx.ws).await?);
+            // A converge step: the plan moves on once its last step is reviewed.
+            if let Some(parent) = ctx.parent {
+                converge = crate::converge::reviewed(&mut tx, caller, parent, ctx.ws)
+                    .await?
+                    .map(|s| (parent, s));
+            }
         }
     }
     tx.commit().await?;
     crate::outside::pushed(app, ctx.ws, &cleared);
     if let Some(Some(status)) = next {
         crate::queue::push_state(app, ctx.ws, ctx.run, status);
+        if status.state == RunState::Queued {
+            crate::queue::kick(app);
+        }
+    }
+    if let Some((parent, status)) = converge {
+        crate::queue::push_state(app, ctx.ws, parent, status);
         if status.state == RunState::Queued {
             crate::queue::kick(app);
         }
@@ -1539,12 +1576,17 @@ async fn deny(
     let Ok(next) = keel_core::run::transition(RunState::NeedsReview, &RunEvent::Denied) else {
         return Ok(Err(internal()));
     };
-    sqlx::query("update runs set state = $2, state_reason = $3 where id = $1")
-        .bind(ctx.run)
-        .bind(next.state.as_str())
-        .bind(next.reason.map(|r| r.as_str()))
-        .execute(&mut *tx)
-        .await?;
+    // A converge step ends here: its converge is denied with it and abandons every step.
+    sqlx::query(
+        "update runs set state = $2, state_reason = $3, \
+         ended_at = case when parent_run_id is not null then now() else ended_at end \
+         where id = $1",
+    )
+    .bind(ctx.run)
+    .bind(next.state.as_str())
+    .bind(next.reason.map(|r| r.as_str()))
+    .execute(&mut *tx)
+    .await?;
     sqlx::query(
         "update run_hosts set state = 'cancelled', ended_at = now() \
          where run_id = $1 and state = 'queued'",
@@ -1552,6 +1594,12 @@ async fn deny(
     .bind(ctx.run)
     .execute(&mut *tx)
     .await?;
+    let converge = match ctx.parent {
+        Some(parent) => crate::converge::review_denied(&mut tx, caller, parent, ctx.ws, ctx.run)
+            .await?
+            .map(|s| (parent, s)),
+        None => None,
+    };
     audit::record(
         &mut tx,
         Entry {
@@ -1567,6 +1615,9 @@ async fn deny(
     .await?;
     tx.commit().await?;
     crate::queue::push_state(app, ctx.ws, ctx.run, next);
+    if let Some((parent, status)) = converge {
+        crate::queue::push_state(app, ctx.ws, parent, status);
+    }
     crate::queue::maybe_finish(app, ctx.run).await;
     Ok(Ok(()))
 }
