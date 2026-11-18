@@ -265,6 +265,55 @@ async fn an_unknown_control_frame_quarantines() {
     l.quarantined("bad_frame", &mut held).await.finish().await;
 }
 
+/// T066 F6: a quarantine whose write fails still keeps the relay out of service. `sync`
+/// does not redial it, and retries the write until it lands.
+#[tokio::test]
+async fn a_quarantine_that_fails_to_write_still_holds_and_is_retried() {
+    let Some(mut l) = linked("hostile_quarantine_retry", opts()).await else {
+        return;
+    };
+    for sql in [
+        "create function t066_no_quarantine() returns trigger language plpgsql as \
+         $$ begin raise exception 't066: quarantine write refused'; end $$",
+        "create trigger t066_no_quarantine before update on relays for each row \
+         when (new.quarantined_at is not null and old.quarantined_at is null) \
+         execute function t066_no_quarantine()",
+    ] {
+        sqlx::query(sql)
+            .execute(&l.h.db.owner)
+            .await
+            .expect("trigger");
+    }
+    l.side
+        .inject
+        .send(raw_frame(br#"{"t":"Exec","cmd":"id"}"#))
+        .expect("inject");
+    wait_live(&l.h, l.id, |s| s.state == RelayState::Quarantined).await;
+    assert_eq!(
+        quarantine_reason(&l.h, l.id).await,
+        None,
+        "the write landed"
+    );
+    l.sup.sync().await.expect("sync");
+    l.relay.no_link().await;
+    let live = l.h.app.relay_live.get(l.id).expect("live");
+    assert_eq!(live.state, RelayState::Quarantined, "{live:?}");
+
+    sqlx::query("drop trigger t066_no_quarantine on relays")
+        .execute(&l.h.db.owner)
+        .await
+        .expect("drop trigger");
+    l.sup.sync().await.expect("sync");
+    assert_eq!(
+        quarantine_reason(&l.h, l.id).await.as_deref(),
+        Some("bad_frame")
+    );
+    assert_eq!(quarantines(&l.h).await.len(), 1);
+    l.sup.sync().await.expect("sync");
+    l.relay.no_link().await;
+    l.finish().await;
+}
+
 #[tokio::test]
 async fn an_oversized_control_frame_quarantines() {
     let Some(l) = linked("hostile_oversized", opts()).await else {

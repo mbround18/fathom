@@ -1787,6 +1787,84 @@ struct Shared {
     refusals: Refusals,
     /// Enrollment and join attempts per relay ([`LiveRelays::attempt`]).
     attempts: Mutex<HashMap<Uuid, Bucket>>,
+    /// Quarantines decided but not yet written (T066 F6). [`RelaySupervisor::sync`] honours
+    /// them as if written, so a failed write never lets the relay be redialled, and retries
+    /// the write until it lands.
+    quarantined: Mutex<HashMap<Uuid, PendingQuarantine>>,
+}
+
+/// A quarantine [`Shared::quarantined`] still has to write.
+#[derive(Debug, Clone)]
+struct PendingQuarantine {
+    workspace: Uuid,
+    reason: &'static str,
+    detail: String,
+}
+
+impl Shared {
+    /// Writes a quarantine: `relays.quarantined_at` and its `relay.quarantine` audit row, in one
+    /// transaction. A relay already quarantined or revoked is left as it is.
+    async fn write_quarantine(
+        &self,
+        relay: Uuid,
+        q: &PendingQuarantine,
+    ) -> Result<(), sqlx::Error> {
+        let mut tx = self.app.db.begin().await?;
+        let done = sqlx::query(
+            "update relays set quarantined_at = now(), quarantine_reason = $2, \
+             updated_at = now() where id = $1 and quarantined_at is null \
+             and revoked_at is null",
+        )
+        .bind(relay)
+        .bind(q.reason)
+        .execute(&mut *tx)
+        .await?;
+        if done.rows_affected() == 1 {
+            audit::record(
+                &mut tx,
+                Entry {
+                    actor: &Actor::System,
+                    action: ACTION_QUARANTINE,
+                    workspace: Some(WorkspaceId(q.workspace)),
+                    target: json!({ "relay": relay }),
+                    decision: Decision::Denied,
+                    reason: Some(q.reason),
+                    context: json!({ "detail": q.detail }),
+                },
+            )
+            .await?;
+        }
+        tx.commit().await
+    }
+
+    /// Writes `relay`'s pending quarantine; the marker stays until the write lands.
+    async fn persist_quarantine(&self, relay: Uuid) {
+        let Some(q) = self
+            .quarantined
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&relay).cloned())
+        else {
+            return;
+        };
+        match self.write_quarantine(relay, &q).await {
+            Ok(()) => {
+                if let Ok(mut m) = self.quarantined.lock() {
+                    m.remove(&relay);
+                }
+            }
+            Err(e) => {
+                tracing::error!(%relay, error = %e, "quarantining a relay failed; will retry");
+            }
+        }
+    }
+
+    fn pending_quarantine(&self, relay: Uuid) -> Option<&'static str> {
+        self.quarantined
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&relay).map(|q| q.reason))
+    }
 }
 
 struct Link {
@@ -1855,6 +1933,7 @@ impl RelaySupervisor {
                 opts,
                 refusals,
                 attempts: Mutex::new(HashMap::new()),
+                quarantined: Mutex::new(HashMap::new()),
             }),
             links: Mutex::new(HashMap::new()),
             publisher,
@@ -1906,6 +1985,15 @@ impl RelaySupervisor {
     ///
     /// The database.
     pub async fn sync(&self) -> Result<(), sqlx::Error> {
+        let shared = &self.inner.shared;
+        let pending: Vec<Uuid> = shared
+            .quarantined
+            .lock()
+            .map(|m| m.keys().copied().collect())
+            .unwrap_or_default();
+        for relay in pending {
+            shared.persist_quarantine(relay).await;
+        }
         let rows: Vec<RelayRow> = sqlx::query_as(
             "select id, workspace_id, name, dial_address, host_key, quarantine_reason \
              from relays where revoked_at is null order by id",
@@ -1917,8 +2005,11 @@ impl RelaySupervisor {
             return Ok(());
         };
         let mut seen = HashSet::new();
-        for row in rows {
+        for mut row in rows {
             seen.insert(row.id);
+            if row.quarantine_reason.is_none() {
+                row.quarantine_reason = shared.pending_quarantine(row.id).map(str::to_owned);
+            }
             if let Some(reason) = &row.quarantine_reason {
                 if let Some(link) = links.remove(&row.id) {
                     let _ = link.stop.send(Some("quarantined".into()));
@@ -2301,38 +2392,18 @@ impl LinkRun {
         let reason = v.reason();
         let detail = capped(&violation_detail(v));
         let shared = &self.shared;
-        let written = async {
-            let mut tx = shared.app.db.begin().await?;
-            let done = sqlx::query(
-                "update relays set quarantined_at = now(), quarantine_reason = $2, \
-                 updated_at = now() where id = $1 and quarantined_at is null \
-                 and revoked_at is null",
-            )
-            .bind(self.row.id)
-            .bind(reason)
-            .execute(&mut *tx)
-            .await?;
-            if done.rows_affected() == 1 {
-                audit::record(
-                    &mut tx,
-                    Entry {
-                        actor: &Actor::System,
-                        action: ACTION_QUARANTINE,
-                        workspace: Some(WorkspaceId(self.row.workspace_id)),
-                        target: json!({ "relay": self.row.id }),
-                        decision: Decision::Denied,
-                        reason: Some(reason),
-                        context: json!({ "detail": detail }),
-                    },
-                )
-                .await?;
-            }
-            tx.commit().await
+        // The marker goes first: until the row is written, `sync` honours it (T066 F6).
+        if let Ok(mut m) = shared.quarantined.lock() {
+            m.insert(
+                self.row.id,
+                PendingQuarantine {
+                    workspace: self.row.workspace_id,
+                    reason,
+                    detail: detail.clone(),
+                },
+            );
         }
-        .await;
-        if let Err(e) = written {
-            tracing::error!(relay = %self.row.id, error = %e, "quarantining a relay failed");
-        }
+        shared.persist_quarantine(self.row.id).await;
         tracing::warn!(relay = %self.row.id, name = %self.row.name, reason,
             detail = %detail.escape_debug(), "relay quarantined");
         self.update(|l| {
