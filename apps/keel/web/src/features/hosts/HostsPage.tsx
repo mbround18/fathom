@@ -50,6 +50,7 @@ import type { ChangeOutcome, HostInfo, HostStatus } from '@/protocol/wire'
 import { AddHostDialog } from './AddHostDialog'
 import { useAddHost } from './add-host-store'
 import { EnrollDialog } from './EnrollDialog'
+import { ProfilesCard, ProfilesDialog, SuggestionDot } from './HostProfiles'
 import { useEnroll } from './enroll-store'
 import { useHosts } from './store'
 import { canAdminister, canOperate, useWorkspaces } from './workspaces'
@@ -188,6 +189,7 @@ function HostDetailPanel() {
       </div>
       {detail && (
         <div className="flex min-w-0 flex-col gap-2 p-3">
+          <ProfilesCard host={detail.host} />
           <AgeKey host={detail.host} />
           <HostConverge host={detail.host} binding={binding} />
           <h3 className={LABEL}>Runs outside Keel</h3>
@@ -413,7 +415,13 @@ export default function HostsPage() {
       },
       { key: 'state', header: 'State', cell: (h) => <StateBadge state={h.state} /> },
       { key: 'converge', header: 'Converge', cell: (h) => <ConvergeCell host={h} /> },
-      { key: 'profiles', header: 'Profiles', tip: <TermTip term="profile" />, cell: (h) => <span className="font-mono">{h.profiles.join(', ')}</span> },
+      { key: 'profiles', header: 'Profiles', tip: <TermTip term="profile" />, cell: (h) => (
+          <span className="inline-flex min-w-0 items-center gap-1">
+            <span className="font-mono">{h.profiles.join(', ')}</span>
+            <SuggestionDot host={h} />
+          </span>
+        ),
+      },
       { key: 'runner', header: 'Runner', cell: (h) => h.runner_version ?? '—' },
       { key: 'ansible', header: 'Ansible', cell: (h) => h.ansible_version ?? '—' },
       { key: 'seen', header: 'Last seen', cell: (h) => <span className="tabular-nums">{h.last_seen_at ?? '—'}</span> },
@@ -521,6 +529,7 @@ export default function HostsPage() {
       <EnrollDialog suggestions={suggestions} />
       <AddHostDialog />
       <ConvergePreview />
+      <ProfilesDialog />
     </Page>
   )
 }

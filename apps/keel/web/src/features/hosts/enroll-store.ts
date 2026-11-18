@@ -41,7 +41,11 @@ export interface EnrollState {
   /** Bumped on every token minted, so lists of enrolment tokens re-read. */
   mintedCount: number
   open: (workspace: string | null) => void
-  submit: (workspace: string, inventory_name: string, profiles: string[]) => void
+  /**
+   * Previews the token. `autoConverge` false asks Keel not to converge the host once it enrolls
+   * (spec 068 US2); it is sent only then, since absent means yes.
+   */
+  submit: (workspace: string, inventory_name: string, profiles: string[], autoConverge?: boolean) => void
   roll: (enrollment: string) => void
   confirm: () => Promise<void>
   /** Back to the form, from a preview or a refusal. */
@@ -114,9 +118,12 @@ export const useEnroll = create<EnrollState>()((set, get) => {
       set({ phase: 'form', mode: 'enroll', initialWorkspace: workspace, preview: null, refusal: null, minted: null })
     },
 
-    submit: (workspace, inventory_name, profiles) => {
+    submit: (workspace, inventory_name, profiles, autoConverge = true) => {
       set({ mode: 'enroll', initialWorkspace: workspace })
-      ask({ type: 'PreviewHostEnroll', data: { workspace, inventory_name, profiles } })
+      ask({
+        type: 'PreviewHostEnroll',
+        data: autoConverge ? { workspace, inventory_name, profiles } : { workspace, inventory_name, profiles, auto_converge: false },
+      })
     },
 
     roll: (enrollment) => {

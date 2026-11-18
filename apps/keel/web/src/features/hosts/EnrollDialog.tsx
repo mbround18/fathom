@@ -8,10 +8,11 @@
  * is not shown again. A Roll from Settings → Tokens lands on step 2 too.
  */
 import { FingerprintIcon, PlusIcon, WarningIcon, XIcon } from '@phosphor-icons/react'
-import { Button, Input } from '@companion/ui'
+import { Button, Checkbox, Input } from '@companion/ui'
 import { CopyBlock, Dialog, FIELD, LABEL, Link, TermTip, useNow } from '@companion/ui/kit'
 import { lazy, Suspense, useId, useState, type KeyboardEvent } from 'react'
 
+import { useConverge } from '@/features/converge/store'
 import { RefusalText } from '@/features/teams/parts'
 
 import { HOST_NAME, MAX_PROFILES, useEnroll, type Minted } from './enroll-store'
@@ -126,9 +127,12 @@ function Form({ suggestions, onCancel }: { suggestions: string[]; onCancel: () =
   const [workspace, setWorkspace] = useState<string | null>(initial)
   const [name, setName] = useState('')
   const [profiles, setProfiles] = useState<string[]>(['base'])
+  const [converge, setConverge] = useState(true)
+  const convergeOff = useConverge((s) => s.disabled)
   const wsId = useId()
   const nameId = useId()
   const profilesId = useId()
+  const convergeId = useId()
 
   if (refusal) return <RefusalText refusal={refusal} />
   if (all === null)
@@ -158,7 +162,7 @@ function Form({ suggestions, onCancel }: { suggestions: string[]; onCancel: () =
       className="flex min-w-0 flex-col gap-3"
       onSubmit={(e) => {
         e.preventDefault()
-        if (ready) submit(chosen.id, trimmed, profiles)
+        if (ready) submit(chosen.id, trimmed, profiles, convergeOff || converge)
       }}
     >
       <div className="flex min-w-0 flex-col gap-1">
@@ -212,6 +216,31 @@ function Form({ suggestions, onCancel }: { suggestions: string[]; onCancel: () =
         </div>
         <ProfileChips id={profilesId} value={profiles} onChange={setProfiles} suggestions={suggestions} />
       </div>
+      {!convergeOff && (
+        <div data-auto-converge={converge} className="flex min-w-0 items-start gap-2">
+          <Checkbox
+            id={convergeId}
+            className="mt-0.5"
+            checked={converge}
+            aria-describedby={`${convergeId}-hint`}
+            onCheckedChange={(c) => {
+              setConverge(c === true)
+            }}
+          />
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <label htmlFor={convergeId} className="text-xs font-medium">
+              Converge after enrollment
+            </label>
+            <p id={`${convergeId}-hint`} className="text-xs break-words text-muted-foreground">
+              {converge
+                ? profiles.length > 0
+                  ? `Once it enrolls, Keel runs the steps for ${profiles.join(', ')} on it, through the approval policy.`
+                  : 'Once it enrolls, Keel runs the steps for its profiles on it, through the approval policy.'
+                : 'Keel waits for someone to converge it.'}
+            </p>
+          </div>
+        </div>
+      )}
     </form>
   )
 }
