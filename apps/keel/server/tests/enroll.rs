@@ -71,6 +71,7 @@ async fn mint(h: &Harness, name: &str, profiles: &[&str]) -> (Uuid, String) {
         workspace: h.workspace,
         inventory_name: HostName::new(name).expect("name"),
         profiles: host_profiles(&self::profiles(profiles)),
+        auto_converge: None,
     };
     let (_, out) = h.confirm(cmd).await;
     match out.as_slice() {
@@ -267,6 +268,7 @@ async fn a_profile_outside_allowed_profiles_is_refused() {
             workspace: h.workspace,
             inventory_name: HostName::new("web-3").expect("name"),
             profiles: host_profiles(&profiles(&["nope"])),
+            auto_converge: None,
         })
         .await;
     assert_eq!(op_error(&out), "unknown_profile");
@@ -335,6 +337,7 @@ async fn a_stranger_cannot_mint_a_token_and_one_key_enrols_one_host() {
             workspace: h.workspace,
             inventory_name: HostName::new("web-1").expect("name"),
             profiles: host_profiles(&allowed),
+            auto_converge: None,
         })
         .await;
     assert_eq!(op_error(&out), "host_exists");
@@ -348,6 +351,7 @@ async fn a_stranger_cannot_mint_a_token_and_one_key_enrols_one_host() {
                 workspace: h.workspace,
                 inventory_name: HostName::new("web-9").expect("name"),
                 profiles: host_profiles(&allowed),
+                auto_converge: None,
             },
         )
         .await;

@@ -47,6 +47,7 @@ type Row = (
     OffsetDateTime,
     Option<Uuid>,
     Option<Uuid>,
+    bool,
 );
 
 fn info(r: Row) -> EnrollmentInfo {
@@ -63,6 +64,7 @@ fn info(r: Row) -> EnrollmentInfo {
         expires_at: ts(r.8),
         host: r.9,
         rolled_from: r.10,
+        auto_converge: r.11,
     }
 }
 
@@ -79,7 +81,7 @@ async fn rows(
     let rows: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "select * from (select e.id, e.workspace_id, w.slug, e.inventory_name, e.profiles, \
          {STATE_SQL} as state, u.display_name, e.created_at, e.expires_at, e.host_id, \
-         e.rolled_from from host_enrollments e join workspaces w on w.id = e.workspace_id \
+         e.rolled_from, e.auto_converge from host_enrollments e join workspaces w on w.id = e.workspace_id \
          left join users u on u.id = e.created_by \
          where ($2::uuid is null or e.workspace_id = $2) \
          and ($3::uuid is null or e.id = $3) \
@@ -363,6 +365,8 @@ pub async fn preview_roll(app: &AppState, req: &Request<'_>, enrollment: Uuid) -
                 &e.profiles,
                 &new,
                 Some(enrollment),
+                // Ignored for a roll: the new token keeps the old one's choice.
+                true,
             )
             .await?;
             tx.commit().await?;

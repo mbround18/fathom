@@ -34,6 +34,8 @@ pub enum Actor {
         display_name: String,
     },
     System,
+    /// A converge Keel starts for a host that just enrolled (spec 068 US2).
+    Enroll,
     Receiver(Uuid),
     Host(Uuid),
 }
@@ -45,6 +47,7 @@ impl Actor {
         match self {
             Actor::User { id, .. } => format!("user:{id}"),
             Actor::System => "system".into(),
+            Actor::Enroll => "system:enroll".into(),
             Actor::Receiver(id) => format!("receiver:{id}"),
             Actor::Host(id) => format!("host:{id}"),
         }

@@ -149,13 +149,19 @@ that host's rest; retry resumes.
 
 **Independent test**: `cargo test -p keel-server --test converge enroll`.
 
-- [ ] T032 [P] [server] Tests first in `server/tests/converge.rs` (`enroll_*`): enroll ⇒ converge
+- [X] T032 [P] [server] Tests first in `server/tests/converge.rs` (`enroll_*`): enroll ⇒ converge
   by `system:enroll`, audited; `auto_converge = false` ⇒ none; flag off ⇒ none; a plan failure
   does not undo enrollment.
-- [ ] T033 [server] `auto_converge` on enrollment create/view (`server/src/enrollments`/settings);
+  Note: four `enroll_*` tests in `tests/converge.rs` through the real `enroll_key`: a converge for that host alone (debian then keel-node), `requested_by` null, `converge.create` audited with actor `system:enroll`, queued with no approval; pending_approval under an approval policy; `auto_converge: false` and `KEEL_CONVERGE` off make none (and `EnrollmentInfo.auto_converge` reads false); a host no binding can plan for stays enrolled and `converge.enroll_skipped` is audited with each binding's refusal code.
+- [X] T033 [server] `auto_converge` on enrollment create/view (`server/src/enrollments`/settings);
   `converge::on_enrolled` called after `runner_listener.rs` `enrol()` commits.
+  Note: There is no enrollment-settings object: `auto_converge` lives on the token. `PreviewHostEnroll` gains `auto_converge?: boolean` (absent = true, so old clients keep converging), stored in `host_enrollments.auto_converge` (migration 0019) and shown as `EnrollmentInfo.auto_converge`; a rolled token copies the old one's choice; the host-add proposal path passes true. `converge::on_enrolled` runs after `enroll_key` commits: it tries the workspace's active bindings oldest first (by id) and makes one converge from the first whose plan gives the host a step; otherwise it audits `converge.enroll_skipped` (reason `no_plan` or `no_binding`, context per binding code/message). Errors are logged and never undo the enrollment. New audit actor `Actor::Enroll` keyed `system:enroll`. The "host page says why" part of US2 scenario 4 is only the audit entry here; nothing on `HostView` yet. `converge::create` now takes an actor and an optional user instead of a `Caller`.
 - [ ] T034 [server] Hook `on_enrolled` into join-request acceptance. **Blocked on 067 D3
   (T058).**
+  Note (c068-server2): still blocked. `join.rs` and migration 0018 (067 D3) are absent from this
+  branch. `converge::on_enrolled(app, host)` is public and treats a host with no
+  `host_enrollments` row as auto-converge on, so acceptance only needs to call it after its
+  transaction commits.
 - [ ] T035 [P] [web] "Converge after enrollment" checkbox with the planned steps in Settings →
   Enrollment and Add host; `s068/enroll-auto-converge.spec.ts`.
 

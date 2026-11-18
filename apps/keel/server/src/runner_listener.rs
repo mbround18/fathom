@@ -365,7 +365,14 @@ pub async fn enroll_key(app: &AppState, key: &KeyData, req: &EnrollRequest<'_>) 
     }
     match enrol(app, &mut tx, key, &e, req).await {
         Ok((host, cert)) => match tx.commit().await {
-            Ok(()) => Ok((host, cert)),
+            Ok(()) => {
+                // Spec 068 US2: converge the new host, after the enrollment committed. A failure
+                // here is logged and leaves the host enrolled.
+                if let Err(err) = crate::converge::on_enrolled(app, host).await {
+                    tracing::error!(%host, error = %err, "converge on enrollment failed");
+                }
+                Ok((host, cert))
+            }
             Err(err) => fail(err),
         },
         Err(err) => Err(Err(err)),

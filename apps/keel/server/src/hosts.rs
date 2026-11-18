@@ -526,6 +526,7 @@ pub async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
             workspace,
             inventory_name,
             profiles,
+            auto_converge,
         } => {
             let profiles: Vec<String> = profiles.0.iter().map(|p| p.as_str().to_owned()).collect();
             preview_enroll(
@@ -534,6 +535,7 @@ pub async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
                 workspace,
                 inventory_name.as_str().to_owned(),
                 profiles,
+                auto_converge.unwrap_or(true),
             )
             .await
         }
@@ -722,6 +724,7 @@ async fn preview_enroll(
     workspace: Uuid,
     inventory_name: String,
     profiles: Vec<String>,
+    auto_converge: bool,
 ) -> Vec<Event> {
     const ACTION: &str = "preview_host_enroll";
     if let Err(d) = require(app, req, ACTION, Capability::Operate, workspace).await {
@@ -738,11 +741,17 @@ async fn preview_enroll(
     }
     let summary = format!(
         "Enrol host {inventory_name} with profiles {}. The token is shown once and expires in \
-         15 minutes.",
+         15 minutes.{}",
         if profiles.is_empty() {
             "(none)".to_owned()
         } else {
             profiles.join(", ")
+        },
+        // Spec 068 US2: say so when the host will be converged once it enrolls.
+        if auto_converge && app.cfg.converge && !profiles.is_empty() {
+            " Keel converges it to these profiles once it enrolls."
+        } else {
+            ""
         }
     );
     let affected = vec![inventory_name.clone()];
@@ -753,7 +762,15 @@ async fn preview_enroll(
         if let Err(e) = check_enroll(&app, workspace, &inventory_name, &profiles).await {
             return e;
         }
-        create_enrollment(&app, &caller, workspace, inventory_name, profiles).await
+        create_enrollment(
+            &app,
+            &caller,
+            workspace,
+            inventory_name,
+            profiles,
+            auto_converge,
+        )
+        .await
     });
     preview(
         app,
@@ -824,6 +841,7 @@ async fn create_enrollment(
     workspace: Uuid,
     inventory_name: String,
     profiles: Vec<String>,
+    auto_converge: bool,
 ) -> Vec<Event> {
     let new = match NewEnrollment::mint(app) {
         Ok(n) => n,
@@ -839,6 +857,7 @@ async fn create_enrollment(
             &profiles,
             &new,
             None,
+            auto_converge,
         )
         .await?;
         tx.commit().await?;
@@ -883,6 +902,7 @@ impl NewEnrollment {
 /// Stores `new` (its hash only) and audits `host_enrollment_created` in the caller's
 /// transaction; a rolled token's audit context names the one it replaced. Returns the
 /// workspace slug.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn insert_enrollment(
     tx: &mut PgConnection,
     caller: &Caller,
@@ -891,6 +911,7 @@ pub(crate) async fn insert_enrollment(
     profiles: &[String],
     new: &NewEnrollment,
     rolled_from: Option<Uuid>,
+    auto_converge: bool,
 ) -> Result<String, sqlx::Error> {
     let slug: String = sqlx::query_scalar("select slug from workspaces where id = $1")
         .bind(workspace)
@@ -898,8 +919,9 @@ pub(crate) async fn insert_enrollment(
         .await?;
     sqlx::query(
         "insert into host_enrollments (id, workspace_id, inventory_name, profiles, \
-         token_hash, expires_at, created_by, rolled_from) \
-         values ($1, $2, $3, $4, $5, $6, $7, $8)",
+         token_hash, expires_at, created_by, rolled_from, auto_converge) \
+         values ($1, $2, $3, $4, $5, $6, $7, $8, \
+         coalesce((select o.auto_converge from host_enrollments o where o.id = $8), $9))",
     )
     .bind(new.id)
     .bind(workspace)
@@ -909,9 +931,14 @@ pub(crate) async fn insert_enrollment(
     .bind(new.expires)
     .bind(caller.user.id)
     .bind(rolled_from)
+    .bind(auto_converge)
     .execute(&mut *tx)
     .await?;
+    // A rolled token keeps the one it replaces' choice (the insert above copies it).
     let mut context = json!({ "profiles": profiles, "expires_at": ts(new.expires) });
+    if rolled_from.is_none() {
+        context["auto_converge"] = json!(auto_converge);
+    }
     if let Some(old) = rolled_from {
         context["rolled_from"] = json!(old);
     }

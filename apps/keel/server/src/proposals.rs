@@ -453,6 +453,7 @@ async fn confirm_host_add(app: &AppState, caller: &Caller, add: HostAdd) -> Vec<
             &add.profiles,
             &new,
             None,
+            true,
         )
         .await?;
         tx.commit().await?;

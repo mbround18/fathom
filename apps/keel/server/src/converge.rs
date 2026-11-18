@@ -35,7 +35,7 @@ use time::OffsetDateTime;
 use tracing::Instrument;
 use uuid::Uuid;
 
-use crate::audit::{self, Decision, Entry};
+use crate::audit::{self, Actor, Decision, Entry};
 use crate::bindings::{binding_workspace, db_failed, enum_from, not_found, op_error, require, ts};
 use crate::dispatch::{PendingOp, Request};
 use crate::identity::Caller;
@@ -562,7 +562,15 @@ async fn respond(
             Ok(Err((code, message))) => return op_error(code, &message),
             Err(e) => return db_failed(&e),
         };
-        match create(&app, &caller, &planned, retry_of).await {
+        match create(
+            &app,
+            &caller.actor(),
+            Some(caller.user.id),
+            &planned,
+            retry_of,
+        )
+        .await
+        {
             Ok(Ok(run_id)) => vec![Event::ConvergeStarted { run_id }],
             Ok(Err((code, message))) => op_error(code, &message),
             Err(e) => db_failed(&e),
@@ -598,7 +606,8 @@ async fn respond(
 /// approval is needed.
 async fn create(
     app: &AppState,
-    caller: &Caller,
+    actor: &Actor,
+    user: Option<Uuid>,
     p: &Planned,
     retry_of: Option<Uuid>,
 ) -> Result<Result<Uuid, Refused>, sqlx::Error> {
@@ -624,7 +633,6 @@ async fn create(
             "The commit could not be pinned.".to_owned(),
         )));
     }
-    let actor = caller.actor();
     let then = RunStatus::initial(false, p.terms.requires_approval);
     let names: Vec<String> = p.runnable().map(|h| h.host.clone()).collect();
     let mut tx = app.db.begin().await?;
@@ -651,7 +659,7 @@ async fn create(
         audit::record(
             &mut tx,
             Entry {
-                actor: &actor,
+                actor,
                 action: "converge.replace",
                 workspace: Some(WorkspaceId(p.workspace)),
                 target: json!({ "run": old }),
@@ -676,7 +684,7 @@ async fn create(
     .bind(id)
     .bind(p.workspace)
     .bind(p.binding)
-    .bind(caller.user.id)
+    .bind(user)
     .bind(&p.commit)
     .bind(p.revision)
     .bind(&p.inventory)
@@ -711,7 +719,7 @@ async fn create(
         .bind(id)
         .bind(p.binding)
         .bind(job)
-        .bind(caller.user.id)
+        .bind(user)
         .bind(&p.commit)
         .bind(p.revision)
         .bind(&p.inventory)
@@ -760,7 +768,7 @@ async fn create(
     audit::record(
         &mut tx,
         Entry {
-            actor: &actor,
+            actor,
             action: if retry_of.is_some() {
                 "converge.retry"
             } else {
@@ -803,6 +811,87 @@ async fn create(
         crate::queue::kick(app);
     }
     Ok(Ok(id))
+}
+
+/// Spec 068 US2 (FR-006): converges a host that just enrolled to its profiles, as
+/// `system:enroll`, when `KEEL_CONVERGE` is on and its enrollment kept auto-converge (a host
+/// with no enrollment row, such as an accepted join request, counts as kept). The workspace's
+/// active bindings are tried oldest first; the first whose plan gives the host a step gets the
+/// converge, routed through the approval policy like any other. When none does,
+/// `converge.enroll_skipped` is audited with each binding's reason. Called after the enrollment
+/// committed, so nothing here can undo it.
+///
+/// # Errors
+///
+/// A database error; the enrollment stands.
+pub async fn on_enrolled(app: &AppState, host: Uuid) -> Result<Option<Uuid>, sqlx::Error> {
+    if !app.cfg.converge {
+        return Ok(None);
+    }
+    let span = tracing::info_span!("converge.on_enrolled", %host, run = tracing::field::Empty);
+    async move {
+        let row: Option<(Uuid, bool)> = sqlx::query_as(
+            "select h.workspace_id, coalesce((select e.auto_converge from host_enrollments e \
+               where e.host_id = h.id order by e.used_at desc nulls last limit 1), true) \
+             from hosts h where h.id = $1 and h.state <> 'revoked'",
+        )
+        .bind(host)
+        .fetch_optional(&app.db)
+        .await?;
+        let Some((ws, true)) = row else {
+            return Ok(None);
+        };
+        let bindings: Vec<Uuid> = sqlx::query_scalar(
+            "select b.id from repo_bindings b join projects p on p.id = b.project_id \
+             where p.workspace_id = $1 and b.status = 'active' order by b.id",
+        )
+        .bind(ws)
+        .fetch_all(&app.db)
+        .await?;
+        let mut skipped = Vec::new();
+        for binding in bindings {
+            let target = ConvergeTarget {
+                binding_id: binding,
+                hosts: TargetSelection::Hosts { ids: vec![host] },
+                check: false,
+            };
+            let refused = match plan(app, ws, &target, None).await? {
+                Ok(p) if p.runnable().any(|h| h.host_id == host) => {
+                    match create(app, &Actor::Enroll, None, &p, None).await? {
+                        Ok(run) => {
+                            tracing::Span::current().record("run", tracing::field::display(run));
+                            return Ok(Some(run));
+                        }
+                        Err(r) => r,
+                    }
+                }
+                Ok(_) => ("no_steps", "The host has no step to run.".to_owned()),
+                Err(r) => r,
+            };
+            skipped.push(json!({ "binding": binding, "code": refused.0, "message": refused.1 }));
+        }
+        let mut conn = app.db.acquire().await?;
+        audit::record(
+            &mut conn,
+            Entry {
+                actor: &Actor::Enroll,
+                action: "converge.enroll_skipped",
+                workspace: Some(WorkspaceId(ws)),
+                target: json!({ "host": host }),
+                decision: Decision::Allowed,
+                reason: Some(if skipped.is_empty() {
+                    "no_binding"
+                } else {
+                    "no_plan"
+                }),
+                context: json!({ "bindings": skipped }),
+            },
+        )
+        .await?;
+        Ok(None)
+    }
+    .instrument(span)
+    .await
 }
 
 /// Releases an approved converge: each host's first step is queued (spec 068 FR: one approval

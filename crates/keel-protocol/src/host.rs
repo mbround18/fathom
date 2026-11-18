@@ -107,6 +107,8 @@ pub struct EnrollmentInfo {
     /// The token this one replaced, when it was rolled.
     #[ts(type = "string | null")]
     pub rolled_from: Option<Uuid>,
+    /// The host is converged to its profiles once it enrolls (spec 068 US2).
+    pub auto_converge: bool,
 }
 
 /// A one-time enrollment token, `keel-enroll-v1.<secret>.<host CA fingerprint>`. Shown once;

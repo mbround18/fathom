@@ -612,6 +612,11 @@ pub enum Cmd {
         workspace: Uuid,
         inventory_name: HostName,
         profiles: HostProfiles,
+        /// Converge the host to its profiles once it enrolls (spec 068 US2, when `KEEL_CONVERGE`
+        /// is on). Absent means yes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        auto_converge: Option<bool>,
     },
     /// `Preview` (step-up); `Confirm` revokes the host's certificates (KRL), closes its session
     /// and replies `Host`.

@@ -45,6 +45,7 @@ async fn mint(h: &Harness, name: &str) -> Minted {
             ProfileName::new("debian").expect("profile"),
             ProfileName::new("web").expect("profile"),
         ]),
+        auto_converge: None,
     };
     let (_, out) = h.confirm(cmd).await;
     match out.as_slice() {

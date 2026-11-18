@@ -20,4 +20,8 @@ host: string | null,
 /**
  * The token this one replaced, when it was rolled.
  */
-rolled_from: string | null, };
+rolled_from: string | null, 
+/**
+ * The host is converged to its profiles once it enrolls (spec 068 US2).
+ */
+auto_converge: boolean, };

@@ -57,6 +57,7 @@ export function enrollment(over: Partial<EnrollmentInfo> = {}): EnrollmentInfo {
     expires_at: LATER,
     host: null,
     rolled_from: null,
+    auto_converge: true,
     ...over,
   }
 }

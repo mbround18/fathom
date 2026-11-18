@@ -543,3 +543,179 @@ async fn cancelling_between_steps_releases_the_host_at_once() {
     }
     f.h.finish().await;
 }
+
+// ---- spec 068 US2: converge on enrollment (T032) ----------------------------------------------
+
+/// Adds `name` to the pinned `prod` revision (unless `listed` is false), loads the SSH CAs and
+/// enrolls a fresh runner key as `name` with profile `keel-node` through a token minted with
+/// `auto_converge`. Returns the new host's id.
+async fn enroll(f: &Fixture, name: &str, auto_converge: Option<bool>, listed: bool) -> Uuid {
+    use keel_exec::ca::{CaKind, SshCa};
+    use keel_protocol::{HostName, HostProfiles, ProfileName};
+    use keel_server::runner_listener::{EnrollRequest, enroll_key};
+
+    keel_server::hosts::bootstrap(&f.h.app)
+        .await
+        .expect("bootstrap");
+    if listed {
+        sqlx::query(
+            "insert into inventory_hosts (revision_id, host, groups) \
+             select r.id, $2, '{}' from inventory_revisions r \
+             join inventories i on i.id = r.inventory_id \
+             where i.workspace_id = $1 and i.name = 'prod'",
+        )
+        .bind(f.h.workspace)
+        .bind(name)
+        .execute(&f.h.db.owner)
+        .await
+        .expect("inventory host");
+    }
+    let (_, out) =
+        f.h.confirm(Cmd::PreviewHostEnroll {
+            workspace: f.h.workspace,
+            inventory_name: HostName::new(name).expect("name"),
+            profiles: HostProfiles(vec![ProfileName::new("keel-node").expect("profile")]),
+            auto_converge,
+        })
+        .await;
+    let token = match out.as_slice() {
+        [Event::Confirmed { .. }, Event::HostEnrollment { token, .. }] => token.0.clone(),
+        other => panic!("enroll: {other:?}"),
+    };
+    let key = SshCa::generate(CaKind::Runner)
+        .expect("key")
+        .key_data()
+        .clone();
+    let allowed = vec!["debian".to_owned(), "keel-node".to_owned()];
+    let (host, _) = enroll_key(
+        &f.h.app,
+        &key,
+        &EnrollRequest {
+            token: &token,
+            inventory_name: name,
+            allowed_profiles: &allowed,
+            require_signed: false,
+        },
+    )
+    .await
+    .unwrap_or_else(|e| panic!("enroll: {e:?}"));
+    host
+}
+
+/// The converges that include `host`: (run, state, requested_by).
+async fn converges_of(f: &Fixture, host: Uuid) -> Vec<(Uuid, String, Option<Uuid>)> {
+    sqlx::query_as(
+        "select r.id, r.state, r.requested_by from runs r \
+         join converge_hosts c on c.run_id = r.id where c.host_id = $1 order by r.id",
+    )
+    .bind(host)
+    .fetch_all(&f.h.db.owner)
+    .await
+    .expect("converges")
+}
+
+#[tokio::test]
+async fn enroll_starts_a_converge_as_system_enroll() {
+    let Some(f) = Fixture::new("converge_enroll", false).await else {
+        return;
+    };
+    let host = enroll(&f, "node-2", None, true).await;
+    let runs = converges_of(&f, host).await;
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    let (run, state, by) = &runs[0];
+    assert_eq!(state, "queued", "no approval needed: it runs");
+    assert_eq!(*by, None, "no user started it");
+    let (hosts,): (Vec<String>,) = sqlx::query_as("select resolved_hosts from runs where id = $1")
+        .bind(run)
+        .fetch_one(&f.h.db.owner)
+        .await
+        .expect("run");
+    assert_eq!(hosts, vec!["node-2".to_owned()], "that host alone");
+    let (actor,): (String,) = sqlx::query_as(
+        "select actor from audit_event where action = 'converge.create' \
+         and target->>'run' = $1",
+    )
+    .bind(run.to_string())
+    .fetch_one(&f.h.db.owner)
+    .await
+    .expect("audit");
+    assert_eq!(actor, "system:enroll");
+    let jobs: Vec<String> = f.steps(*run).await.into_iter().map(|s| s.2).collect();
+    assert_eq!(jobs, vec!["debian".to_owned(), "keel-node".to_owned()]);
+    f.h.finish().await;
+}
+
+#[tokio::test]
+async fn enroll_converge_goes_through_the_approval_policy() {
+    let Some(f) = Fixture::new("converge_enroll_approval", true).await else {
+        return;
+    };
+    let host = enroll(&f, "node-2", Some(true), true).await;
+    let runs = converges_of(&f, host).await;
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!(runs[0].1, "pending_approval");
+    f.h.finish().await;
+}
+
+#[tokio::test]
+async fn enroll_without_auto_converge_or_the_flag_makes_none() {
+    let Some(mut f) = Fixture::new("converge_enroll_off", false).await else {
+        return;
+    };
+    let unticked = enroll(&f, "node-2", Some(false), true).await;
+    assert!(converges_of(&f, unticked).await.is_empty());
+    let (kept,): (bool,) =
+        sqlx::query_as("select auto_converge from host_enrollments where host_id = $1")
+            .bind(unticked)
+            .fetch_one(&f.h.db.owner)
+            .await
+            .expect("enrollment");
+    assert!(!kept);
+    let listed =
+        f.h.cmd(Cmd::ListEnrollments {
+            state: None,
+            workspace: Some(f.h.workspace),
+        })
+        .await;
+    match listed.as_slice() {
+        [Event::Enrollments { items }] => {
+            assert!(items.iter().all(|e| !e.auto_converge), "{items:?}")
+        }
+        other => panic!("list: {other:?}"),
+    }
+    f.h.app.cfg = Arc::new(Config {
+        converge: false,
+        ..(*f.h.app.cfg).clone()
+    });
+    let flag_off = enroll(&f, "node-3", None, true).await;
+    assert!(converges_of(&f, flag_off).await.is_empty());
+    f.h.finish().await;
+}
+
+#[tokio::test]
+async fn enroll_plan_failure_keeps_the_enrollment() {
+    let Some(f) = Fixture::new("converge_enroll_fail", false).await else {
+        return;
+    };
+    // Not in the pinned inventory: no binding can plan a step for it.
+    let host = enroll(&f, "node-9", None, false).await;
+    assert!(converges_of(&f, host).await.is_empty());
+    let (state,): (String,) = sqlx::query_as("select state from hosts where id = $1")
+        .bind(host)
+        .fetch_one(&f.h.db.owner)
+        .await
+        .expect("still enrolled");
+    assert_eq!(state, "offline");
+    let (actor, reason, context): (String, Option<String>, serde_json::Value) = sqlx::query_as(
+        "select actor, reason, context from audit_event \
+         where action = 'converge.enroll_skipped' and target->>'host' = $1",
+    )
+    .bind(host.to_string())
+    .fetch_one(&f.h.db.owner)
+    .await
+    .expect("skip audited");
+    assert_eq!(actor, "system:enroll");
+    assert_eq!(reason.as_deref(), Some("no_plan"));
+    assert_eq!(context["bindings"][0]["code"], "no_steps");
+    f.h.finish().await;
+}
