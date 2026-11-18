@@ -258,7 +258,9 @@ side, and anything an honest relay never does takes the relay out of service.
   violation above.
 
   Remaining: global requests and unknown channel requests (`tcpip-forward`, `exec`, `shell`,
-  `pty`, `env`, agent) are refused by russh without a hook, so they do not quarantine yet; the
+  `pty`, `env`, agent) are refused by russh without a hook, so they do not quarantine yet. Owner
+  decision 2026-11-17: accept refuse-only (no russh fork); document the gap in the threat model
+  and raise an upstream russh issue/PR for a client-side request hook, adopted once released; the
   `PreviewRelayRelease` mutation and preview are US3 (`release_relay` is in place for it).
 - [ ] T060 [US2] **Keel-side limits, independent of the relay's own**, in `server/src/relays.rs`
   and `exec/relay.rs`. A server config value sets each:
@@ -322,6 +324,13 @@ side, and anything an honest relay never does takes the relay out of service.
   conclusions, and is told to break it, either as a hostile relay or as an attacker on the
   link. Every finding is fixed or recorded with the owner's sign-off. Then run the
   `security-review` skill over the branch diff.
+- [ ] T067 Drop OpenSSL from the relay and runner binaries (owner decision 2026-11-17: rustls
+  only). Today `keel-trust` → `web-passkeys` → `webauthn-rs-core` → `webauthn-attestation-ca` →
+  `openssl` puts OpenSSL in `keel-exec`, `keel-relay` and `keel-runner` (`cargo tree -i
+  openssl-sys`). Split what `keel-trust` needs from `web-passkeys` (assertion verification only)
+  behind a feature or a small crate with no webauthn-rs attestation dependency, so `cargo tree -i
+  openssl-sys -p keel-relay -p keel-runner -e normal` is empty; the server may keep it. Gate:
+  keel-trust, keel-exec, keel-runner, keel-relay tests and clippy.
 
 ## Phase 5: User Story 3, see zones, relays and how each host is reached (P1)
 
