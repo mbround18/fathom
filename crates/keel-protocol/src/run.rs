@@ -305,6 +305,26 @@ pub struct JobInfo {
     pub credentials: Vec<String>,
     pub blocked: Option<String>,
     pub defined_at_commit: String,
+    /// The job's declared params (spec 061, 068), by name. Absent when it declares none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub params: Option<BTreeMap<String, ParamView>>,
+}
+
+/// One declared job param, as a start form shows it (spec 068 FR-014).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ParamView {
+    /// `oci_digest` or `choice`.
+    #[ts(type = "\"oci_digest\" | \"choice\"")]
+    pub kind: String,
+    /// `choice` only: the values a run may take, resolved at the binding's current commit (the
+    /// one a run started now pins). `null` for other kinds, or when they cannot be listed.
+    pub allowed: Option<Vec<String>>,
+    /// `choice` only: the value a form starts with.
+    pub default: Option<String>,
+    /// `choice` only: why `allowed` could not be listed (`choice_from_missing`,
+    /// `choice_from_too_many`, `choice_shape`); such a param refuses every value.
+    pub unavailable: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

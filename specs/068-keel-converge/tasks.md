@@ -267,10 +267,12 @@ that host's rest; retry resumes.
   Note: the prompt fixture reads `/dev/tty` in the fake `ansible-playbook` (not a real `pause` play); the run finishes in well under 5 s, the test's hang guard is 60 s.
 - [X] T063 [runner] Implement the `choice` re-check and `setsid()` in place of `setpgid(0,0)`
   (`runner/src/executor/process.rs:194`), keeping group kill.
-- [ ] T064 [P] [server] Tests first, `server/tests/choice_params.rs`: allowed values at the
+- [X] T064 [P] [server] Tests first, `server/tests/choice_params.rs`: allowed values at the
   pinned commit, refusal of other values, `PreviewRunStart` with params and check.
-- [ ] T065 [server] `RepoTree::list_dirs` from the mirror/`repo_catalog`; `ParamView.allowed`;
+  Note: three tests against a `provision` job pushed onto the converge fixture (`stack: {kind: choice, from: composes/, default: web}`, `size: {kind: choice, values: [small, large]}`): `ListJobs` shows allowed values at the binding head (hidden dirs dropped, a newly pushed dir appears after sync); out-of-list, hidden, ill-shaped and undeclared values are refused `param_invalid` with no run made and the value never echoed; an accepted check start carries params and `check` into `RunInfo` and `Assign`.
+- [X] T065 [server] `RepoTree::list_dirs` from the mirror/`repo_catalog`; `ParamView.allowed`;
   `PreviewRunStart.params`/`check` through `check_params` (`runs.rs:177`).
+  Note: `RepoTree::list_dirs` was already implemented by the mirror tree (`TreeAt`); the server reads it through a new `with_tree` (mirror in `spawn_blocking`, an empty tree when the mirror or commit is missing, so `from:` fails closed). There was no `ParamView` on the wire: `JobInfo.params?: Record<string, ParamView>` is new, with `ParamView { kind, allowed, default, unavailable }` resolved at the binding head (the commit a start pins). `PreviewRunStart.params` is checked by the new `check_params_at` against the pinned commit and refused `param_invalid` before the preview; the `params_unsupported` refusal is gone. The summary lists params (" Params: k=v, …."). Converge step params are untouched.
 - [ ] T066 [P] [web] Start dialog params with a `choice` select; `s068/choice-param.spec.ts`.
 
 ## Phase 11: Polish and cross-cutting

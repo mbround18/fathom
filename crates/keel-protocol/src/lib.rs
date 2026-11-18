@@ -49,8 +49,9 @@ pub use governance::{
 pub mod run;
 pub use run::{
     ApprovalEntry, ApprovalReason, FirstFailure, HostPhase, HostStats, JobInfo, LogStream,
-    MAX_APPROVAL_REASON_CHARS, Pattern, PolicyCheck, PolicyInfo, PolicySpec, RunApproval,
-    RunHostInfo, RunInfo, RunKind, RunPhase, RunReason, RunSummary, RunTrigger, WorkspaceCount,
+    MAX_APPROVAL_REASON_CHARS, ParamView, Pattern, PolicyCheck, PolicyInfo, PolicySpec,
+    RunApproval, RunHostInfo, RunInfo, RunKind, RunPhase, RunReason, RunSummary, RunTrigger,
+    WorkspaceCount,
 };
 
 // Converge (spec 068)

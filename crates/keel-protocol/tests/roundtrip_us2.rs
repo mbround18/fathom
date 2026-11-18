@@ -1,5 +1,7 @@
 //! Round-trip tests for the run, job and policy commands and events (spec 055 T071).
 
+use std::collections::BTreeMap;
+
 use keel_core::uuid::Uuid;
 use keel_protocol::*;
 use serde::{Serialize, de::DeserializeOwned};
@@ -232,6 +234,15 @@ fn run_events() {
         Event::Jobs {
             binding: id(3),
             items: vec![JobInfo {
+                params: Some(BTreeMap::from([(
+                    "stack".to_owned(),
+                    ParamView {
+                        kind: "choice".to_owned(),
+                        allowed: Some(vec!["web".to_owned(), "db".to_owned()]),
+                        default: Some("web".to_owned()),
+                        unavailable: None,
+                    },
+                )])),
                 id: id(4),
                 binding: id(3),
                 name: "web".into(),

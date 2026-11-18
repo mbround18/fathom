@@ -16,15 +16,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use keel_core::WorkspaceId;
 use keel_core::authz::{self, Capability};
-use keel_core::manifest::JobDefinition;
+use keel_core::manifest::{JobDefinition, ParamSpec, PathKind, RepoTree};
 use keel_core::policy::{self, Policy, PolicyMatch};
 use keel_core::ports::CommitId;
 use keel_core::run::{RunEvent, RunState, RunStatus, StateReason};
 use keel_core::target::{self, Target};
-use keel_git::Mirror;
+use keel_git::{Mirror, TreeAt};
 use keel_protocol::{
-    ApprovalEntry, Cmd, Event, FirstFailure, HostStats, JobInfo, PolicyCheck, PolicyInfo,
-    PolicySpec, RunApproval, RunHostInfo, RunInfo, RunPhase, RunSummary,
+    ApprovalEntry, Cmd, Event, FirstFailure, HostStats, JobInfo, ParamView, PolicyCheck,
+    PolicyInfo, PolicySpec, RunApproval, RunHostInfo, RunInfo, RunPhase, RunSummary,
 };
 use serde_json::{Value, json};
 use sqlx::PgConnection;
@@ -203,6 +203,90 @@ pub fn check_params(def: &JobDefinition, params: &BTreeMap<String, String>) -> R
         }
     }
     Ok(())
+}
+
+/// [`check_params`], and each `choice` value is one of the choices at `tree` (spec 068 FR-014).
+/// The error names the param, never the value.
+///
+/// # Errors
+///
+/// What is wrong with the first bad param.
+pub fn check_params_at(
+    def: &JobDefinition,
+    params: &BTreeMap<String, String>,
+    tree: &dyn RepoTree,
+) -> Result<(), String> {
+    for (name, value) in params {
+        let Some(spec) = def.params.get(name) else {
+            return Err(format!("the job does not declare the param {name}"));
+        };
+        if let Err(why) = spec.check_value(value, tree) {
+            return Err(format!("param {name}: {why}"));
+        }
+    }
+    Ok(())
+}
+
+/// A tree with nothing in it: a `from:` choice reads as missing, so it fails closed.
+struct EmptyTree;
+
+impl RepoTree for EmptyTree {
+    fn kind(&self, _: &str) -> Option<PathKind> {
+        None
+    }
+}
+
+/// Runs `f` against the binding's tree at `commit` (spec 068 `choice` params). No commit, or a
+/// mirror that cannot be opened, reads as an empty tree.
+async fn with_tree<T, F>(app: &AppState, binding: Uuid, commit: Option<String>, f: F) -> T
+where
+    T: Send + 'static,
+    F: FnOnce(&dyn RepoTree) -> T + Send + 'static,
+{
+    let dir = crate::sync::data_dir(app);
+    tokio::task::spawn_blocking(move || {
+        let mirror = commit
+            .as_ref()
+            .and_then(|_| Mirror::open(&dir, binding).ok());
+        match (mirror, commit) {
+            (Some(mirror), Some(commit)) => f(&TreeAt {
+                mirror: &mirror,
+                commit: &CommitId(commit),
+            }),
+            _ => f(&EmptyTree),
+        }
+    })
+    .await
+    .unwrap_or_else(|e| std::panic::resume_unwind(e.into_panic()))
+}
+
+/// A declared param as a start form shows it, its `choice` values resolved at `tree`.
+fn param_view(spec: &ParamSpec, tree: &dyn RepoTree) -> ParamView {
+    let kind = serde_json::to_value(spec.kind)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_default();
+    let (allowed, unavailable) = match spec.choices(tree) {
+        None => (None, None),
+        Some(Ok(values)) => (Some(values), None),
+        Some(Err(e)) => (None, Some(e.code().to_owned())),
+    };
+    ParamView {
+        kind,
+        allowed,
+        default: spec.default.clone(),
+        unavailable,
+    }
+}
+
+/// " Params: name=value, …." for a preview summary; empty when there are none. Param values are
+/// digests and choice names, never secrets.
+fn params_note(params: &BTreeMap<String, String>) -> String {
+    if params.is_empty() {
+        return String::new();
+    }
+    let list: Vec<String> = params.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    format!(" Params: {}.", list.join(", "))
 }
 
 /// Locks out a concurrent update request and returns the update run already pending, queued or
@@ -951,15 +1035,15 @@ pub async fn handle(app: &AppState, req: &Request<'_>, cmd: Cmd) -> Vec<Event> {
             params,
             check,
         } => {
-            // Spec 068 adds params to the wire ahead of the server support (T065): refuse them
-            // rather than start a run that silently drops them.
-            if !params.is_empty() {
-                return op_error(
-                    "params_unsupported",
-                    "This server cannot take run params from this command yet.",
-                );
-            }
-            preview_run_start(app, req, job, limit.map(|l| l.as_str().to_owned()), check).await
+            preview_run_start(
+                app,
+                req,
+                job,
+                limit.map(|l| l.as_str().to_owned()),
+                params,
+                check,
+            )
+            .await
         }
         Cmd::PreviewCancel { run } => preview_cancel(app, req, run).await,
         Cmd::ListJobs { binding } => {
@@ -1115,6 +1199,7 @@ async fn preview_run_start(
     req: &Request<'_>,
     job: Uuid,
     limit: Option<String>,
+    params: BTreeMap<String, String>,
     check: bool,
 ) -> Vec<Event> {
     const ACTION: &str = "preview_run_start";
@@ -1145,6 +1230,18 @@ async fn preview_run_start(
     };
     if status != "active" {
         return op_error("binding_disabled", "The binding is disabled.");
+    }
+    // Spec 068 FR-014: a `choice` value must be listed at the commit the run pins; anything else
+    // is refused here, before any approval.
+    if !params.is_empty() {
+        let (d, p) = (def.clone(), params.clone());
+        let checked = with_tree(app, binding, Some(commit.clone()), move |tree| {
+            check_params_at(&d, &p, tree)
+        })
+        .await;
+        if let Err(why) = checked {
+            return op_error("param_invalid", &format!("The run's {why}."));
+        }
     }
     let mut conn = match app.db.acquire().await {
         Ok(c) => c,
@@ -1189,7 +1286,8 @@ async fn preview_run_start(
         } else {
             ""
         },
-    ) + &credentials_note(&def);
+    ) + &params_note(&params)
+        + &credentials_note(&def);
     // Spec 066 FR-018: hosts that cannot decrypt the sops files the job reads. Warns only.
     let warnings =
         match crate::repo_catalog::run_warnings(&app.db, ws, binding, &name, &affected).await {
@@ -1216,7 +1314,7 @@ async fn preview_run_start(
             actor: &actor,
             id: None,
             only_hosts: None,
-            params: &BTreeMap::new(),
+            params: &params,
             update: None,
             path: None,
             check,
@@ -1634,23 +1732,51 @@ async fn list_jobs(app: &AppState, binding: Uuid) -> Result<Vec<JobInfo>, sqlx::
     .bind(binding)
     .fetch_all(&app.db)
     .await?;
-    Ok(rows
+    let jobs: Vec<(Uuid, String, JobDefinition, Option<String>, String)> = rows
         .into_iter()
         .filter_map(|(id, name, def, blocked, at)| {
-            let d: JobDefinition = serde_json::from_value(def).ok()?;
-            Some(JobInfo {
-                id,
-                binding,
-                name,
-                playbook: d.playbook,
-                profiles: d.profiles,
-                inventory: d.inventory,
-                limit: d.limit,
-                paths: d.paths,
-                credentials: d.credentials,
-                blocked,
-                defined_at_commit: at,
-            })
+            Some((id, name, serde_json::from_value(def).ok()?, blocked, at))
+        })
+        .collect();
+    // Spec 068: `choice` values as a run started now would see them, at the binding's head.
+    let head: Option<String> =
+        sqlx::query_scalar("select last_commit from repo_bindings where id = $1")
+            .bind(binding)
+            .fetch_optional(&app.db)
+            .await?
+            .flatten();
+    let specs: Vec<BTreeMap<String, ParamSpec>> = jobs.iter().map(|j| j.2.params.clone()).collect();
+    let needs_tree = specs.iter().any(|ps| ps.values().any(|p| p.from.is_some()));
+    let views: Vec<Option<BTreeMap<String, ParamView>>> =
+        with_tree(app, binding, head.filter(|_| needs_tree), move |tree| {
+            specs
+                .iter()
+                .map(|ps| {
+                    (!ps.is_empty()).then(|| {
+                        ps.iter()
+                            .map(|(n, p)| (n.clone(), param_view(p, tree)))
+                            .collect()
+                    })
+                })
+                .collect()
+        })
+        .await;
+    Ok(jobs
+        .into_iter()
+        .zip(views)
+        .map(|((id, name, d, blocked, at), params)| JobInfo {
+            id,
+            binding,
+            name,
+            playbook: d.playbook,
+            profiles: d.profiles,
+            inventory: d.inventory,
+            limit: d.limit,
+            paths: d.paths,
+            credentials: d.credentials,
+            blocked,
+            defined_at_commit: at,
+            params,
         })
         .collect())
 }
