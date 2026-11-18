@@ -319,11 +319,35 @@ side, and anything an honest relay never does takes the relay out of service.
   Record the `systemd-analyze security keel-relay.service` score (target ≤ 2.0 "OK") in this file.
   Done 2026-11-17: every directive above is present (a8c3781e); offline score 1.1 OK; fluxified told the same day.
   Tell the fluxified session when the unit changes, because ../ansible byte-copies it.
-- [ ] T066 [US2] **Independent adversarial review**, before US3 merges. A fresh agent gets only
+- [X] T066 [US2] **Independent adversarial review**, before US3 merges. A fresh agent gets only
   the code, `contracts/relay.md` and this hardening list, with none of the implementers'
   conclusions, and is told to break it, either as a hostile relay or as an attacker on the
   link. Every finding is fixed or recorded with the owner's sign-off. Then run the
   `security-review` skill over the branch diff.
+  Findings (PoCs in `apps/keel/server/tests/t066_review.rs`, all passing):
+  - **F1 fixed**: the stream cap, rate and "control channel first" rule now apply at
+    `forwarded-tcpip` open (`StreamAdmission`, refused as `ResourceShortage`). Control writes go
+    through a bounded queue to a writer task. A stalled write or a full queue ends the link as
+    lost with backoff, not as a violation: a stalled network looks the same as a relay that
+    stopped reading.
+  - **F2 fixed**: `JoinLimiter` is checked before the first join frame is read. Enroll and join
+    first frames are capped at 64 KiB.
+  - **F3 fixed**: only Runner and RenewOnly lift the relay auth deadline. Enroll and join
+    sessions are bounded by `NON_RUNNER_LIFETIME` (60 s), and every session ends with its
+    subsystem.
+  - **F4 fixed**: a relay carries runners, renewals, enrollments and joins of its own workspace
+    only. Anything else is refused as `relay.refused` with reason `workspace_mismatch`.
+    Enrollment tokens are not burned. There is no zone check. See `contracts/relay.md`.
+  - **F5 fixed**: at most 4 unanswered `CacheGet`s per relay; more are refused as
+    `cache_get_busy`. A release over 64 or a path over 256 bytes gets `NotFound`. The logged
+    refusal detail is capped.
+  - **F6 fixed**: a quarantine is held in memory until its database write lands. `sync` honours
+    it, so the relay is not redialled, and retries the write.
+  - **F7 not changed**, by direction. It is an **open owner question**.
+  - **Relay binary**:
+    - A carried stream idle for `LINK_INACTIVITY` (120 s) is now closed.
+    - "A newer link replaces the old one" is unchanged. Only a key in `hub_keys`, so Keel
+      itself, can open a link, and a fresh link is how Keel recovers from a half-dead one.
 - [X] T067 Drop OpenSSL from the relay and runner binaries (owner decision 2026-11-17: rustls
   only). Today `keel-trust` → `web-passkeys` → `webauthn-rs-core` → `webauthn-attestation-ca` →
   `openssl` puts OpenSSL in `keel-exec`, `keel-relay` and `keel-runner` (`cargo tree -i
