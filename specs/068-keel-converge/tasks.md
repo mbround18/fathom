@@ -344,10 +344,6 @@ that host's rest; retry resumes.
   (provision `-e stack=` wins), 90af010 (§1–§4, §6, §7: held until "0 runners would refuse").
   `keel_runner_queries` already exists (48cb22d, absent = refuse all). Open: the 068
   server+runner release with SHA256SUMS (blocks the sha bump), then SC-002 once commit 3 lands.
-- [ ] T074 A `choice` (or any) param with no `default` is required at dispatch: today
-  `check_params` (apps/keel/server/src/runs.rs) only validates params that were sent, so an unset
-  `stack` reaches provision.yaml, whose own guard is the only refusal. Refuse `param_invalid`
-  ("param stack is required") at StartRun and in the Start dialog.
 - [X] T069 [web] Impeccable pass over every 068 screen together (Hosts, host page, converge
   preview and page, Start dialog, binding page, enrollment). Done with 067's Queries panel:
   Hosts columns no longer overlap at 1280 (fixed State/Converge widths, kit DataTable
