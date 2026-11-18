@@ -416,8 +416,19 @@ export default function HostsPage() {
       { key: 'state', header: 'State', cell: (h) => <StateBadge state={h.state} /> },
       { key: 'converge', header: 'Converge', cell: (h) => <ConvergeCell host={h} /> },
       { key: 'profiles', header: 'Profiles', tip: <TermTip term="profile" />, cell: (h) => (
-          <span className="inline-flex min-w-0 items-center gap-1">
-            <span className="font-mono">{h.profiles.join(', ')}</span>
+          <span className="flex min-w-0 items-start gap-1">
+            {/* Wraps between profiles, never inside one (a name broken at its hyphen reads as two). */}
+            <span className="min-w-0 font-mono">
+              {h.profiles.map((p, i) => (
+                <span key={p}>
+                  <span className="whitespace-nowrap">
+                    {p}
+                    {i < h.profiles.length - 1 && ','}
+                  </span>
+                  {i < h.profiles.length - 1 && ' '}
+                </span>
+              ))}
+            </span>
             <SuggestionDot host={h} />
           </span>
         ),

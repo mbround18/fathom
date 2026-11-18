@@ -29,17 +29,20 @@ import { canAdminister } from './workspaces'
 
 const CHIP = 'inline-flex max-w-full items-center gap-1 border px-1.5 py-0.5 font-mono text-xs break-all'
 
-/** One assigned profile; outside the ceiling it says so in words, beside the icon. */
+/**
+ * One assigned profile; outside the ceiling it says so in words, beside the icon. Only the name
+ * may break (a long one at 360 px); the marker stays whole.
+ */
 function Chip({ profile, outside }: { profile: string; outside: boolean }) {
   return (
     <li
       data-profile={profile}
       data-outside-ceiling={outside}
-      className={`${CHIP} ${outside ? 'border-status-warn/60 text-status-warn' : 'border-border bg-muted/40'}`}
+      className={`inline-flex max-w-full flex-wrap items-center gap-x-1 border px-1.5 py-0.5 text-xs ${outside ? 'border-status-warn/60 text-status-warn' : 'border-border bg-muted/40'}`}
     >
       {outside && <WarningIcon aria-hidden className="size-3.5 shrink-0" />}
-      {profile}
-      {outside && <span className="font-sans">outside ceiling</span>}
+      <span className="min-w-0 font-mono break-all">{profile}</span>
+      {outside && <span className="whitespace-nowrap">outside ceiling</span>}
     </li>
   )
 }
@@ -169,9 +172,9 @@ export function ProfilesCard({ host }: { host: HostInfo }) {
         <p data-outside-note className="flex items-start gap-1.5 text-status-warn">
           <WarningIcon aria-hidden className="mt-0.5 size-3.5 shrink-0" />
           <span>
-            Its runner refuses jobs for {[...outside].join(', ')}. Add {outside.size === 1 ? 'it' : 'them'} to{' '}
-            <code className="font-mono">keel_runner_allowed_profiles</code> on the host, or remove{' '}
-            {outside.size === 1 ? 'it' : 'them'} here.
+            Its runner refuses jobs for {outside.size === 1 ? 'that profile' : 'those profiles'}. Add{' '}
+            {outside.size === 1 ? 'it' : 'them'} to <code className="font-mono">keel_runner_allowed_profiles</code> on
+            the host, or remove {outside.size === 1 ? 'it' : 'them'} here.
           </span>
         </p>
       )}
@@ -390,7 +393,7 @@ export function SuggestionDot({ host }: { host: HostInfo }) {
             type="button"
             data-suggestion-dot={host.suggestions}
             aria-label={`${host.inventory_name}: ${text}`}
-            className="inline-flex size-6 shrink-0 items-center justify-center focus-visible:ring-1 focus-visible:ring-accent-neon focus-visible:outline-none"
+            className="-my-1 inline-flex size-6 shrink-0 items-center justify-center focus-visible:ring-1 focus-visible:ring-accent-neon focus-visible:outline-none"
             onClick={() => {
               show(host.id)
             }}
