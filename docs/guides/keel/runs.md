@@ -121,6 +121,21 @@ waiting for an approval you could give. It leaves out the runs you have already 
 four-eyes runs you started yourself. The count changes as runs are held, answered or expire,
 without reloading the page, and it disappears when nothing is waiting.
 
+## What a host runs
+
+On each host, the runner runs `ansible-playbook` against that host alone, by its inventory name,
+with a local connection. It always adds `keel_internal_run: true`, last, so neither the job's vars
+nor a run parameter can change it. A playbook can use it to tell a Keel run from one you start by
+hand, for example to refuse a step that only makes sense from a workstation:
+
+```yaml
+- ansible.builtin.assert:
+    that: not (keel_internal_run | default(false)) or stack == inventory_hostname
+    fail_msg: Under Keel, add this host under its stack name first.
+```
+
+Run parameters may not start with `ansible_` or `keel_internal_`.
+
 ## Audit
 
 **Administration → Audit** records every approval, every denial with its reason, every refused

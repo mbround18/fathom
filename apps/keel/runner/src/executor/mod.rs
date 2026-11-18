@@ -15,7 +15,8 @@
 //!   (`profile_not_allowed`) and any job params Keel sent against the ones the job declares there
 //!   (`params_mismatch`, spec 061), checks the commit out into a private run directory and runs
 //!   `ansible-playbook` against this host only: `--limit <inventory_name>` and
-//!   `ansible_connection=local` are forced, whatever the job says. Params reach Ansible as
+//!   `ansible_connection=local` and `keel_internal_run=true` are forced, whatever the job says
+//!   (playbooks tell a Keel run from a `make` run by the latter; no param may start `keel_internal_`). Params reach Ansible as
 //!   `-e @params.json` (`0600`), after the secret vars and before the forced vars. In signed mode
 //!   they are part of the override challenge the host rebuilds.
 //!
@@ -621,7 +622,7 @@ async fn prepare_and_run(
         Some(path)
     };
     let forced = run_dir.0.join("forced.json");
-    crate::write_private_new(&forced, br#"{"ansible_connection":"local"}"#)
+    crate::write_private_new(&forced, FORCED_VARS)
         .map_err(|e| fail(format!("forced vars: {e}")))?;
 
     let mut args: Vec<OsString> = vec![
@@ -802,6 +803,10 @@ fn read_job(
     Ok((def.clone(), inventory.path.clone()))
 }
 
+/// The vars passed last (`-e @forced.json`), so neither job vars, secrets nor params can change
+/// them: this host only, locally, and a marker playbooks use to tell a Keel run from a manual one.
+const FORCED_VARS: &[u8] = br#"{"ansible_connection":"local","keel_internal_run":true}"#;
+
 /// The run directory's params file, passed as `-e @params.json` (spec 061).
 const PARAMS_FILE: &str = "params.json";
 
@@ -866,6 +871,14 @@ fn extra_var_args(
 mod tests {
     use super::*;
     use keel_core::manifest::{ParamKind, ParamSpec};
+
+    #[test]
+    fn forced_vars_pin_local_and_mark_the_run_as_keel() {
+        let v: serde_json::Value = serde_json::from_slice(super::FORCED_VARS).unwrap();
+        assert_eq!(v["ansible_connection"], "local");
+        assert_eq!(v["keel_internal_run"], true);
+        assert_eq!(v.as_object().unwrap().len(), 2);
+    }
 
     const DIGEST: &str = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
