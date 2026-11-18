@@ -12,6 +12,7 @@
  * inspector shows the host's zone and path, with Change zone for a workspace admin.
  * Spec 068 T028: a Converge column, "Converge…" on a selection of hosts, and in a host's panel a
  * Converge button and its last converge (features/converge/HostConverge.tsx).
+ * Spec 067 US5 (T043): the host's panel asks it typed questions (./QueriesPanel.tsx).
  */
 import { DesktopTowerIcon, DoorOpenIcon, KeyIcon, PlusIcon, XIcon } from '@phosphor-icons/react'
 import { Button, Checkbox } from '@companion/ui'
@@ -59,6 +60,7 @@ import { useAddHost } from './add-host-store'
 import { EnrollDialog } from './EnrollDialog'
 import { ProfilesCard, ProfilesDialog, SuggestionDot } from './HostProfiles'
 import { useEnroll } from './enroll-store'
+import { QueriesPanel } from './QueriesPanel'
 import { groupHosts, hasZones } from './reach'
 import { useHosts } from './store'
 import { canAdminister, canOperate, useWorkspaces } from './workspaces'
@@ -215,6 +217,7 @@ function HostDetailPanel() {
           <ProfilesCard host={detail.host} />
           <AgeKey host={detail.host} />
           <HostConverge host={detail.host} binding={binding} />
+          <QueriesPanel host={detail.host} />
           <h3 className={LABEL}>Runs outside Keel</h3>
           <SectionIntro guide={{ guide: 'hosts', anchor: 'hosts-in-the-list' }}>
             These are the host&apos;s claims, which Keel cannot verify.
