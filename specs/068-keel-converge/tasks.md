@@ -172,7 +172,7 @@ that host's rest; retry resumes.
   audit context; no migration (`on_enrolled` is called directly once the decide transaction
   commits, errors logged, never undoing the acceptance). The preview summary says Keel will
   converge it when the choice is on and converge is enabled. Tests: `tests/converge.rs`
-  `join_acceptance_*`. Deferred: a checkbox in `JoinRequestsTab.tsx` (it omits the field, so yes).
+  `join_acceptance_*`. Done: a "Converge after accepting" checkbox in `JoinRequestsTab.tsx` (default on, field omitted; unticked sends `auto_converge: false`), covered in `tests/e2e/us7/join.spec.ts`.
 - [X] T035 [P] [web] "Converge after enrollment" checkbox with the planned steps in Settings →
   Enrollment and Add host; `s068/enroll-auto-converge.spec.ts`.
   Done: the checkbox in the enroll dialog (default on; unticked sends `auto_converge: false`).

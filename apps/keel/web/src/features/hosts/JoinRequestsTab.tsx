@@ -9,7 +9,7 @@
  * optional note. Both go through the confirm dialog; accept asks for a passkey.
  */
 import { CheckIcon, ProhibitIcon, TerminalWindowIcon } from '@phosphor-icons/react'
-import { Button } from '@companion/ui'
+import { Button, Checkbox } from '@companion/ui'
 import {
   ChipList,
   CopyBlock,
@@ -29,6 +29,7 @@ import {
 import { useEffect, useId, useRef, useState } from 'react'
 
 import { useSession } from '@/app/session-store'
+import { useConverge } from '@/features/converge/store'
 import { useGovernance } from '@/features/teams/store'
 import type { JoinRequestInfo, JoinRequestState } from '@/protocol/wire'
 
@@ -90,8 +91,11 @@ function AcceptForm({ req, onDone }: { req: JoinRequestInfo; onDone: () => void 
   const prefill = acceptPrefill(req)
   const [name, setName] = useState(prefill.inventoryName)
   const [profiles, setProfiles] = useState(prefill.profiles.join(', '))
+  const [converge, setConverge] = useState(true)
+  const convergeOff = useConverge((s) => s.disabled)
   const nameId = useId()
   const profilesId = useId()
+  const convergeId = useId()
   const picked = parseProfiles(profiles)
   const outside = outsideAllowed(picked, req.allowed_profiles)
   const first = useOpenFocus<HTMLInputElement>()
@@ -106,7 +110,14 @@ function AcceptForm({ req, onDone }: { req: JoinRequestInfo; onDone: () => void 
         if (!nameOk || !profilesOk) return
         propose(
           `Accept ${name}`,
-          { type: 'PreviewJoinAccept', data: { request: req.id, inventory_name: name, profiles: picked } },
+          {
+            type: 'PreviewJoinAccept',
+            // Left out means yes, so the default stays what older Keel sent.
+            data:
+              convergeOff || converge
+                ? { request: req.id, inventory_name: name, profiles: picked }
+                : { request: req.id, inventory_name: name, profiles: picked, auto_converge: false },
+          },
           (event) => {
             if (event.type === 'JoinRequestDecided') onDone()
           },
@@ -152,6 +163,31 @@ function AcceptForm({ req, onDone }: { req: JoinRequestInfo; onDone: () => void 
           />
         </Field>
       </div>
+      {!convergeOff && (
+        <div data-auto-converge={converge} className="flex min-w-0 items-start gap-2">
+          <Checkbox
+            id={convergeId}
+            className="mt-0.5"
+            checked={converge}
+            aria-describedby={`${convergeId}-hint`}
+            onCheckedChange={(c) => {
+              setConverge(c === true)
+            }}
+          />
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <label htmlFor={convergeId} className="text-xs font-medium">
+              Converge after accepting
+            </label>
+            <p id={`${convergeId}-hint`} className="text-xs break-words text-muted-foreground">
+              {converge
+                ? picked.length > 0
+                  ? `Once accepted, Keel runs the steps for ${picked.join(', ')} on it, through the approval policy.`
+                  : 'Once accepted, Keel runs the steps for its profiles on it, through the approval policy.'
+                : 'Keel waits for someone to converge it.'}
+            </p>
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap gap-2">
         <Button type="submit" size="sm" disabled={!nameOk || !profilesOk}>
           <CheckIcon aria-hidden />

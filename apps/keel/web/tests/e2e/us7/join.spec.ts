@@ -115,6 +115,8 @@ test('a host waiting to join is checked by fingerprint, accepted, and another re
   await expect(form.getByRole('button', { name: 'Accept' })).toBeDisabled()
   await form.getByLabel('Profiles').fill('base, web')
   await form.getByLabel('Inventory name').fill('edge-1')
+  // Converge after accepting is on by default and is sent as the default (field left out).
+  await expect(form.getByRole('checkbox', { name: 'Converge after accepting' })).toBeChecked()
   await form.getByRole('button', { name: 'Accept' }).click()
   expect((await backend.waitForCmd('PreviewJoinAccept')).data).toEqual({
     request: 'jr-1',
@@ -151,6 +153,29 @@ test('a host waiting to join is checked by fingerprint, accepted, and another re
   await expect(rejected.locator('[data-field="reason"]')).toHaveText('Rejected by an operator')
   await expect(rejected.locator('[data-field="comment"]')).toHaveText('Not ours.')
   await expect(rejected.getByRole('button', { name: /Accept|Reject/ })).toHaveCount(0)
+})
+
+test('accepting with Converge after accepting unticked asks Keel not to converge', async ({ page, backend }) => {
+  operator(backend)
+  backend.on('ListJoinRequests', () => [{ type: 'JoinRequests', data: { items: [request({})] } }])
+  backend.on('PreviewJoinAccept', (cmd) => [preview('accept-1', `Accept ${cmd.data.inventory_name} into Ops.`)])
+
+  await page.goto('/hosts?tab=join')
+  const card = page.getByRole('list', { name: 'Join requests' }).locator('[data-join-request="jr-1"]')
+  await card.getByRole('button', { name: 'Accept edge-01.lan' }).click()
+  const form = card.getByRole('form', { name: 'Accept join request' })
+  const converge = form.getByRole('checkbox', { name: 'Converge after accepting' })
+  await expect(form).toContainText('Once accepted, Keel runs the steps for web on it')
+  await converge.click()
+  await expect(converge).not.toBeChecked()
+  await expect(form).toContainText('Keel waits for someone to converge it.')
+  await form.getByRole('button', { name: 'Accept' }).click()
+  expect((await backend.waitForCmd('PreviewJoinAccept')).data).toEqual({
+    request: 'jr-1',
+    inventory_name: 'edge-01',
+    profiles: ['web'],
+    auto_converge: false,
+  })
 })
 
 test('a join token is issued and shown once, then disabled', async ({ page, context, backend }) => {
