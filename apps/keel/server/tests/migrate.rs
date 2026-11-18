@@ -261,6 +261,10 @@ async fn relay_tables_constraints_and_grants() {
     exec("update relays set quarantined_at = now(), quarantine_reason = 'forbidden_channel'")
         .await
         .expect("quarantine");
+    // 0021 (T066 F7): keel_app records when the pinned host key first authenticated.
+    exec("update relays set host_key_verified_at = now()")
+        .await
+        .expect("host key verified");
 
     // One active relay-link key.
     for (id, fp) in [("e1", "SHA256:k1"), ("e2", "SHA256:k2")] {

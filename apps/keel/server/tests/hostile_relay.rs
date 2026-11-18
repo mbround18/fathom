@@ -5,6 +5,8 @@
 //!
 //! - a protocol violation quarantines the relay (`relay.quarantine`), drops the link and every
 //!   stream it carries, and the relay is not dialled again;
+//! - except a wrong host key before the pinned key has ever authenticated (T066 F7), which is a
+//!   lost link, backed off and audited as a coalesced `relay.refused`;
 //! - a limit hit or a runner's own failure is refused and audited (`relay.refused`, coalesced
 //!   per relay and reason), and the relay stays in service.
 //!
@@ -374,25 +376,51 @@ async fn a_pong_answering_no_ping_quarantines() {
     l.quarantined("bad_frame", &mut held).await.finish().await;
 }
 
+/// T066 F7 (owner decision 2026-11-17, quarantine after auth only): a host key other than the
+/// pinned one, before that pinned key has ever completed an authenticated link, is anyone on the
+/// network path. It is a lost link: Keel backs off and redials, the relay is not quarantined,
+/// and the mismatch is audited as a coalesced `relay.refused` naming the presented key.
 #[tokio::test]
-async fn a_host_key_other_than_the_pinned_one_quarantines() {
+async fn a_host_key_other_than_the_pinned_one_before_auth_is_a_lost_link() {
     let Some((h, zone)) = harness("hostile_host_key").await else {
         return;
     };
-    let mut relay = TestRelay::start(&h).await;
+    let relay = TestRelay::start(&h).await;
     let pinned = key().public_key().key_data().clone();
     let id = register(&h, zone, "edge-1", &relay.addr.to_string(), &pinned).await;
     let sup = RelaySupervisor::new(h.app.clone(), RunnerHost::new().expect("host"), opts());
     sup.sync().await.expect("sync");
-    wait_live(&h, id, |l| l.state == RelayState::Quarantined).await;
-    assert_eq!(
-        quarantine_reason(&h, id).await.as_deref(),
-        Some("host_key_mismatch")
+    let live = wait_live(&h, id, |l| l.state == RelayState::Unreachable).await;
+    assert!(
+        live.last_error
+            .as_deref()
+            .is_some_and(|e| e.starts_with("host_key_mismatch")),
+        "{live:?}"
     );
-    let rows = quarantines(&h).await;
-    assert_eq!(rows.len(), 1, "{rows:?}");
+    // Backed off and redialled, never quarantined.
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    assert_eq!(quarantine_reason(&h, id).await, None);
+    assert!(quarantines(&h).await.is_empty());
     sup.sync().await.expect("sync");
-    relay.no_link().await;
+    sup.flush_refusals(true).await;
+    let rows = refused(&h, "host_key_mismatch").await;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert!(
+        rows[0]["count"].as_u64().is_some_and(|n| n >= 2),
+        "{rows:?}"
+    );
+    assert_eq!(
+        rows[0]["detail"],
+        format!("presented {}", relay.fingerprint()),
+        "{rows:?}"
+    );
+    let (verified,): (bool,) =
+        sqlx::query_as("select host_key_verified_at is not null from relays where id = $1")
+            .bind(id)
+            .fetch_one(&h.db.owner)
+            .await
+            .expect("relay");
+    assert!(!verified);
     no_run(&h).await;
     sup.shutdown();
     h.finish().await;

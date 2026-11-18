@@ -431,3 +431,127 @@ async fn t066_f4_relay_carries_another_workspaces_runner() {
         "{refused:?}"
     );
 }
+
+// ---- F7: a wrong host key quarantines only after the pinned key has authenticated ----------
+
+/// Whether the relay's pinned host key has completed an authenticated link.
+async fn host_key_verified(h: &Harness, id: Uuid) -> bool {
+    let (verified,): (bool,) =
+        sqlx::query_as("select host_key_verified_at is not null from relays where id = $1")
+            .bind(id)
+            .fetch_one(&h.db.owner)
+            .await
+            .expect("relay");
+    verified
+}
+
+/// Owner decision 2026-11-17: once a link with the pinned key has authenticated, a later
+/// mismatch is a real key swap and quarantines. The verification is persisted, so a restarted
+/// Keel (a fresh supervisor here) still quarantines.
+#[tokio::test]
+async fn t066_f7_a_wrong_host_key_after_an_authenticated_link_quarantines() {
+    let Some((h, zone)) = harness("t066_f7_after_auth").await else {
+        return;
+    };
+    let (relay, id, sup, side) = linked(&h, zone, opts()).await;
+    assert!(host_key_verified(&h, id).await);
+    sup.shutdown();
+    drop((side, relay));
+
+    // Something else answers at the relay's address with its own key.
+    let impostor = TestRelay::start(&h).await;
+    sqlx::query("update relays set dial_address = $2 where id = $1")
+        .bind(id)
+        .bind(impostor.addr.to_string())
+        .execute(&h.db.owner)
+        .await
+        .expect("move");
+    let sup = RelaySupervisor::new(h.app.clone(), RunnerHost::new().expect("host"), opts());
+    sup.sync().await.expect("sync");
+    wait_live(&h, id, |l| l.state == RelayState::Quarantined).await;
+    assert_eq!(
+        relay_kit::quarantine_reason(&h, id).await.as_deref(),
+        Some("host_key_mismatch")
+    );
+    let rows = relay_kit::quarantines(&h).await;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(
+        rows[0].1["detail"],
+        format!("presented {}", impostor.fingerprint())
+    );
+    sup.shutdown();
+    h.finish().await;
+}
+
+/// A flood of pre-auth mismatches is one coalesced `relay.refused` row per window and one
+/// `relay.state` (unreachable) row, however often Keel redials.
+#[tokio::test]
+async fn t066_f7_repeated_pre_auth_mismatches_are_bounded_in_the_audit() {
+    let Some((h, zone)) = harness("t066_f7_flood").await else {
+        return;
+    };
+    let relay = TestRelay::start(&h).await;
+    let pinned = key().public_key().key_data().clone();
+    let id = register(&h, zone, "edge-1", &relay.addr.to_string(), &pinned).await;
+    let sup = RelaySupervisor::new(h.app.clone(), RunnerHost::new().expect("host"), opts());
+    sup.sync().await.expect("sync");
+    // health_interval 200 ms caps the backoff: a redial every 200 ms or so.
+    for _ in 0..10 {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        sup.sync().await.expect("sync");
+        sup.flush_refusals(false).await;
+    }
+    sup.flush_refusals(true).await;
+    sup.shutdown();
+    let rows = relay_kit::refused(&h, "host_key_mismatch").await;
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    let count = rows[0]["count"].as_u64().unwrap_or(0);
+    assert!(count >= 5, "only {count} dials in 2 s: {rows:?}");
+    let (states,): (i64,) = sqlx::query_as(
+        "select count(*) from audit_event where action = 'relay.state' \
+         and target->>'relay' = $1",
+    )
+    .bind(id.to_string())
+    .fetch_one(&h.db.owner)
+    .await
+    .expect("audit");
+    assert!(states <= 1, "{states} relay.state rows");
+    assert!(relay_kit::quarantines(&h).await.is_empty());
+    assert!(!host_key_verified(&h, id).await);
+    h.finish().await;
+}
+
+/// A new host key an owner pastes has to authenticate again before a mismatch quarantines.
+#[tokio::test]
+async fn t066_f7_a_changed_host_key_must_verify_again() {
+    let Some((h, zone)) = harness("t066_f7_rekey").await else {
+        return;
+    };
+    let (relay, id, sup, side) = linked(&h, zone, opts()).await;
+    sup.shutdown();
+    drop(side);
+    assert!(host_key_verified(&h, id).await);
+    let new_key = russh::keys::PublicKey::from(key().public_key().key_data().clone())
+        .to_openssh()
+        .expect("line");
+    let addr = relay.addr.to_string();
+    let mut tx = h.app.db.begin().await.expect("tx");
+    keel_server::relays::update_relay(
+        &mut tx,
+        &keel_server::audit::Actor::System,
+        id,
+        &keel_server::relays::RelayRegistration {
+            workspace: h.workspace,
+            zone,
+            name: "edge-1",
+            dial_address: &addr,
+            host_key: &new_key,
+            host: None,
+        },
+    )
+    .await
+    .expect("update");
+    tx.commit().await.expect("commit");
+    assert!(!host_key_verified(&h, id).await);
+    h.finish().await;
+}

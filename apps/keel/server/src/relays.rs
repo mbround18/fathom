@@ -546,7 +546,9 @@ pub async fn update_relay(
     let fingerprint = check_registration(conn, r).await?;
     sqlx::query(
         "update relays set zone_id = $2, name = $3, dial_address = $4, host_key = $5, \
-         host_key_fingerprint = $6, host_id = $7, updated_at = now() where id = $1",
+         host_key_fingerprint = $6, host_id = $7, updated_at = now(), \
+         host_key_verified_at = case when host_key_fingerprint = $6 \
+         then host_key_verified_at end where id = $1",
     )
     .bind(relay)
     .bind(r.zone)
@@ -1685,6 +1687,9 @@ struct RelayRow {
     dial_address: String,
     host_key: String,
     quarantine_reason: Option<String>,
+    /// The pinned host key has completed an authenticated link (`host_key_verified_at`,
+    /// T066 F7). Until then a host-key mismatch is a lost link, not a quarantine.
+    host_key_verified: bool,
 }
 
 /// Coalesces `relay.refused` per `(relay, reason)` over a window into one audit row with a
@@ -2013,7 +2018,8 @@ impl RelaySupervisor {
             shared.persist_quarantine(relay).await;
         }
         let rows: Vec<RelayRow> = sqlx::query_as(
-            "select id, workspace_id, name, dial_address, host_key, quarantine_reason \
+            "select id, workspace_id, name, dial_address, host_key, quarantine_reason, \
+             host_key_verified_at is not null as host_key_verified \
              from relays where revoked_at is null order by id",
         )
         .fetch_all(&self.inner.shared.app.db)
@@ -2473,6 +2479,35 @@ impl LinkRun {
         }
     }
 
+    /// Whether a violation quarantines the relay. Every one does, except a host-key mismatch
+    /// before the pinned key has completed an authenticated link (T066 F7, owner decision
+    /// 2026-11-17: quarantine after auth only).
+    const fn quarantines(&self, v: &LinkViolation) -> bool {
+        !matches!(v, LinkViolation::HostKey { .. }) || self.row.host_key_verified
+    }
+
+    /// Records that the pinned host key completed an authenticated link (T066 F7): SSH with
+    /// that key, Keel's relay-link key accepted, and a `Hello` naming it. Written once; the
+    /// row's key must still be the one this link dialled, so a concurrent edit is not marked.
+    async fn host_key_verified(&mut self) {
+        if self.row.host_key_verified {
+            return;
+        }
+        self.row.host_key_verified = true;
+        let written = sqlx::query(
+            "update relays set host_key_verified_at = now() where id = $1 and host_key = $2 \
+             and host_key_verified_at is null",
+        )
+        .bind(self.row.id)
+        .bind(&self.row.host_key)
+        .execute(&self.shared.app.db)
+        .await;
+        if let Err(e) = written {
+            tracing::error!(relay = %self.row.id, error = %e,
+                "recording a verified relay host key failed");
+        }
+    }
+
     /// Takes the relay out of service: sets `quarantined_at` and the reason and audits
     /// `relay.quarantine` in one transaction, unless it is already quarantined or revoked.
     async fn quarantine(&self, v: &LinkViolation) {
@@ -2527,9 +2562,24 @@ impl LinkRun {
             let span = self.span.clone();
             match self.dial(&mut stop).instrument(span).await {
                 LinkEnd::Stopped => return,
-                LinkEnd::Violation(v) => {
+                LinkEnd::Violation(v) if self.quarantines(&v) => {
                     self.quarantine(&v).await;
                     return;
+                }
+                LinkEnd::Violation(v) => {
+                    // T066 F7: a wrong host key on a relay whose pinned key never authenticated
+                    // is anyone on the network path. Refused (coalesced) and backed off as a
+                    // lost link; quarantining it would hand them the relay's availability.
+                    let reason = v.reason();
+                    let detail = capped(&violation_detail(&v));
+                    self.refuse(reason, &detail);
+                    self.span.record("error.type", reason);
+                    self.update(|l| {
+                        l.streams = 0;
+                        l.rtt_ms = None;
+                    });
+                    let error = format!("{reason}: {detail} (pinned key not yet verified)");
+                    self.set_state(RelayState::Unreachable, Some(error)).await;
                 }
                 LinkEnd::Lost { error, up } => {
                     self.update(|l| {
@@ -2683,6 +2733,7 @@ impl LinkRun {
                                 ),
                             });
                         }
+                        self.host_key_verified().await;
                         let version = capped(&version);
                         self.update(|l| l.version = Some(version));
                         io.gate.control_up.store(true, Ordering::SeqCst);

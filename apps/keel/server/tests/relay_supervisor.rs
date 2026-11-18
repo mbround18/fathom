@@ -526,15 +526,22 @@ async fn streams_over_max_streams_are_refused() {
     h.finish().await;
 }
 
+/// A mismatch after the pinned key has authenticated (T066 F7: quarantine after auth only; a
+/// pre-auth mismatch is a lost link, see `hostile_relay.rs` and `t066_review.rs`).
 #[tokio::test]
-async fn a_host_key_mismatch_quarantines_the_relay_and_carries_nothing() {
+async fn a_host_key_mismatch_after_auth_quarantines_the_relay_and_carries_nothing() {
     let Some((h, zone)) = harness("relay_supervisor_hostkey").await else {
         return;
     };
     let mut relay = TestRelay::start(&h).await;
-    // Pinned to a key the relay does not hold.
+    // Pinned to a key the relay does not hold, which once authenticated.
     let wrong = key().public_key().key_data().clone();
     let id = register(&h, zone, "edge-1", &relay.addr.to_string(), &wrong).await;
+    sqlx::query("update relays set host_key_verified_at = now() where id = $1")
+        .bind(id)
+        .execute(&h.db.owner)
+        .await
+        .expect("verified");
     let sup = RelaySupervisor::new(h.app.clone(), RunnerHost::new().expect("host"), opts());
     sup.sync().await.expect("sync");
 
