@@ -2,6 +2,7 @@
 # A converge of a `keel-node` host runs debian, then keel-node; of a `k3s-master` host,
 # debian then k3s-master (k3s-master covers k3s-audit, so k3s-audit drops out).
 # No `choice` param yet: `ParamKind::Choice` lands with US8 (T061).
+# `paths` on debian and k3s-audit drive the coverage and vars-narrowing tests (US4, FR-020).
 version: 1
 profiles:
   debian:
@@ -23,6 +24,7 @@ jobs:
     playbook: playbooks/debian.yaml
     profiles: [debian, keel-node, k3s-master]
     inventory: prod
+    paths: [playbooks/debian.yaml, "inventory/**"]
   keel-node:
     playbook: playbooks/keel-node.yaml
     profiles: [keel-node]
@@ -31,6 +33,7 @@ jobs:
     playbook: playbooks/k3s-audit.yaml
     profiles: [k3s-master]
     inventory: prod
+    paths: [playbooks/k3s-audit.yaml]
   k3s-master:
     playbook: playbooks/k3s-master.yaml
     profiles: [k3s-master]

@@ -185,14 +185,17 @@ that host's rest; retry resumes.
 
 **Independent test**: `cargo test -p keel-server --test coverage`.
 
-- [ ] T042 [P] [server] Tests first, `server/tests/coverage.rs`: a path run of `k3s-audit` ends
+- [X] T042 [P] [server] Tests first, `server/tests/coverage.rs`: a path run of `k3s-audit` ends
   `covered` (linked, audited) on a host with a waiting/holding `k3s-master` converge at the same
   or a descendant commit; queues on other hosts; an older converge commit does not cover.
-- [ ] T043 [server] `server/src/runs.rs` `create_run`: coverage lookup via
+  Note: the same-commit and descendant cases replay the push through `runs::on_push` after the converge exists (a real push always precedes the converge it would need). Also: hosts outside the converge queue, and a cancelled converge covers nothing. `covered_by` is the converge parent run (data-model), so the protocol doc comment now says so.
+- [X] T043 [server] `server/src/runs.rs` `create_run`: coverage lookup via
   `converge_hosts`/`converge_steps` and `converge::covers`, mirror ancestry check, insert
   `covered` rows with `covered_by`, audit `run_host.covered`.
+  Note: a host is covered when an open converge of the same binding has it waiting/holding with a step still blocked/queued/sent/running that is the job or covers it (coverage from the manifest at the converge commit), and the converge commit is the run commit or a mirror descendant. Only path-triggered runs (`on_push`) are checked. A run whose every host is covered ends `succeeded` at once (core `summarize` already counts `covered` as success).
 - [X] T072 [P] [core] Tests first, then `converge::narrow_by_vars(changed: &[Path], matched_paths, inventory) -> Option<BTreeSet<HostName>>` in `core/converge.rs` (FR-020): `None` when any matched change is not a group/host vars file or is `group_vars/all.*`; otherwise the hosts in the named groups (children included) and named hosts. Cover `.yml`/`.yaml`, directory-form `group_vars/<g>/`, child groups, and an unknown group (narrows to no hosts → no run, audited `run.skipped: no_hosts`).
-- [ ] T073 [server] `server/src/runs.rs` `on_push`: intersect the job's host set with `narrow_by_vars` for path-triggered runs only; record the narrowing reason on the run (`narrowed_by: ["group_vars/keel_servers.yml"]`) and show it in the run header. Test in `server/tests/coverage.rs`.
+- [X] T073 [server] `server/src/runs.rs` `on_push`: intersect the job's host set with `narrow_by_vars` for path-triggered runs only; record the narrowing reason on the run (`narrowed_by: ["group_vars/keel_servers.yml"]`) and show it in the run header. Test in `server/tests/coverage.rs`.
+  Note: new column `runs.narrowed_by text[]` (migration 0019) and `RunInfo.narrowed_by?: string[]` (absent when not narrowed). Narrowing uses the pinned revision's `inventory_hosts.groups`. A vars push naming no host the job reaches creates no run and audits `run.skipped` (reason `no_hosts`, context `narrowed_by`). Core gains `target::matching_paths`. Run header display is web (not done here).
 - [ ] T044 [P] [web] "covered by converge" in run host rows; `s068/covered.spec.ts`.
 - [ ] T045 (../ansible) Hand contracts/ansible.md §2–§3 (narrow jobs, covers, the paths
   recommendation) to the ansible session.

@@ -116,9 +116,43 @@ pub fn paths_match<'a>(globs: &[String], changed: impl IntoIterator<Item = &'a S
         .any(|p| matchers.iter().any(|m| m.is_match(p)))
 }
 
+/// The changed paths that match any of the job's path globs, in order (spec 068 FR-020 records
+/// them as a narrowed run's `narrowed_by`). A glob that does not compile matches nothing.
+#[must_use]
+pub fn matching_paths<'a>(
+    globs: &[String],
+    changed: impl IntoIterator<Item = &'a String>,
+) -> Vec<String> {
+    let matchers: Vec<GlobMatcher> = globs
+        .iter()
+        .filter_map(|g| Glob::new(g).ok().map(|g| g.compile_matcher()))
+        .collect();
+    changed
+        .into_iter()
+        .filter(|p| matchers.iter().any(|m| m.is_match(p)))
+        .cloned()
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn matching_paths_keeps_only_matched_changes() {
+        let changed = vec![
+            "inventory/group_vars/web.yml".to_owned(),
+            "README.md".to_owned(),
+            "inventory/host_vars/web-1.yml".to_owned(),
+        ];
+        assert_eq!(
+            matching_paths(&["inventory/**".to_owned(), "[".to_owned()], &changed),
+            vec![
+                "inventory/group_vars/web.yml".to_owned(),
+                "inventory/host_vars/web-1.yml".to_owned()
+            ]
+        );
+    }
 
     fn inv() -> Vec<(String, Vec<String>)> {
         vec![

@@ -14,12 +14,14 @@ use keel_server::config::Config;
 use keel_server::runs::{RunSettings, Runs};
 use uuid::Uuid;
 
-use crate::repos::{self, Harness};
+use crate::repos::{self, Harness, Source};
 
 pub const WITHIN: Duration = Duration::from_secs(20);
 
 pub struct Fixture {
     pub h: Harness,
+    /// The bound repository: commit and push to it, then `SyncBinding`.
+    pub src: Source,
     pub binding: Uuid,
     /// `node-1` (keel-node) and `master-1` (k3s-master).
     pub node: Uuid,
@@ -38,7 +40,7 @@ impl Fixture {
             converge: true,
             ..(*h.app.cfg).clone()
         });
-        let (_src, binding) = repos::bind_converge_repo(&h).await;
+        let (src, binding) = repos::bind_converge_repo(&h).await;
         let owner = &h.db.owner;
         let inventory = Uuid::now_v7();
         sqlx::query(
@@ -107,6 +109,7 @@ impl Fixture {
         }
         Some(Self {
             h,
+            src,
             binding,
             node: ids[0],
             master: ids[1],

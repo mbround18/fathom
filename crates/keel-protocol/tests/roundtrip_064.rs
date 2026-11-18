@@ -129,6 +129,7 @@ fn run() -> RunInfo {
         kind: RunKind::Normal,
         check: false,
         parent_run: None,
+        narrowed_by: None,
     }
 }
 

@@ -257,6 +257,7 @@ fn run_info_carries_params() {
         kind: RunKind::Normal,
         check: false,
         parent_run: None,
+        narrowed_by: None,
     };
     // Empty when there are none, and still on the wire.
     assert_eq!(round_trip(&run)["params"], json!({}));

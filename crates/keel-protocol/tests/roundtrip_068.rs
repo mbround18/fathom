@@ -58,6 +58,7 @@ fn run_info() -> RunInfo {
         kind: RunKind::Converge,
         check: true,
         parent_run: None,
+        narrowed_by: Some(vec!["inventory/group_vars/keel_servers.yml".into()]),
     }
 }
 

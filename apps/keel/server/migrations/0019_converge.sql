@@ -26,7 +26,9 @@ alter table runs add constraint runs_state_reason_check check (state_reason in (
 alter table runs
     add column parent_run_id uuid references runs (id) on delete cascade,
     add column check_mode boolean not null default false,
-    add column retry_of uuid references runs (id) on delete set null;
+    add column retry_of uuid references runs (id) on delete set null,
+    -- FR-020: the vars files a path-triggered run was narrowed by; null when not narrowed.
+    add column narrowed_by text[];
 alter table runs add constraint runs_converge_shape check (
     (kind <> 'converge' or (job_id is null and parent_run_id is null))
     and (parent_run_id is null or kind = 'normal')

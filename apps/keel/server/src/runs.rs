@@ -96,6 +96,7 @@ pub async fn on_push(app: &AppState, p: Push<'_>) {
         Trigger::Create(a) | Trigger::Manual(a) => ("manual", None, user_of(a)),
     };
     let actor = p.trigger.actor();
+    let changed: Vec<String> = changed.into_iter().collect();
     for (job, name, def) in jobs {
         let Ok(def) = serde_json::from_value::<JobDefinition>(def) else {
             continue;
@@ -104,6 +105,10 @@ pub async fn on_push(app: &AppState, p: Push<'_>) {
         if !target::paths_match(paths, &changed) {
             continue;
         }
+        let path = PathRun {
+            changed: &changed,
+            paths,
+        };
         let new = NewRun {
             workspace: p.workspace,
             binding,
@@ -121,6 +126,7 @@ pub async fn on_push(app: &AppState, p: Push<'_>) {
             only_hosts: None,
             params: &BTreeMap::new(),
             update: None,
+            path: Some(path),
         };
         if let Err(e) = create_run(app, &new).await {
             tracing::error!(error = %e, job = %name, "creating a run failed");
@@ -156,6 +162,15 @@ struct NewRun<'a> {
     params: &'a BTreeMap<String, String>,
     /// Set for a Keel update run (spec 061 US4): one at a time, audited.
     update: Option<&'a UpdateAudit>,
+    /// Set for a path-triggered run (spec 068): narrowed by vars files (FR-020) and covered by
+    /// pending converges (FR-010).
+    path: Option<PathRun<'a>>,
+}
+
+/// What a push changed and the job's `paths` globs.
+struct PathRun<'a> {
+    changed: &'a [String],
+    paths: &'a [String],
 }
 
 /// What a Keel update run audits as `keel_update_requested` (spec 061 data-model.md).
@@ -356,6 +371,38 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     if let Some(only) = new.only_hosts {
         plan.hosts.retain(|h| only.contains(&h.1));
     }
+    let mut narrowed_by: Option<Vec<String>> = None;
+    if let (Some(path), Some(revision)) = (&new.path, plan.revision)
+        && !plan.hosts.is_empty()
+        && let Some(keep) = narrowing(&mut tx, revision, path).await?
+    {
+        plan.hosts.retain(|h| keep.contains(&h.1));
+        let by = target::matching_paths(path.paths, path.changed);
+        if plan.hosts.is_empty() {
+            // FR-020: the vars files name no host this job reaches: no run.
+            audit::record(
+                &mut tx,
+                Entry {
+                    actor: new.actor,
+                    action: "run.skipped",
+                    workspace: Some(WorkspaceId(new.workspace)),
+                    target: json!({ "job": new.job }),
+                    decision: Decision::Allowed,
+                    reason: Some("no_hosts"),
+                    context: json!({
+                        "trigger": new.trigger,
+                        "commit": new.commit,
+                        "inventory_revision": plan.revision,
+                        "narrowed_by": by,
+                    }),
+                },
+            )
+            .await?;
+            tx.commit().await?;
+            return Ok(id);
+        }
+        narrowed_by = Some(by);
+    }
     let mut unrunnable = if pinned {
         plan.unrunnable
     } else {
@@ -394,17 +441,23 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     };
     let names: Vec<String> = plan.hosts.iter().map(|h| h.1.clone()).collect();
     let ended = status.state == RunState::Failed;
+    // FR-010: a path run's host with a pending converge that applies this job ends `covered`.
+    let covered: BTreeMap<Uuid, Uuid> = if new.path.is_some() && !ended {
+        coverage(app, &mut tx, new, &plan.hosts).await?
+    } else {
+        BTreeMap::new()
+    };
     sqlx::query(
         "insert into runs (id, workspace_id, job_id, binding_id, job_name, trigger, delivery_id, \
          requested_by, commit, inventory_revision_id, inventory_name, resolved_hosts, run_limit, \
          policy_id, signed_mode, state, state_reason, queued_at, ended_at, summary, params, \
-         approvals_needed, four_eyes, approval_expires_at) \
+         approvals_needed, four_eyes, approval_expires_at, narrowed_by) \
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
          case when $16 = 'queued' then now() end, case when $18 then now() end, \
          case when $18 then $19 end, $20, \
          case when $16 = 'pending_approval' then $21 end, \
          case when $16 = 'pending_approval' then $22 end, \
-         case when $16 = 'pending_approval' then now() + $23 * interval '1 second' end)",
+         case when $16 = 'pending_approval' then now() + $23 * interval '1 second' end, $24)",
     )
     .bind(id)
     .bind(new.workspace)
@@ -430,19 +483,42 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
     .bind(i32::from(plan.policy.approvals_needed.max(1)))
     .bind(plan.policy.four_eyes)
     .bind(i64::from(plan.policy.approval_ttl_secs))
+    .bind(&narrowed_by)
     .execute(&mut *tx)
     .await?;
     if !ended {
         let ids: Vec<Uuid> = plan.hosts.iter().map(|h| h.0).collect();
+        let by: Vec<Option<Uuid>> = ids.iter().map(|h| covered.get(h).copied()).collect();
         sqlx::query(
-            "insert into run_hosts (run_id, host_id, host_name) \
-             select $1, * from unnest($2::uuid[], $3::text[])",
+            "insert into run_hosts (run_id, host_id, host_name, state, covered_by, ended_at) \
+             select $1, h, n, case when c is null then 'queued' else 'covered' end, c, \
+                    case when c is not null then now() end \
+             from unnest($2::uuid[], $3::text[], $4::uuid[]) as t(h, n, c)",
         )
         .bind(id)
         .bind(&ids)
         .bind(&names)
+        .bind(&by)
         .execute(&mut *tx)
         .await?;
+        for (host, name) in &plan.hosts {
+            let Some(converge) = covered.get(host) else {
+                continue;
+            };
+            audit::record(
+                &mut tx,
+                Entry {
+                    actor: new.actor,
+                    action: "run_host.covered",
+                    workspace: Some(WorkspaceId(new.workspace)),
+                    target: json!({ "run": id, "host": host }),
+                    decision: Decision::Allowed,
+                    reason: None,
+                    context: json!({ "host_name": name, "covered_by": converge, "job": new.job_name }),
+                },
+            )
+            .await?;
+        }
     }
     let mut groups = Vec::new();
     if !ended && let Some((bases, drafts)) = &early {
@@ -479,6 +555,8 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
                 "policy_reason": plan.explanation.reason,
                 "review_groups": groups,
                 "params": new.params,
+                "narrowed_by": narrowed_by,
+                "covered": covered.len(),
             }),
         },
     )
@@ -517,10 +595,108 @@ async fn create_run(app: &AppState, new: &NewRun<'_>) -> Result<Uuid, sqlx::Erro
         );
     }
     crate::queue::push_state(app, new.workspace, id, status);
-    if status.state == RunState::Queued {
+    if !covered.is_empty() && covered.len() == plan.hosts.len() {
+        // Every host is covered: nothing will run, so the run ends now.
+        crate::queue::maybe_finish(app, id).await;
+    } else if status.state == RunState::Queued {
         crate::queue::kick(app);
     }
     Ok(id)
+}
+
+/// FR-020: the hosts a path run narrows to, from the pinned revision's groups; `None` keeps
+/// every host.
+async fn narrowing(
+    conn: &mut PgConnection,
+    revision: Uuid,
+    path: &PathRun<'_>,
+) -> Result<Option<BTreeSet<String>>, sqlx::Error> {
+    let inventory: Vec<(String, Vec<String>)> =
+        sqlx::query_as("select host, groups from inventory_hosts where revision_id = $1")
+            .bind(revision)
+            .fetch_all(&mut *conn)
+            .await?;
+    let inventory: Vec<keel_core::inventory::HostGroups> = inventory
+        .into_iter()
+        .map(|(host, groups)| keel_core::inventory::HostGroups { host, groups })
+        .collect();
+    Ok(keel_core::converge::narrow_by_vars(
+        path.changed,
+        path.paths,
+        &inventory,
+    ))
+}
+
+/// FR-010: for each of `hosts`, the open converge of the same binding that still has a step
+/// applying `new.job_name` on it (the job itself, or one that covers it) at `new.commit` or a
+/// descendant of it. Converges are tried oldest first.
+async fn coverage(
+    app: &AppState,
+    conn: &mut PgConnection,
+    new: &NewRun<'_>,
+    hosts: &[(Uuid, String)],
+) -> Result<BTreeMap<Uuid, Uuid>, sqlx::Error> {
+    let ids: Vec<Uuid> = hosts.iter().map(|h| h.0).collect();
+    let open: Vec<(Uuid, Uuid, String, Vec<String>)> = sqlx::query_as(
+        "select ch.host_id, cr.id, cr.commit, array_agg(s.job_name order by s.position) \
+         from converge_hosts ch \
+         join runs cr on cr.id = ch.run_id \
+         join converge_steps s on s.run_id = ch.run_id and s.host_id = ch.host_id \
+         join run_hosts rh on rh.run_id = s.step_run_id and rh.host_id = s.host_id \
+         where ch.host_id = any($1) and ch.state in ('waiting', 'holding') \
+           and cr.kind = 'converge' and cr.binding_id = $2 and cr.ended_at is null \
+           and rh.state in ('blocked', 'queued', 'sent', 'running') \
+         group by ch.host_id, cr.id, cr.commit, cr.created_at \
+         order by cr.created_at, cr.id",
+    )
+    .bind(&ids)
+    .bind(new.binding)
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut out = BTreeMap::new();
+    // Per converge: whether its commit is the run's or a descendant, and its coverage.
+    let mut seen: BTreeMap<Uuid, Option<keel_core::converge::Coverage>> = BTreeMap::new();
+    for (host, converge, commit, remaining) in open {
+        if out.contains_key(&host) {
+            continue;
+        }
+        if let std::collections::btree_map::Entry::Vacant(slot) = seen.entry(converge) {
+            let usable = if newer_or_same(app, new.binding, new.commit, &commit).await {
+                match crate::sync::manifest_at(app, new.binding, &commit, new.signed_mode).await? {
+                    Ok(m) => keel_core::converge::coverage(&m).ok(),
+                    Err(_) => None,
+                }
+            } else {
+                None
+            };
+            slot.insert(usable);
+        }
+        if let Some(Some(cov)) = seen.get(&converge)
+            && keel_core::converge::covers(&remaining, new.job_name, cov)
+        {
+            out.insert(host, converge);
+        }
+    }
+    Ok(out)
+}
+
+/// Whether `converge` is `run` or a descendant of it, by the binding's mirror.
+async fn newer_or_same(app: &AppState, binding: Uuid, run: &str, converge: &str) -> bool {
+    if run == converge {
+        return true;
+    }
+    let dir = crate::sync::data_dir(app);
+    let (run, converge) = (CommitId(run.to_owned()), CommitId(converge.to_owned()));
+    let ancestry = tokio::task::spawn_blocking(move || {
+        Mirror::open(&dir, binding)?.classify(Some(&run), &converge)
+    })
+    .await;
+    matches!(
+        ancestry,
+        Ok(Ok(
+            keel_git::Ancestry::Same | keel_git::Ancestry::FastForward
+        ))
+    )
 }
 
 /// What a baseline run is made from (spec 055 US8: the run id is signed before it exists).
@@ -561,6 +737,7 @@ pub(crate) async fn create_baseline_run(
             only_hosts: Some(b.hosts),
             params: &BTreeMap::new(),
             update: None,
+            path: None,
         },
     )
     .await
@@ -603,6 +780,7 @@ pub(crate) async fn create_update_run(
             only_hosts: None,
             params: &params,
             update: Some(audit),
+            path: None,
         },
     )
     .await
@@ -1017,6 +1195,7 @@ async fn preview_run_start(
             only_hosts: None,
             params: &BTreeMap::new(),
             update: None,
+            path: None,
         };
         match create_run(&app, &new).await {
             Ok(run) => match get_run(&app, run).await {
@@ -1186,7 +1365,7 @@ const RUN_COLUMNS: &str = "r.id, r.workspace_id, r.binding_id, r.job_id, r.job_n
      r.run_limit, r.resolved_hosts, r.policy_id, r.state, r.state_reason, r.created_at, \
      r.started_at, r.ended_at, r.summary, r.params, \
      r.approvals_needed, r.four_eyes, r.approval_expires_at, r.kind, r.check_mode, \
-     r.parent_run_id, \
+     r.parent_run_id, r.narrowed_by, \
      (select coalesce(jsonb_agg(jsonb_build_object( \
          'user', a.approver_user_id, \
          'name', case when u.id is null or u.disabled_at is not null then 'Deleted user' \
@@ -1282,6 +1461,7 @@ struct RunRow {
     kind: String,
     check_mode: bool,
     parent_run_id: Option<Uuid>,
+    narrowed_by: Option<Vec<String>>,
     answers: Value,
 }
 
@@ -1318,6 +1498,7 @@ impl RunRow {
             kind: enum_from(&self.kind).unwrap_or_default(),
             check: self.check_mode,
             parent_run: self.parent_run_id,
+            narrowed_by: self.narrowed_by,
         }
     }
 }

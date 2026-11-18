@@ -259,6 +259,11 @@ pub struct RunInfo {
     #[serde(default)]
     #[ts(type = "string | null")]
     pub parent_run: Option<Uuid>,
+    /// Spec 068 FR-020: the changed group/host vars files a path-triggered run was narrowed to
+    /// the hosts of. Absent when the run targets every eligible host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub narrowed_by: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -273,7 +278,8 @@ pub struct RunHostInfo {
     pub ended_at: Option<String>,
     pub stats: Option<HostStats>,
     pub first_failure: Option<FirstFailure>,
-    /// The converge step run that applies this one in full (spec 068 `covered`).
+    /// The converge (its parent run) that applies this host's part in full (spec 068
+    /// `covered`).
     #[serde(default)]
     #[ts(type = "string | null")]
     pub covered_by: Option<Uuid>,

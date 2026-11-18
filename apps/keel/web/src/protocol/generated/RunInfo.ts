@@ -30,4 +30,9 @@ check: boolean,
 /**
  * The converge this run is a step of (spec 068).
  */
-parent_run: string | null, };
+parent_run: string | null, 
+/**
+ * Spec 068 FR-020: the changed group/host vars files a path-triggered run was narrowed to
+ * the hosts of. Absent when the run targets every eligible host.
+ */
+narrowed_by?: Array<string>, };

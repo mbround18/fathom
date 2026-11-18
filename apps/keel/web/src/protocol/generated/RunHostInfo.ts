@@ -9,7 +9,8 @@ export type RunHostInfo = { host: string, name: string, state: HostPhase,
  */
 refusal: string | null, started_at: string | null, ended_at: string | null, stats: HostStats | null, first_failure: FirstFailure | null, 
 /**
- * The converge step run that applies this one in full (spec 068 `covered`).
+ * The converge (its parent run) that applies this host's part in full (spec 068
+ * `covered`).
  */
 covered_by: string | null, 
 /**

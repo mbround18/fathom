@@ -55,6 +55,7 @@ fn run_info() -> RunInfo {
         kind: RunKind::Normal,
         check: false,
         parent_run: None,
+        narrowed_by: None,
     }
 }
 
