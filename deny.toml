@@ -27,6 +27,10 @@ ignore = [
   { id = "RUSTSEC-2026-0370", reason = "fathom desktop only (keyring)" },
   { id = "RUSTSEC-2026-0371", reason = "fathom desktop only (keyring)" },
   { id = "RUSTSEC-2026-0372", reason = "fathom desktop only (keyring)" },
+  # chrono, unmaintained (2026-11-17), no known vulnerability and no fixed release. kube,
+  # oauth2/openidconnect, oci-client, rmcp and schemars all depend on it, so it cannot leave the
+  # tree. Follow-up: move container-runtime and fathom's own uses to jiff or time.
+  { id = "RUSTSEC-2026-0543", reason = "unmaintained, no vulnerability; pulled in by kube and others" },
 ]
 
 [licenses]
