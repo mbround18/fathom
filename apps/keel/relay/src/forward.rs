@@ -23,6 +23,7 @@ use keel_exec::relay::RUNNER_CHANNEL_ADDR;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tracing::Instrument;
 
 use crate::Limits;
 use crate::link::{Link, Shared};
@@ -228,6 +229,15 @@ async fn carry(
     shared.streams.fetch_add(1, Ordering::Relaxed);
     let _active = Active(&shared);
     let started = Instant::now();
+    // `relay.stream`: the relay's key fingerprint is its id here (Keel's row id is Keel's).
+    let span = tracing::info_span!(
+        "relay.stream",
+        relay.id = shared.fingerprint(),
+        relay.link = link.id,
+        relay.stream.bytes_in = tracing::field::Empty,
+        relay.stream.bytes_out = tracing::field::Empty,
+        relay.stream.end = tracing::field::Empty,
+    );
     tracing::info!(%peer, link = link.id, "stream open");
     let activity = Activity::new();
     let mut runner = Counted {
@@ -240,14 +250,22 @@ async fn carry(
         read: 0,
         activity: &activity,
     };
-    let end = tokio::select! {
-        r = tokio::io::copy_bidirectional(&mut runner, &mut keel) => match r {
-            Ok(_) => "closed".to_owned(),
-            Err(e) => format!("error: {e}"),
-        },
-        _ = closed.wait_for(|c| *c) => "link went down".to_owned(),
-        () = activity.idle(timeouts.idle) => "idle".to_owned(),
-    };
+    let end = async {
+        tokio::select! {
+            r = tokio::io::copy_bidirectional(&mut runner, &mut keel) => match r {
+                Ok(_) => "closed".to_owned(),
+                Err(e) => format!("error: {e}"),
+            },
+            _ = closed.wait_for(|c| *c) => "link went down".to_owned(),
+            () = activity.idle(timeouts.idle) => "idle".to_owned(),
+        }
+    }
+    .instrument(span.clone())
+    .await;
+    // Bytes in = from the runner, bytes out = to it, as on Keel's span.
+    span.record("relay.stream.bytes_in", runner.read)
+        .record("relay.stream.bytes_out", keel.read)
+        .record("relay.stream.end", end.as_str());
     tracing::info!(
         %peer,
         link = link.id,

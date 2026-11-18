@@ -566,6 +566,16 @@ and get answers. Ask for a unit outside `queries.toml`, and get a refusal audite
 - [ ] T046 [P] Add the OTel spans `relay.link` (relay id, state), `relay.stream` (relay id and
   byte counts, never contents) and `host.query` (kind, outcome) in `server/src/relays.rs`,
   `server/src/host_queries.rs` and `relay/src/forward.rs`.
+
+  Partly done:
+  - `relay.link` is one span per dial in `server/src/relays.rs`. It carries `relay.id` and the
+    last `relay.state` the dial reached, plus `error.type` on a quarantine.
+  - `relay.stream` is one span per runner stream, in both `server/src/relays.rs` and
+    `relay/src/forward.rs`. It carries `relay.id`, `relay.stream.bytes_in` / `bytes_out` and
+    `relay.stream.end`, never contents. On the relay, `relay.id` is its key fingerprint.
+  - The relay binary has no OTel exporter, so its span reaches only its own log subscriber.
+
+  Remaining: `host.query` waits for US5 (`host_queries.rs` is not built yet).
 - [ ] T047 [P] Add `apps/keel/compose.relay.yaml` per quickstart.md §2:
   - networks `hub` and `spoke`, with `relay` on both and `runner` on `spoke` only;
   - `restart: ${RESTART_POLICY:-no}` on every service.

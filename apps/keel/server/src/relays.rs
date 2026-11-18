@@ -10,8 +10,10 @@
 //! dialled.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use keel_core::WorkspaceId;
@@ -34,6 +36,8 @@ use tokio::net::TcpStream;
 use tokio::sync::{Notify, broadcast, mpsc, oneshot, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use uuid::Uuid;
+
+use tracing::Instrument;
 
 use crate::audit::{self, Actor, Decision, Entry};
 use crate::runner_listener::{RunnerHost, RunnerPath, StreamEnd, serve_relayed};
@@ -2055,6 +2059,7 @@ impl RelaySupervisor {
                 shared: Arc::clone(&self.inner.shared),
                 row: row.clone(),
                 last_audited: None,
+                span: tracing::Span::none(),
             };
             let task = tokio::spawn(run.run(stopped));
             links.insert(row.id, Link { row, stop, task });
@@ -2343,6 +2348,73 @@ struct LinkRun {
     /// The last state written as `relay.state`, so a relay down for days is one row, not one
     /// per redial.
     last_audited: Option<RelayState>,
+    /// The `relay.link` span of the current dial; every state it reaches is recorded on it.
+    span: tracing::Span,
+}
+
+/// The `relay.link` span: one per dial, with the relay's id and the last state it reached.
+fn link_span(relay: Uuid) -> tracing::Span {
+    tracing::info_span!(
+        "relay.link",
+        relay.id = %relay,
+        relay.state = tracing::field::Empty,
+        error.type = tracing::field::Empty,
+    )
+}
+
+/// The `relay.stream` span: one per runner stream, with byte counts and how it ended. Never
+/// contents.
+fn stream_span(relay: Uuid) -> tracing::Span {
+    tracing::info_span!(
+        "relay.stream",
+        relay.id = %relay,
+        relay.stream.bytes_in = tracing::field::Empty,
+        relay.stream.bytes_out = tracing::field::Empty,
+        relay.stream.end = tracing::field::Empty,
+    )
+}
+
+/// Counts the bytes read from and written to a runner stream, for `relay.stream`.
+struct Counted<S> {
+    inner: S,
+    read: Arc<AtomicU64>,
+    written: Arc<AtomicU64>,
+}
+
+impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for Counted<S> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        let r = Pin::new(&mut self.inner).poll_read(cx, buf);
+        let n = buf.filled().len().saturating_sub(before);
+        self.read.fetch_add(n as u64, Ordering::Relaxed);
+        r
+    }
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for Counted<S> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let r = Pin::new(&mut self.inner).poll_write(cx, buf);
+        if let Poll::Ready(Ok(n)) = &r {
+            self.written.fetch_add(*n as u64, Ordering::Relaxed);
+        }
+        r
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
 }
 
 impl LinkRun {
@@ -2362,6 +2434,7 @@ impl LinkRun {
 
     /// Sets the state (and error), auditing `connected` / `unreachable` when it changed.
     async fn set_state(&mut self, state: RelayState, error: Option<String>) {
+        self.span.record("relay.state", state.as_str());
         self.update(|l| {
             l.state = state;
             if state == RelayState::Connected {
@@ -2420,6 +2493,9 @@ impl LinkRun {
         shared.persist_quarantine(self.row.id).await;
         tracing::warn!(relay = %self.row.id, name = %self.row.name, reason,
             detail = %detail.escape_debug(), "relay quarantined");
+        self.span
+            .record("relay.state", RelayState::Quarantined.as_str())
+            .record("error.type", reason);
         self.update(|l| {
             l.state = RelayState::Quarantined;
             l.last_error = Some(format!("{reason}: {detail}"));
@@ -2441,10 +2517,15 @@ impl LinkRun {
                 .live()
                 .get(self.row.id)
                 .is_some_and(|l| l.state == RelayState::Unreachable);
-            if !down {
+            self.span = link_span(self.row.id);
+            if down {
+                self.span
+                    .record("relay.state", RelayState::Unreachable.as_str());
+            } else {
                 self.set_state(RelayState::Connecting, None).await;
             }
-            match self.dial(&mut stop).await {
+            let span = self.span.clone();
+            match self.dial(&mut stop).instrument(span).await {
                 LinkEnd::Stopped => return,
                 LinkEnd::Violation(v) => {
                     self.quarantine(&v).await;
@@ -2469,6 +2550,8 @@ impl LinkRun {
                     }
                 }
             }
+            // The dial's span ends before the backoff, not when the next dial starts.
+            self.span = tracing::Span::none();
             backoff = (backoff * 2).min(cap);
         }
     }
@@ -2797,11 +2880,30 @@ impl LinkRun {
                 relay_id: relay,
                 advisory_peer: Some(peer.clone()),
             };
-            let stream = ch.channel.into_stream();
+            let (read, written) = (Arc::default(), Arc::default());
+            let stream = Counted {
+                inner: ch.channel.into_stream(),
+                read: Arc::clone(&read),
+                written: Arc::clone(&written),
+            };
             let deadline = shared.opts.auth_deadline;
+            let span = stream_span(relay);
+            let end = serve_relayed(shared.app.clone(), config, stream, path, deadline)
+                .instrument(span.clone())
+                .await;
+            span.record("relay.stream.bytes_in", read.load(Ordering::Relaxed))
+                .record("relay.stream.bytes_out", written.load(Ordering::Relaxed))
+                .record(
+                    "relay.stream.end",
+                    match end {
+                        StreamEnd::Served => "served",
+                        StreamEnd::Unauthenticated => "unauthenticated",
+                        StreamEnd::AuthDeadline => "auth_deadline",
+                    },
+                );
             // A runner that fails to authenticate is the runner's problem, not the relay's:
             // refused and audited, never a quarantine (T026).
-            match serve_relayed(shared.app.clone(), config, stream, path, deadline).await {
+            match end {
                 StreamEnd::Served => {}
                 StreamEnd::Unauthenticated => {
                     shared

@@ -55,6 +55,11 @@ impl Shared {
         }
     }
 
+    /// This relay's key fingerprint (`SHA256:...`), its identity on spans and in `Hello`.
+    pub(crate) fn fingerprint(&self) -> &str {
+        &self.fingerprint
+    }
+
     /// The link runner streams go to, if one is up.
     pub(crate) fn current(&self) -> Option<Arc<Link>> {
         self.lock().clone()
