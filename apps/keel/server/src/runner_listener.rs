@@ -273,6 +273,15 @@ impl Service {
                 let Err(e) =
                     crate::queue::attach_on(self.app.clone(), host, stream, path.clone()).await
                 else {
+                    // The session is registered: retire certificates this one superseded, or
+                    // push a newer one the runner missed while offline.
+                    let app = self.app.clone();
+                    let serial = identity.serial;
+                    tokio::spawn(async move {
+                        if let Err(e) = hosts::settle_certs(&app, host, serial).await {
+                            tracing::warn!(%host, error = %e, "settling runner certificates failed");
+                        }
+                    });
                     return false;
                 };
                 if path.relay().is_some() {

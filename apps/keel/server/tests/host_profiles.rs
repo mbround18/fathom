@@ -64,6 +64,11 @@ async fn assigned(f: &Fixture, host: Uuid) -> Vec<(String, Option<Uuid>)> {
 /// Enrolls `node-2` (ceiling debian, keel-node; assigned keel-node) through the real
 /// `enroll_key`, so it has a key and a certificate.
 async fn enrolled(f: &Fixture) -> Uuid {
+    enrolled_with_cert(f).await.0
+}
+
+/// [`enrolled`], with the certificate the host was enrolled with.
+async fn enrolled_with_cert(f: &Fixture) -> (Uuid, String) {
     use keel_exec::ca::{CaKind, SshCa};
     use keel_protocol::{HostName, HostProfiles, ProfileName};
     use keel_server::runner_listener::{EnrollRequest, enroll_key};
@@ -88,7 +93,7 @@ async fn enrolled(f: &Fixture) -> Uuid {
         .key_data()
         .clone();
     let allowed = vec!["debian".to_owned(), "keel-node".to_owned()];
-    let (host, _) = enroll_key(
+    enroll_key(
         &f.h.app,
         &key,
         &EnrollRequest {
@@ -99,8 +104,7 @@ async fn enrolled(f: &Fixture) -> Uuid {
         },
     )
     .await
-    .unwrap_or_else(|e| panic!("enroll: {e:?}"));
-    host
+    .unwrap_or_else(|e| panic!("enroll: {e:?}"))
 }
 
 /// The principals of `host`'s newest certificate, sorted.
@@ -379,5 +383,104 @@ async fn suggestions_come_from_groups_and_are_never_assigned() {
     let left = brief(&listed(&f, Some(f.master)).await);
     assert_eq!(left.len(), 1, "{left:?}");
     assert_eq!(left[0].1, SuggestionAction::Remove);
+    f.h.finish().await;
+}
+
+/// The serial of each of `host`'s certificates, oldest first, with whether it is revoked.
+async fn certs(f: &Fixture, host: Uuid) -> Vec<(u64, bool)> {
+    let rows: Vec<(i64, bool)> = sqlx::query_as(
+        "select serial, revoked_at is not null from ssh_certs where host_id = $1 order by id",
+    )
+    .bind(host)
+    .fetch_all(&f.h.db.owner)
+    .await
+    .expect("certificates");
+    rows.into_iter()
+        .map(|(s, r)| (keel_server::hosts::serial_from_db(s), r))
+        .collect()
+}
+
+fn in_krl(f: &Fixture, cert: &russh::keys::Certificate) -> bool {
+    f.h.app
+        .ssh
+        .get()
+        .expect("CAs")
+        .krl
+        .is_certificate_revoked(cert)
+}
+
+/// Owner decision 2026-11-17, "revoke via KRL": the certificate a profile change superseded is
+/// revoked once the runner shows it holds a newer one, and a runner that was offline is never
+/// locked out.
+#[tokio::test]
+async fn superseded_certificate_is_revoked_once_the_runner_holds_the_new_one() {
+    use keel_server::hosts::{CertSettlement, settle_certs};
+    use russh::keys::Certificate;
+
+    let Some(f) = Fixture::new("host_profiles_krl", false).await else {
+        return;
+    };
+    let (host, old) = enrolled_with_cert(&f).await;
+    let old = Certificate::from_openssh(&old).expect("enrolled certificate");
+    // The runner is offline: nothing receives the push.
+    f.h.step_up(&f.h.owner).await;
+    let (token, _) = preview(&f, change(host, &["debian"], &[])).await;
+    assert!(matches!(
+        confirm(&f, token).await.first(),
+        Some(Event::Confirmed { .. })
+    ));
+    let issued = certs(&f, host).await;
+    assert_eq!(issued.len(), 2);
+    let new = issued[1].0;
+    assert!(
+        issued.iter().all(|c| !c.1),
+        "the old certificate stays valid until the runner has the new one: {issued:?}"
+    );
+    assert!(!in_krl(&f, &old));
+
+    // Back with the old certificate: not locked out; it is pushed a fresh one, and the old one
+    // stays valid.
+    let s = settle_certs(&f.h.app, host, old.serial())
+        .await
+        .expect("settle");
+    assert!(s.revoked.is_empty(), "{s:?}");
+    let pushed = s.pushed.expect("a certificate the runner missed is pushed");
+    let after = certs(&f, host).await;
+    assert_eq!(after.len(), 3);
+    assert_eq!(after[2].0, pushed);
+    assert!(after.iter().all(|c| !c.1), "{after:?}");
+    assert_eq!(
+        principals(&f, host).await,
+        vec!["host:node-2", "profile:debian", "profile:keel-node"]
+    );
+
+    // Using a newer certificate revokes the superseded one, into the KRL, audited. Certificates
+    // with the current principals (the change's and the push's) stay valid.
+    let s = settle_certs(&f.h.app, host, pushed).await.expect("settle");
+    assert_eq!(s.revoked, vec![old.serial()]);
+    assert_eq!(s.pushed, None);
+    assert_eq!(
+        certs(&f, host).await,
+        vec![(old.serial(), true), (new, false), (pushed, false)]
+    );
+    assert!(in_krl(&f, &old), "the KRL now names the old certificate");
+    let (actor, context): (String, serde_json::Value) = sqlx::query_as(
+        "select actor, context from audit_event where action = 'host_cert_superseded' \
+         and target->>'host' = $1",
+    )
+    .bind(host.to_string())
+    .fetch_one(&f.h.db.owner)
+    .await
+    .expect("audited");
+    assert_eq!(actor, format!("host:{host}"));
+    assert_eq!(
+        context["serials"],
+        serde_json::json!([old.serial().to_string()])
+    );
+    assert_eq!(context["by"], serde_json::json!(pushed.to_string()));
+
+    // Settled: nothing more to do.
+    let s = settle_certs(&f.h.app, host, new).await.expect("settle");
+    assert_eq!(s, CertSettlement::default());
     f.h.finish().await;
 }

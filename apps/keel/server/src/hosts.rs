@@ -166,7 +166,7 @@ pub(crate) const fn serial_to_db(s: u64) -> i64 {
     i64::from_ne_bytes(s.to_ne_bytes())
 }
 
-pub(crate) const fn serial_from_db(s: i64) -> u64 {
+pub const fn serial_from_db(s: i64) -> u64 {
     u64::from_ne_bytes(s.to_ne_bytes())
 }
 
@@ -451,6 +451,91 @@ pub(crate) async fn renew(app: &AppState, host: Uuid) -> Result<String, SshError
     .await?;
     tx.commit().await?;
     cert.to_openssh().map_err(|e| SshError::Ca(e.to_string()))
+}
+
+/// What [`settle_certs`] did for one runner session.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct CertSettlement {
+    /// Older certificates with other principals, now revoked and in the KRL.
+    pub revoked: Vec<u64>,
+    /// A fresh certificate pushed because the session's one predates a profile change.
+    pub pushed: Option<u64>,
+}
+
+/// After a runner authenticates with the certificate `serial` (spec 068 T038, owner decision
+/// 2026-11-17 "revoke via KRL"):
+///
+/// - Every older, unrevoked certificate of `host` whose principals differ from this one is
+///   revoked and the KRL is rebroadcast: the runner has shown it holds the newer certificate,
+///   so the one a profile change superseded can go. Renewals keep their principals and revoke
+///   nothing.
+/// - When a newer certificate with other principals exists (the runner was offline when its
+///   profiles changed and never got the push), a fresh certificate is issued and pushed to the
+///   session. The old one stays valid until the runner comes back with the new one, so an
+///   offline runner is never locked out.
+///
+/// # Errors
+///
+/// A database or CA failure.
+pub async fn settle_certs(
+    app: &AppState,
+    host: Uuid,
+    serial: u64,
+) -> Result<CertSettlement, SshError> {
+    let mut out = CertSettlement::default();
+    let mut tx = app.db.begin().await?;
+    let revoked: Vec<(i64,)> = sqlx::query_as(
+        "update ssh_certs o set revoked_at = now() from ssh_certs s \
+         where s.host_id = $1 and s.serial = $2 and o.host_id = $1 and o.id < s.id \
+         and o.revoked_at is null and o.principals <> s.principals \
+         returning o.serial",
+    )
+    .bind(host)
+    .bind(serial_to_db(serial))
+    .fetch_all(&mut *tx)
+    .await?;
+    out.revoked = revoked.iter().map(|r| serial_from_db(r.0)).collect();
+    if !out.revoked.is_empty() {
+        let ws: Option<Uuid> = sqlx::query_scalar("select workspace_id from hosts where id = $1")
+            .bind(host)
+            .fetch_optional(&mut *tx)
+            .await?;
+        audit::record(
+            &mut tx,
+            Entry {
+                actor: &Actor::Host(host),
+                action: "host_cert_superseded",
+                workspace: ws.map(WorkspaceId),
+                target: json!({ "host": host }),
+                decision: Decision::Allowed,
+                reason: None,
+                context: json!({
+                    "serials": out.revoked.iter().map(u64::to_string).collect::<Vec<_>>(),
+                    "by": serial.to_string(),
+                }),
+            },
+        )
+        .await?;
+    }
+    let (behind,): (bool,) = sqlx::query_as(
+        "select exists (select 1 from ssh_certs n join ssh_certs s on s.host_id = n.host_id \
+         where s.host_id = $1 and s.serial = $2 and n.id > s.id \
+         and n.principals <> s.principals)",
+    )
+    .bind(host)
+    .bind(serial_to_db(serial))
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    if !out.revoked.is_empty() {
+        publish_krl(app).await;
+    }
+    if behind {
+        let line = renew(app, host).await?;
+        out.pushed = Certificate::from_openssh(&line).ok().map(|c| c.serial());
+        app.runs.send(host, Frame::Cert { cert: line });
+    }
+    Ok(out)
 }
 
 // ---- enrollment tokens -----------------------------------------------------------------------
