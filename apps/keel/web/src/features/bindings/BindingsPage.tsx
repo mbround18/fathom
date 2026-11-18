@@ -33,6 +33,7 @@ import { canAdminister, canOperate, useWorkspaces } from '@/features/hosts/works
 import type { BindingInfo, CredentialInfo, CredentialKind, JobSummary, Transport } from '@/protocol/wire'
 
 import { ErrorLine, Field, PreviewDialog, WorkspacePicker } from './parts'
+import { RequiredChecks } from './RequiredChecks'
 import { short, useRepos } from './store'
 
 function tone(status: string): string {
@@ -53,6 +54,7 @@ const KINDS: { kind: CredentialKind; label: string }[] = [
   { kind: 'vault_password', label: 'Vault password' },
   { kind: 'env', label: 'Environment' },
   { kind: 'secret_vars', label: 'Secret vars' },
+  { kind: 'env_value', label: 'Environment value' },
 ]
 
 /**
@@ -288,6 +290,7 @@ function Detail({ binding, canSync, canAct }: { binding: BindingInfo; canSync: b
             empty="No jobs at this commit. Jobs come from the repository's .keel/jobs.yaml."
           />
         </div>
+        <RequiredChecks key={`${binding.id}:${String(binding.checks_timeout_secs)}`} binding={binding} canAct={canAct} />
         {canAct && (
           <div className="flex min-w-0 flex-wrap items-end gap-2">
             <Field label="Grant a credential" id={`${id}-grant`}>
@@ -441,6 +444,11 @@ function Credentials({ canAct }: { canAct: boolean }) {
           <Button type="submit" size="sm">
             Preview credential
           </Button>
+          {kind === 'env_value' && (
+            <p data-kind-hint className="w-full text-xs text-muted-foreground">
+              One line, no NUL. A job's <code className="font-mono">env:</code> names the variable it is set as on the host.
+            </p>
+          )}
         </form>
       )}
     </section>

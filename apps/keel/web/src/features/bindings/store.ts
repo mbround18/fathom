@@ -52,6 +52,8 @@ export interface ReposState {
   /** A receiver's secret, shown once. */
   secret: { url: string; secret: string } | null
   error: string | null
+  /** The `OpError` code behind `error`, when it was one (spec 068: `checks_unsupported`). */
+  errorCode: string | null
   /** Picks the workspace and loads its lists. */
   load: (workspace: string) => void
   open: (binding: string | null) => void
@@ -114,6 +116,7 @@ export const useRepos = create<ReposState>()((set, get) => ({
   preview: null,
   secret: null,
   error: null,
+  errorCode: null,
 
   load: (workspace) => {
     if (get().workspace !== workspace) {
@@ -141,7 +144,7 @@ export const useRepos = create<ReposState>()((set, get) => ({
     else send({ type: 'GetBinding', data: { binding } })
   },
   propose: (cmd) => {
-    set({ error: null, preview: null })
+    set({ error: null, errorCode: null, preview: null })
     send(cmd)
   },
   confirm: async () => {
@@ -167,7 +170,7 @@ export const useRepos = create<ReposState>()((set, get) => ({
     set({ secret: null })
   },
   clearError: () => {
-    set({ error: null })
+    set({ error: null, errorCode: null })
   },
 }))
 
@@ -219,10 +222,10 @@ onServerEvent(({ reply_to, event }) => {
       if (ours) useRepos.setState({ preview: null })
       break
     case 'OpError':
-      if (ours) useRepos.setState({ error: event.data.message, preview: null })
+      if (ours) useRepos.setState({ error: event.data.message, errorCode: event.data.code, preview: null })
       break
     case 'Denied':
-      if (ours) useRepos.setState({ error: `Not allowed: ${event.data.reason}`, preview: null })
+      if (ours) useRepos.setState({ error: `Not allowed: ${event.data.reason}`, errorCode: null, preview: null })
       break
     default:
       break
