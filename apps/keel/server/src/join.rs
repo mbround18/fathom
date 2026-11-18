@@ -578,6 +578,13 @@ async fn join_admitted(
     let Ok(ws) = Uuid::parse_str(&claims.sub) else {
         return refuse(None, Some(claims.jti), "malformed_token").await;
     };
+    // A relay carries joins into its own workspace only (T066 F4); the caller records the
+    // refusal against the relay, since the relay, not the token, is the suspect.
+    if let Some(relay) = path.relay()
+        && crate::relays::relay_workspace(&app.db, relay).await != Some(ws)
+    {
+        return Ok(JoinOutcome::Closed("workspace_mismatch"));
+    }
     let mut tx = app.db.begin().await?;
     expire_stale(&mut tx, ws).await?;
     let existing: Option<Existing> = sqlx::query_as(
@@ -838,6 +845,10 @@ pub async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
         Ok(JoinOutcome::Rejected(reason)) => {
             tracing::info!(%reason, %path, "join request rejected");
             Frame::JoinRejected { reason }
+        }
+        Ok(JoinOutcome::Closed("workspace_mismatch")) => {
+            app.relay_live.refused(path, "workspace_mismatch", "join");
+            return;
         }
         Ok(JoinOutcome::Closed(reason)) => {
             tracing::info!(reason, %path, "join attempt refused");

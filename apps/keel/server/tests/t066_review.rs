@@ -280,7 +280,6 @@ async fn t066_f3_bare_key_session_outlives_auth_deadline() {
 ///
 /// Secure: a runner session for a host outside the relay's workspace is refused.
 #[tokio::test]
-#[ignore = "T066 finding: fails today"]
 async fn t066_f4_relay_carries_another_workspaces_runner() {
     let Some((h, _zone)) = harness("t066_f4").await else {
         return;
@@ -374,10 +373,61 @@ async fn t066_f4_relay_carries_another_workspaces_runner() {
             .fetch_one(&h.db.owner)
             .await
             .expect("host");
+
+    // Refusals coalesce per relay and reason: close the runner's window first.
+    sup.flush_refusals(true).await;
+
+    // Nor does it enrol a host into workspace A, and the token is left as it was.
+    let (enrollment, token) = mint(&h, "web-b").await;
+    let mut ssh = connect_over(&h, &side.handle, 8).await;
+    bare_auth(&mut ssh).await;
+    let mut enrolled = None;
+    if let Ok(mut stream) = open_subsystem(&ssh, Subsystem::Enroll).await {
+        let enroll = frames::Frame::Enroll {
+            token: frames::SecretString::new(token),
+            inventory_name: "web-b".to_owned(),
+            allowed_profiles: allowed.clone(),
+            require_signed: false,
+        };
+        if write_frame(&mut stream, &enroll).await.is_ok() {
+            enrolled = tokio::time::timeout(Duration::from_secs(10), read_frame(&mut stream))
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .flatten();
+        }
+    }
+    let (burned,): (Option<String>,) =
+        sqlx::query_as("select burned_reason from host_enrollments where id = $1")
+            .bind(enrollment)
+            .fetch_one(&h.db.owner)
+            .await
+            .expect("enrollment");
+    // The refusal is noted once the enroll subsystem returns, just after the stream closes.
+    let mut refused = Vec::new();
+    for _ in 0..50 {
+        sup.flush_refusals(true).await;
+        refused = relay_kit::refused(&h, "workspace_mismatch").await;
+        if refused.iter().any(|r| r["detail"] == "enroll") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     sup.shutdown();
     h.finish().await;
     assert!(
         path.is_none(),
         "workspace B's relay carries workspace A's runner: path={path:?} last_path={last_path:?}"
+    );
+    assert!(
+        enrolled.is_none(),
+        "enrolled over another workspace's relay: {enrolled:?}"
+    );
+    assert_eq!(burned, None, "the token was burned");
+    let details: Vec<_> = refused.iter().map(|r| r["detail"].clone()).collect();
+    assert!(
+        details.contains(&serde_json::json!(host_id.to_string()))
+            && details.contains(&serde_json::json!("enroll")),
+        "{refused:?}"
     );
 }

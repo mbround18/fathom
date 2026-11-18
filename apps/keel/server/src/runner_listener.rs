@@ -250,16 +250,25 @@ impl Service {
                 let _ = tokio::time::timeout(NON_RUNNER_LIFETIME, self.enroll(&key, stream)).await;
             }
             Access::RenewOnly { host_id } => {
-                self.start();
-                if let Ok(host) = Uuid::parse_str(&host_id) {
-                    renew_only(&self.app, host, stream).await;
+                let Ok(host) = Uuid::parse_str(&host_id) else {
+                    return true;
+                };
+                if !self.host_within_relay(host).await {
+                    self.refused("workspace_mismatch", &host.to_string());
+                    return true;
                 }
+                self.start();
+                renew_only(&self.app, host, stream).await;
             }
             Access::Runner(identity) => {
                 self.start();
                 let Ok(host) = Uuid::parse_str(&identity.runner_id) else {
                     return true;
                 };
+                if !self.host_within_relay(host).await {
+                    self.refused("workspace_mismatch", &host.to_string());
+                    return true;
+                }
                 let path = self.path.clone();
                 let Err(e) =
                     crate::queue::attach_on(self.app.clone(), host, stream, path.clone()).await
@@ -286,9 +295,45 @@ impl Service {
         {
             return;
         }
-        if let Err(reason) = enroll(&self.app, key, stream).await {
-            self.refused("enroll_refused", reason.as_str());
+        let Some(within) = self.relay_workspace().await else {
+            self.refused("workspace_mismatch", "enroll");
+            return;
+        };
+        match enroll_within(&self.app, key, stream, within).await {
+            Ok(()) => {}
+            Err(EnrollEnd::Refused(EnrollRefusal::WorkspaceMismatch)) => {
+                self.refused("workspace_mismatch", "enroll");
+            }
+            Err(reason) => self.refused("enroll_refused", reason.as_str()),
         }
+    }
+
+    /// The workspace this connection is bound to (T066 F4): `Some(None)` on a direct path,
+    /// `Some(Some(ws))` for a relay's, `None` when the relay's cannot be read (fail closed).
+    async fn relay_workspace(&self) -> Option<Option<Uuid>> {
+        match self.path.relay() {
+            None => Some(None),
+            Some(relay) => crate::relays::relay_workspace(&self.app.db, relay)
+                .await
+                .map(Some),
+        }
+    }
+
+    /// Whether `host` may be served on this path: always on a direct one, and over a relay only
+    /// when the host is in the relay's workspace. A relay never carries another workspace's
+    /// runner, whatever key it holds (T066 F4).
+    async fn host_within_relay(&self, host: Uuid) -> bool {
+        let Some(within) = self.relay_workspace().await else {
+            return false;
+        };
+        let Some(ws) = within else { return true };
+        sqlx::query_as::<_, (Uuid,)>("select workspace_id from hosts where id = $1")
+            .bind(host)
+            .fetch_optional(&self.app.db)
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|(host_ws,)| host_ws == ws)
     }
 }
 
@@ -357,6 +402,9 @@ pub enum EnrollRefusal {
     HostExists,
     ProfileMissing,
     CaUnavailable,
+    /// The token is for another workspace than the relay that carried it (T066 F4). Neither
+    /// burned nor audited as an enrollment: the relay is the suspect, not the token.
+    WorkspaceMismatch,
 }
 
 impl EnrollRefusal {
@@ -375,6 +423,7 @@ impl EnrollRefusal {
             Self::HostExists => "host_exists",
             Self::ProfileMissing => "profile_missing",
             Self::CaUnavailable => "ca_unavailable",
+            Self::WorkspaceMismatch => "workspace_mismatch",
         }
     }
 }
@@ -417,7 +466,17 @@ impl EnrollEnd {
 pub async fn enroll<S: AsyncRead + AsyncWrite + Unpin>(
     app: &AppState,
     key: &KeyData,
+    stream: S,
+) -> Result<(), EnrollEnd> {
+    enroll_within(app, key, stream, None).await
+}
+
+/// [`enroll`], refusing a token for any workspace but `within` when it is set (a relay's).
+async fn enroll_within<S: AsyncRead + AsyncWrite + Unpin>(
+    app: &AppState,
+    key: &KeyData,
     mut stream: S,
+    within: Option<Uuid>,
 ) -> Result<(), EnrollEnd> {
     let read = codec::read_frame_capped(&mut stream, crate::join::FIRST_FRAME_MAX);
     let frame = match tokio::time::timeout(FIRST_FRAME_TIMEOUT, read).await {
@@ -442,7 +501,7 @@ pub async fn enroll<S: AsyncRead + AsyncWrite + Unpin>(
         allowed_profiles: &allowed_profiles,
         require_signed,
     };
-    match enroll_key(app, key, &req).await {
+    match enroll_key_within(app, key, &req, within).await {
         Ok((host_id, cert)) => {
             let _ = codec::write_frame(
                 &mut stream,
@@ -481,6 +540,18 @@ struct Enrollment {
 ///
 /// `Err(Ok(reason))` for a refusal, `Err(Err(_))` when the database or the CA failed.
 pub async fn enroll_key(app: &AppState, key: &KeyData, req: &EnrollRequest<'_>) -> EnrollResult {
+    enroll_key_within(app, key, req, None).await
+}
+
+/// [`enroll_key`], refusing a token for any workspace but `within` when it is set: a relay
+/// enrols hosts into its own workspace only (T066 F4). That refusal leaves the token as it was
+/// and is recorded by the caller as a `relay.refused`, not a `host_enroll_refused`.
+async fn enroll_key_within(
+    app: &AppState,
+    key: &KeyData,
+    req: &EnrollRequest<'_>,
+    within: Option<Uuid>,
+) -> EnrollResult {
     let fail = |e: sqlx::Error| Err(Err(hosts::SshError::Db(e)));
     let Some(fp) = token_fingerprint(req.token) else {
         return match audit_refusal(app, None, None, EnrollRefusal::MalformedToken).await {
@@ -520,6 +591,10 @@ pub async fn enroll_key(app: &AppState, key: &KeyData, req: &EnrollRequest<'_>) 
             Err(e) => fail(e),
         };
     };
+    if within.is_some_and(|ws| ws != workspace) {
+        drop(tx);
+        return Err(Ok(EnrollRefusal::WorkspaceMismatch));
+    }
     let e = Enrollment {
         id,
         workspace,

@@ -2056,6 +2056,18 @@ async fn relay_usable(db: &PgPool, relay: Uuid) -> bool {
     .is_some_and(|(ok,)| ok)
 }
 
+/// The workspace relay `relay` belongs to, which bounds everything it carries (T066 F4):
+/// `None` when it cannot be read, which callers treat as a mismatch.
+pub(crate) async fn relay_workspace(db: &PgPool, relay: Uuid) -> Option<Uuid> {
+    sqlx::query_as::<_, (Uuid,)>("select workspace_id from relays where id = $1")
+        .bind(relay)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .map(|(ws,)| ws)
+}
+
 /// The advisory peer as [`RunnerPath`] keeps it: `addr:port`, `[v6]:port`. Display only.
 fn advisory_peer(addr: &str, port: u32) -> String {
     let addr = capped(addr);

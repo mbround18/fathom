@@ -169,3 +169,14 @@ Owner decisions of 2026-11-17 (tasks T059–T066). The relay host is treated as 
 - **Audit rows are coalesced** per relay and reason per minute, with a `count`.
 - **The advisory peer** a relay reports is used for display and audit only, never for any
   security decision.
+- **A relay is bound to its workspace** (T066 F4). Keel refuses any runner, renew, enroll or join
+  session a relay carries for another workspace:
+  - a runner or renewing host whose `hosts.workspace_id` is not the relay's;
+  - an enrollment token minted in another workspace, which is left unburned and is not audited
+    as `host_enroll_refused`, since the relay is the suspect and not the token;
+  - a join token whose workspace is not the relay's.
+
+  Each refusal closes the stream and is recorded as a coalesced `relay.refused` with reason
+  `workspace_mismatch`. Its detail is the host id, `enroll` or `join`. If Keel cannot read the
+  relay's workspace, it refuses. Zones are not checked: a relay may carry any host of its
+  workspace.
