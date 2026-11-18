@@ -24,6 +24,7 @@ import {
   Select,
   STATUS,
   TermTip,
+  Time,
   useReveal,
 } from '@companion/ui/kit'
 import { useId, useRef, useState, type SyntheticEvent } from 'react'
@@ -248,7 +249,7 @@ function Detail({ binding, canSync, canAct }: { binding: BindingInfo; canSync: b
           <dt className="text-muted-foreground">Last commit</dt>
           <dd className="font-mono">{short(binding.last_commit)}</dd>
           <dt className="text-muted-foreground">Synced</dt>
-          <dd>{binding.last_synced_at ?? 'never'}</dd>
+          <dd>{binding.last_synced_at ? <Time at={binding.last_synced_at} /> : 'never'}</dd>
           <dt className="text-muted-foreground">Polling</dt>
           <dd>{binding.poll_interval === null ? 'webhook only' : `every ${String(binding.poll_interval)}s`}</dd>
           {binding.last_sync_error && (

@@ -38,6 +38,7 @@ import {
   STATUS,
   Tabs,
   TermTip,
+  Time,
   useReveal,
   useSearchParam,
   type Column,
@@ -474,7 +475,7 @@ export default function HostsPage() {
       },
       { key: 'runner', header: 'Runner', className: 'w-20', cell: (h) => h.runner_version ?? '—' },
       { key: 'ansible', header: 'Ansible', className: 'w-20', cell: (h) => h.ansible_version ?? '—' },
-      { key: 'seen', header: 'Last seen', cell: (h) => <span className="tabular-nums">{h.last_seen_at ?? '—'}</span> },
+      { key: 'seen', header: 'Last seen', cell: (h) => (h.last_seen_at ? <Time at={h.last_seen_at} /> : <span className="text-muted-foreground">—</span>) },
     ],
     [show, relays],
   )
