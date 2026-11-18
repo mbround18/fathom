@@ -325,12 +325,47 @@ async fn a_channel_keel_does_not_accept_in_time_closes_the_runner() {
     );
 }
 
+/// T066: a carried stream that moves no bytes for `stream_idle_timeout` is closed; one that
+/// keeps moving bytes is not.
+#[tokio::test]
+async fn an_idle_stream_is_closed_and_a_busy_one_is_not() {
+    let relay = start(Limits {
+        stream_idle_timeout: Duration::from_millis(600),
+        ..limits()
+    })
+    .await;
+    let (_keel, mut runners) = keel(&relay).await;
+
+    let mut busy = TcpStream::connect(relay.runner).await.unwrap();
+    let mut busy_chan = next_runner(&mut runners).await.channel.into_stream();
+    for _ in 0..8 {
+        busy.write_all(b"x").await.unwrap();
+        let mut b = [0u8; 1];
+        tokio::time::timeout(WAIT, busy_chan.read_exact(&mut b))
+            .await
+            .expect("busy stream stalled")
+            .expect("busy stream closed");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    let mut idle = TcpStream::connect(relay.runner).await.unwrap();
+    let _idle_chan = next_runner(&mut runners).await;
+    let started = Instant::now();
+    closed(&mut idle).await;
+    assert!(
+        started.elapsed() >= Duration::from_millis(500),
+        "closed after {:?}, before the idle timeout",
+        started.elapsed()
+    );
+}
+
 #[test]
 fn the_default_limits_are_the_contracts() {
     let l = Limits::default();
     assert_eq!(l.max_streams, 256);
     assert_eq!(l.max_pending_accepts, 64);
     assert_eq!(l.channel_accept_timeout, Duration::from_secs(20));
+    assert_eq!(l.stream_idle_timeout, relay::LINK_INACTIVITY);
     assert_eq!(Limits::from_config(&config(9)).max_streams, 9);
 }
 

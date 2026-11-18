@@ -7,14 +7,15 @@
 //! accepts the channel, and nothing is buffered beyond the copy buffers and the channel window.
 //!
 //! Limits: at most `max_streams` streams (pending ones included), at most `max_pending_accepts`
-//! channels waiting for Keel, and Keel has `channel_accept_timeout` to accept one. Logs carry the
-//! peer and byte counts, never contents.
+//! channels waiting for Keel, and Keel has `channel_accept_timeout` to accept one. A stream that
+//! passes no bytes either way for `stream_idle_timeout` is closed. Logs carry the peer and byte
+//! counts, never contents.
 
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -79,20 +80,66 @@ pub(crate) async fn serve(
         };
         let _ = tcp.set_nodelay(true);
         let shared = shared.clone();
-        let accept_timeout = limits.channel_accept_timeout;
+        let timeouts = Timeouts {
+            accept: limits.channel_accept_timeout,
+            idle: limits.stream_idle_timeout,
+        };
         tokio::spawn(async move {
-            carry(tcp, peer, link, shared, accept_timeout, stream, waiting).await;
+            carry(tcp, peer, link, shared, timeouts, stream, waiting).await;
         });
     }
 }
 
-/// Counts the bytes read through it.
-struct Counted<S> {
-    inner: S,
-    read: u64,
+/// A carried stream's timeouts: Keel's accept, and inactivity once carried.
+#[derive(Clone, Copy)]
+struct Timeouts {
+    accept: Duration,
+    idle: Duration,
 }
 
-impl<S: AsyncRead + Unpin> AsyncRead for Counted<S> {
+/// When a stream last moved bytes either way, as milliseconds since it opened.
+struct Activity {
+    opened: Instant,
+    last_ms: AtomicU64,
+}
+
+impl Activity {
+    fn new() -> Self {
+        Self {
+            opened: Instant::now(),
+            last_ms: AtomicU64::new(0),
+        }
+    }
+
+    fn touch(&self) {
+        let ms = u64::try_from(self.opened.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.last_ms.store(ms, Ordering::Relaxed);
+    }
+
+    fn last(&self) -> Instant {
+        self.opened + Duration::from_millis(self.last_ms.load(Ordering::Relaxed))
+    }
+
+    /// Returns once no bytes have moved for `idle`.
+    async fn idle(&self, idle: Duration) {
+        loop {
+            let due = self.last() + idle;
+            if Instant::now() >= due {
+                return;
+            }
+            tokio::time::sleep_until(due.into()).await;
+        }
+    }
+}
+
+/// Counts the bytes read through it and notes the activity.
+struct Counted<'a, S> {
+    inner: S,
+    read: u64,
+    activity: &'a Activity,
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for Counted<'_, S> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -101,12 +148,15 @@ impl<S: AsyncRead + Unpin> AsyncRead for Counted<S> {
         let before = buf.filled().len();
         let poll = Pin::new(&mut self.inner).poll_read(cx, buf);
         let n = buf.filled().len() - before;
-        self.read += n as u64;
+        if n > 0 {
+            self.read += n as u64;
+            self.activity.touch();
+        }
         poll
     }
 }
 
-impl<S: AsyncWrite + Unpin> AsyncWrite for Counted<S> {
+impl<S: AsyncWrite + Unpin> AsyncWrite for Counted<'_, S> {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -138,7 +188,7 @@ async fn carry(
     peer: SocketAddr,
     link: Arc<Link>,
     shared: Arc<Shared>,
-    accept_timeout: Duration,
+    timeouts: Timeouts,
     _stream: OwnedSemaphorePermit,
     waiting: OwnedSemaphorePermit,
 ) {
@@ -151,7 +201,7 @@ async fn carry(
         u32::from(peer.port()),
     );
     let opened = tokio::select! {
-        opened = tokio::time::timeout(accept_timeout, open) => opened,
+        opened = tokio::time::timeout(timeouts.accept, open) => opened,
         _ = closed.wait_for(|c| *c) => {
             tracing::info!(%peer, link = link.id, "runner connection closed: link went down");
             return;
@@ -168,7 +218,7 @@ async fn carry(
             tracing::warn!(
                 %peer,
                 link = link.id,
-                timeout_s = accept_timeout.as_secs_f32(),
+                timeout_s = timeouts.accept.as_secs_f32(),
                 "Keel did not accept the runner channel in time"
             );
             return;
@@ -179,13 +229,16 @@ async fn carry(
     let _active = Active(&shared);
     let started = Instant::now();
     tracing::info!(%peer, link = link.id, "stream open");
+    let activity = Activity::new();
     let mut runner = Counted {
         inner: tcp,
         read: 0,
+        activity: &activity,
     };
     let mut keel = Counted {
         inner: channel.into_stream(),
         read: 0,
+        activity: &activity,
     };
     let end = tokio::select! {
         r = tokio::io::copy_bidirectional(&mut runner, &mut keel) => match r {
@@ -193,6 +246,7 @@ async fn carry(
             Err(e) => format!("error: {e}"),
         },
         _ = closed.wait_for(|c| *c) => "link went down".to_owned(),
+        () = activity.idle(timeouts.idle) => "idle".to_owned(),
     };
     tracing::info!(
         %peer,

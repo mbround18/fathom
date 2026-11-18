@@ -51,6 +51,9 @@ pub struct Limits {
     pub link_setup_timeout: Duration,
     /// Link connections still in handshake or authentication at once (16).
     pub max_link_setups: usize,
+    /// How long a carried stream may pass no bytes either way before the relay closes it
+    /// (`LINK_INACTIVITY`, 120 s; T066). A runner's SSH keepalives keep a live one busy.
+    pub stream_idle_timeout: Duration,
 }
 
 impl Default for Limits {
@@ -61,6 +64,7 @@ impl Default for Limits {
             channel_accept_timeout: keel_exec::relay::RUNNER_CHANNEL_TIMEOUT,
             link_setup_timeout: keel_exec::relay::HELLO_TIMEOUT,
             max_link_setups: 16,
+            stream_idle_timeout: keel_exec::relay::LINK_INACTIVITY,
         }
     }
 }
