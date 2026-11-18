@@ -88,9 +88,29 @@ pub struct PlannedStep {
     pub via: Vec<String>,
 }
 
+/// A job a host's profiles reach that the plan leaves out (spec 068 T074): it has a required
+/// param (a `choice` with no `default`), and a converge sends no params. Start it by hand.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedStep {
+    pub job: String,
+    /// The profile path that reached it, as [`PlannedStep::via`].
+    pub via: Vec<String>,
+    /// The first required param.
+    pub param: String,
+}
+
+/// One host's plan with what it left out: see [`host_steps`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HostSteps {
+    pub steps: Vec<PlannedStep>,
+    /// Manual-only jobs the profiles reach, each once, in the order they were reached.
+    pub skipped: Vec<SkippedStep>,
+}
+
 struct Walk<'m> {
     m: &'m Manifest,
     steps: Vec<PlannedStep>,
+    skipped: Vec<SkippedStep>,
     placed: BTreeSet<String>,
     /// Profiles already expanded: their jobs are placed, so a second include adds nothing.
     done: BTreeSet<String>,
@@ -140,8 +160,25 @@ impl Walk<'_> {
         Ok(())
     }
 
+    /// Places `job` at its first position. A manual-only job never becomes a step: the implicit
+    /// expansion reaches it (validation keeps it out of recipes), and it is reported rather than
+    /// failing the plan (spec 068 T074).
     fn place(&mut self, job: &str) {
-        if self.placed.insert(job.to_owned()) {
+        if !self.placed.insert(job.to_owned()) {
+            return;
+        }
+        let required = self
+            .m
+            .jobs
+            .get(job)
+            .and_then(|j| j.definition.required_params().next());
+        if let Some(param) = required {
+            self.skipped.push(SkippedStep {
+                job: job.to_owned(),
+                via: self.stack.clone(),
+                param: param.to_owned(),
+            });
+        } else {
             self.steps.push(PlannedStep {
                 job: job.to_owned(),
                 via: self.stack.clone(),
@@ -150,11 +187,12 @@ impl Walk<'_> {
     }
 }
 
-fn walk(profiles: &[String], m: &Manifest) -> Result<Vec<PlannedStep>, ExpandError> {
+fn walk(profiles: &[String], m: &Manifest) -> Result<HostSteps, ExpandError> {
     let roots: BTreeSet<&String> = profiles.iter().collect();
     let mut w = Walk {
         m,
         steps: Vec::new(),
+        skipped: Vec::new(),
         placed: BTreeSet::new(),
         done: BTreeSet::new(),
         stack: Vec::new(),
@@ -165,18 +203,26 @@ fn walk(profiles: &[String], m: &Manifest) -> Result<Vec<PlannedStep>, ExpandErr
     if w.steps.len() > MAX_PLAN_STEPS {
         return Err(ExpandError::TooManySteps(w.steps.len()));
     }
-    Ok(w.steps)
+    Ok(HostSteps {
+        steps: w.steps,
+        skipped: w.skipped,
+    })
 }
 
 /// The ordered jobs for `profiles`: the profiles in name order, each depth-first (includes,
-/// then jobs). A job reached twice keeps its first position.
+/// then jobs). A job reached twice keeps its first position. Manual-only jobs are left out
+/// ([`host_steps`] reports them).
 ///
 /// # Errors
 ///
 /// A cycle (named), an unknown profile or recipe job, more than [`MAX_PLAN_STEPS`] steps or
 /// includes deeper than [`MAX_INCLUDE_DEPTH`].
 pub fn expand(profiles: &[String], m: &Manifest) -> Result<Vec<String>, ExpandError> {
-    Ok(walk(profiles, m)?.into_iter().map(|s| s.job).collect())
+    Ok(walk(profiles, m)?
+        .steps
+        .into_iter()
+        .map(|s| s.job)
+        .collect())
 }
 
 /// The transitive closure of every job's `covers`.
@@ -249,17 +295,31 @@ pub fn host_plan(
     m: &Manifest,
     cov: &Coverage,
 ) -> Result<Vec<PlannedStep>, ExpandError> {
-    let steps = walk(assigned, m)?;
+    Ok(host_steps(assigned, m, cov)?.steps)
+}
+
+/// [`host_plan`], with the manual-only jobs it skipped (spec 068 T074), for a preview to show.
+///
+/// # Errors
+///
+/// As [`expand`].
+pub fn host_steps(
+    assigned: &[String],
+    m: &Manifest,
+    cov: &Coverage,
+) -> Result<HostSteps, ExpandError> {
+    let HostSteps { steps, skipped } = walk(assigned, m)?;
     let covered: BTreeSet<&String> = steps
         .iter()
         .filter_map(|s| cov.get(&s.job))
         .flatten()
         .collect();
-    Ok(steps
+    let steps = steps
         .iter()
         .filter(|s| !covered.contains(&s.job))
         .cloned()
-        .collect())
+        .collect();
+    Ok(HostSteps { steps, skipped })
 }
 
 /// Whether a pending converge with `remaining` jobs still to run applies `job`: it runs `job`
@@ -598,7 +658,7 @@ mod tests {
             expand(&s(&["keel-node", "x"]), &m).unwrap(),
             s(&["debian", "keel-node"])
         );
-        let via = walk(&s(&["keel-node"]), &m).unwrap();
+        let via = walk(&s(&["keel-node"]), &m).unwrap().steps;
         assert_eq!(via[0].via, s(&["keel-node", "debian"]));
         assert_eq!(via[1].via, s(&["keel-node"]));
     }
@@ -866,7 +926,7 @@ mod tests {
             let assigned: Vec<String> = (0..take)
                 .map(|_| names[r.below(names.len())].clone())
                 .collect();
-            let Ok(steps) = walk(&assigned, &m) else {
+            let Ok(HostSteps { steps, .. }) = walk(&assigned, &m) else {
                 // Only the step bound can refuse an acyclic manifest; depth is ≤ 9 here.
                 continue;
             };

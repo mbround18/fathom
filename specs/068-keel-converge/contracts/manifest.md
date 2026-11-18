@@ -111,9 +111,19 @@ jobs:
 
 Unchanged: a job without `paths` never runs on a push. `provision` is one.
 
+A `choice` param with no `default` is **required** (T074), and a job with one is
+**manual-only**: a push, a converge and a baseline send no params, so only Start can run it.
+
+- A required param with `paths:` is refused (`required_param_paths`).
+- A recipe (`profiles.<p>.jobs`) listing a manual-only job is refused (`manual_only_recipe_job`).
+- A profile without a recipe still reaches it, and a converge skips it: the preview lists it
+  under the host's `skipped` (`needs_value`), not as a step and not as a refusal.
+- Start without the value is refused `param_invalid` ("The run's param stack is required.").
+- `oci_digest` params stay optional.
+
 ## Validation errors (new codes)
 
 `profile_cycle`, `unknown_include`, `unknown_recipe_job`, `duplicate_recipe_job`,
 `recipe_too_long`, `unknown_group_profile`, `unknown_cover`, `cover_cycle`, `self_cover`,
 `env_name_invalid`, `env_name_reserved`, `env_too_many`, `choice_shape`, `choice_from_missing`,
-`choice_from_too_many`, `choice_default`.
+`choice_from_too_many`, `choice_default`, `required_param_paths`, `manual_only_recipe_job`.

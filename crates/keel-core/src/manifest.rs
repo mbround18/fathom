@@ -177,6 +177,31 @@ pub struct JobDefinition {
     pub env: BTreeMap<String, String>,
 }
 
+impl JobDefinition {
+    /// The params every run must send (spec 068 T074): each `choice` with no `default`, in name
+    /// order. See [`ParamSpec::required`].
+    pub fn required_params(&self) -> impl Iterator<Item = &str> {
+        self.params
+            .iter()
+            .filter(|(_, spec)| spec.required())
+            .map(|(name, _)| name.as_str())
+    }
+
+    /// Whether the job can only be started by hand: it has a required param, and a push, a
+    /// converge or a baseline sends no params. Validation refuses such a job with `paths:` or in
+    /// a profile recipe, and a converge's implicit expansion skips it.
+    #[must_use]
+    pub fn manual_only(&self) -> bool {
+        self.required_params().next().is_some()
+    }
+
+    /// The first required param `params` does not set, if any.
+    #[must_use]
+    pub fn missing_required(&self, params: &BTreeMap<String, String>) -> Option<&str> {
+        self.required_params().find(|n| !params.contains_key(*n))
+    }
+}
+
 /// The most params one job may declare.
 pub const MAX_PARAMS: usize = 8;
 
@@ -209,6 +234,14 @@ impl ParamSpec {
             from: None,
             default: None,
         }
+    }
+
+    /// Whether every run must send this param (spec 068 T074): a `choice` with no `default`.
+    /// An `oci_digest` param stays optional (the `keel-server` job's digest is left out of push
+    /// runs on purpose, spec 061).
+    #[must_use]
+    pub fn required(&self) -> bool {
+        self.kind == ParamKind::Choice && self.default.is_none()
     }
 
     /// A `choice` param's allowed values at `tree`: `values`, or the matching subdirectory names
@@ -453,6 +486,17 @@ pub fn validate(
     }
 
     let declared_jobs: BTreeSet<String> = raw.jobs.keys().cloned().collect();
+    // Job → its first required param (spec 068 T074): a recipe cannot list such a job.
+    let manual_only: BTreeMap<String, String> = raw
+        .jobs
+        .iter()
+        .filter_map(|(name, job)| {
+            job.params
+                .iter()
+                .find(|(_, spec)| spec.required())
+                .map(|(p, _)| (name.clone(), p.clone()))
+        })
+        .collect();
     let mut jobs = BTreeMap::new();
     for (name, job) in raw.jobs {
         let at = format!("jobs.{name}");
@@ -476,7 +520,7 @@ pub fn validate(
         }
     }
 
-    validate_recipes(&profiles, &declared_jobs, &mut issues);
+    validate_recipes(&profiles, &declared_jobs, &manual_only, &mut issues);
     validate_groups(&raw.groups, &profiles, &mut issues);
 
     if issues.is_empty() {
@@ -602,6 +646,17 @@ fn validate_job(
                 issues.push(ManifestIssue::new(&pat, "not a valid glob"));
             }
         }
+        // Spec 068 T074: a push sends no params, so a job that needs one cannot have triggers.
+        if let Some((name, _)) = job.params.iter().find(|(_, spec)| spec.required()) {
+            issues.push(ManifestIssue::coded(
+                format!("{at}.paths"),
+                "required_param_paths",
+                format!(
+                    "param '{name}' is a choice with no default, so the job is manual only: \
+                     remove paths, or give the param a default"
+                ),
+            ));
+        }
     }
 
     let timeout_secs = match job.timeout.as_deref().map(parse_duration) {
@@ -717,10 +772,12 @@ fn validate_env(at: &str, env: &BTreeMap<String, String>, issues: &mut Vec<Manif
     }
 }
 
-/// `profiles.<p>.includes` and `.jobs`: declared names, no job twice in one recipe.
+/// `profiles.<p>.includes` and `.jobs`: declared names, no job twice in one recipe, and no
+/// manual-only job (`manual_only`: job → its first required param; spec 068 T074).
 fn validate_recipes(
     profiles: &BTreeMap<String, Profile>,
     declared_jobs: &BTreeSet<String>,
+    manual_only: &BTreeMap<String, String>,
     issues: &mut Vec<ManifestIssue>,
 ) {
     for (name, p) in profiles {
@@ -747,6 +804,15 @@ fn validate_recipes(
                     &at,
                     "duplicate_recipe_job",
                     format!("job '{job}' is listed twice"),
+                ));
+            } else if let Some(param) = manual_only.get(job) {
+                issues.push(ManifestIssue::coded(
+                    &at,
+                    "manual_only_recipe_job",
+                    format!(
+                        "job '{job}' needs a value for param '{param}' (a choice with no \
+                         default), so a converge cannot run it: start it by hand"
+                    ),
                 ));
             }
         }

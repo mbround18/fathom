@@ -1,7 +1,7 @@
 //! Spec 068 manifest additions (contracts/manifest.md): recipes, `groups`, `covers` and `env`,
 //! and FR-016 / SC-006: a manifest without them validates exactly as before.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use keel_core::converge::{self, MAX_PLAN_STEPS};
 use keel_core::manifest::{Context, Manifest, ManifestIssue, PathKind, RepoTree, validate};
@@ -252,4 +252,111 @@ fn the_fixture_repo_manifest_validates_unchanged() {
     let yaml = include_str!("fixtures/ansible-repo/.keel/jobs.yaml");
     let m = ok(yaml);
     assert!(m.profiles.values().all(|p| !p.has_recipe()));
+}
+
+/// Spec 068 T074: a `choice` param with no `default` is required, which makes its job
+/// manual-only (contracts/ansible.md §7 `provision`).
+const MANUAL: &str = r#"
+version: 1
+profiles:
+  prox-vm: {}
+  gameserver: {}
+inventories:
+  fleet: { path: inventory/hosts.yml }
+jobs:
+  prox-base: { playbook: playbooks/b.yaml, profiles: [prox-vm], inventory: fleet }
+  provision:
+    playbook: playbooks/provision.yaml
+    profiles: [prox-vm, gameserver]
+    inventory: fleet
+    params:
+      stack: { kind: choice, values: [web, db] }
+      size: { kind: choice, values: [s, m], default: s }
+"#;
+
+#[test]
+fn a_choice_without_a_default_is_required() {
+    let m = ok(MANUAL);
+    let def = &m.jobs["provision"].definition;
+    assert!(def.params["stack"].required());
+    assert!(!def.params["size"].required());
+    assert!(def.manual_only());
+    assert_eq!(def.required_params().collect::<Vec<_>>(), ["stack"]);
+    assert_eq!(def.missing_required(&BTreeMap::new()), Some("stack"));
+    let sent = BTreeMap::from([("stack".to_owned(), "web".to_owned())]);
+    assert_eq!(def.missing_required(&sent), None);
+    assert!(!m.jobs["prox-base"].definition.manual_only());
+}
+
+#[test]
+fn a_digest_param_stays_optional() {
+    let m = ok(&MANUAL.replace(
+        "stack: { kind: choice, values: [web, db] }",
+        "stack: { kind: oci_digest }",
+    ));
+    let def = &m.jobs["provision"].definition;
+    assert!(!def.params["stack"].required());
+    assert!(!def.manual_only());
+}
+
+#[test]
+fn a_required_param_with_paths_is_refused() {
+    let yaml = MANUAL.replace(
+        "    inventory: fleet\n    params:",
+        "    inventory: fleet\n    paths: ['composes/**']\n    params:",
+    );
+    let issues = codes(&yaml);
+    assert!(
+        has(&issues, "jobs.provision.paths", "required_param_paths"),
+        "{issues:?}"
+    );
+    // A default makes the param optional, so paths are fine again.
+    ok(&yaml.replace(
+        "stack: { kind: choice, values: [web, db] }",
+        "stack: { kind: choice, values: [web, db], default: web }",
+    ));
+}
+
+#[test]
+fn a_recipe_listing_a_manual_only_job_is_refused() {
+    let yaml = MANUAL.replace(
+        "  gameserver: {}",
+        "  gameserver:\n    jobs: [prox-base, provision]",
+    );
+    let issues = codes(&yaml);
+    assert!(
+        has(
+            &issues,
+            "profiles.gameserver.jobs",
+            "manual_only_recipe_job"
+        ),
+        "{issues:?}"
+    );
+}
+
+#[test]
+fn an_implicit_converge_skips_a_manual_only_job() {
+    let m = ok(MANUAL);
+    let cov = converge::coverage(&m).unwrap();
+    let assigned = vec!["prox-vm".to_owned()];
+    assert_eq!(converge::expand(&assigned, &m).unwrap(), ["prox-base"]);
+    let plan = converge::host_steps(&assigned, &m, &cov).unwrap();
+    assert_eq!(
+        plan.steps
+            .iter()
+            .map(|s| s.job.as_str())
+            .collect::<Vec<_>>(),
+        ["prox-base"]
+    );
+    assert_eq!(plan.skipped.len(), 1);
+    assert_eq!(plan.skipped[0].job, "provision");
+    assert_eq!(plan.skipped[0].param, "stack");
+    assert_eq!(plan.skipped[0].via, ["prox-vm"]);
+    // Reached through two profiles, it is reported once.
+    let both = vec!["gameserver".to_owned(), "prox-vm".to_owned()];
+    let plan = converge::host_steps(&both, &m, &cov).unwrap();
+    assert_eq!(plan.skipped.len(), 1);
+    // A profile whose only job is manual-only plans no steps, and that is not an error.
+    let only = vec!["gameserver".to_owned()];
+    assert!(converge::host_plan(&only, &m, &cov).unwrap().is_empty());
 }
