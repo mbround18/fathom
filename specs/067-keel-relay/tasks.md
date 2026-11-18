@@ -324,13 +324,15 @@ side, and anything an honest relay never does takes the relay out of service.
   conclusions, and is told to break it, either as a hostile relay or as an attacker on the
   link. Every finding is fixed or recorded with the owner's sign-off. Then run the
   `security-review` skill over the branch diff.
-- [ ] T067 Drop OpenSSL from the relay and runner binaries (owner decision 2026-11-17: rustls
+- [X] T067 Drop OpenSSL from the relay and runner binaries (owner decision 2026-11-17: rustls
   only). Today `keel-trust` → `web-passkeys` → `webauthn-rs-core` → `webauthn-attestation-ca` →
   `openssl` puts OpenSSL in `keel-exec`, `keel-relay` and `keel-runner` (`cargo tree -i
   openssl-sys`). Split what `keel-trust` needs from `web-passkeys` (assertion verification only)
   behind a feature or a small crate with no webauthn-rs attestation dependency, so `cargo tree -i
   openssl-sys -p keel-relay -p keel-runner -e normal` is empty; the server may keep it. Gate:
   keel-trust, keel-exec, keel-runner, keel-relay tests and clippy.
+  Done: `web-passkeys` gained a default `ceremonies` feature (webauthn-rs, store, recovery);
+  `keel-trust` takes it with `default-features = false`, so the `cargo tree` above is empty.
 
 ## Phase 5: User Story 3, see zones, relays and how each host is reached (P1)
 

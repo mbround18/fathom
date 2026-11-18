@@ -19,8 +19,9 @@ sha2 = "0.11"
 # SSH signatures (`sshsig`, namespace `git`) and certificates.
 ssh-key = { version = "0.6.7", features = ["ed25519", "p256"] }
 thiserror = "2"
-# Verify-only use of the passkey assertion check (T023).
-web-passkeys = { path = "../web-passkeys" }
+# Verify-only use of the passkey assertion check (T023). No `ceremonies` feature: it brings
+# webauthn-rs, and with it OpenSSL, into the runner and relay (spec 067 T067).
+web-passkeys = { path = "../web-passkeys", default-features = false }
 
 [dev-dependencies]
 # The vector generator (tests/gen/): approver passkeys, Git object ids and a seeded RNG for

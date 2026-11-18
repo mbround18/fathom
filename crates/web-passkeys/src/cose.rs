@@ -5,6 +5,7 @@
 //! EC2 P-256 key with `alg` ES256, and an OKP Ed25519 key with `alg` EdDSA. Decoding is strict:
 //! a definite-length map with integer labels, no duplicate labels, no trailing bytes.
 
+#[cfg(feature = "ceremonies")]
 use webauthn_rs::prelude::{COSEAlgorithm, COSEKey, COSEKeyType, ECDSACurve, EDDSACurve};
 
 use crate::verify::{CoseAlg, VerifyError};
@@ -133,6 +134,7 @@ impl CoseKey {
     }
 
     /// The key webauthn-rs recorded for a registered credential, if it is a supported one.
+    #[cfg(feature = "ceremonies")]
     pub fn from_webauthn(key: &COSEKey) -> Result<Self, CoseError> {
         match (&key.type_, &key.key) {
             (COSEAlgorithm::ES256, COSEKeyType::EC_EC2(ec))
