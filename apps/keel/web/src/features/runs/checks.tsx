@@ -32,17 +32,19 @@ function Check({ check }: { check: RunCheckView }) {
   const { Icon, className } = ICON[tone]
   const href = forgeLink(check.target_url)
   return (
-    <li data-check={check.context} data-check-state={check.state} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
-      <Icon aria-hidden weight="bold" className={`size-3.5 shrink-0 ${className}`} />
-      <span className="min-w-0 font-mono break-all">{check.context}</span>
-      <span className={tone === 'err' ? 'font-medium text-status-err' : 'text-muted-foreground'}>{checkLabel(check.state)}</span>
-      {href && (
-        <a href={href} target="_blank" rel="noreferrer noopener" className={`${LINK} inline-flex items-center gap-0.5`}>
-          details
-          <span className="sr-only"> for {check.context} on the forge</span>
-          <ArrowSquareOutIcon aria-hidden className="size-3" />
-        </a>
-      )}
+    <li data-check={check.context} data-check-state={check.state} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2">
+      <Icon aria-hidden weight="bold" className={`size-3.5 mt-0.5 shrink-0 self-start ${className}`} />
+      <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span className="min-w-0 font-mono break-all">{check.context}</span>
+        <span className={tone === 'err' ? 'font-medium text-status-err' : 'text-muted-foreground'}>{checkLabel(check.state)}</span>
+        {href && (
+          <a href={href} target="_blank" rel="noreferrer noopener" className={`${LINK} inline-flex items-center gap-0.5`}>
+            details
+            <span className="sr-only"> for {check.context} on the forge</span>
+            <ArrowSquareOutIcon aria-hidden className="size-3" />
+          </a>
+        )}
+      </span>
     </li>
   )
 }

@@ -56,7 +56,7 @@ export function RequiredChecks({ binding, canAct }: { binding: BindingInfo; canA
 
   return (
     <section aria-labelledby={`${id}-title`} data-required-checks className="flex min-w-0 flex-col gap-2">
-      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+      <div className="flex min-w-0 flex-col gap-0.5">
         <h3 id={`${id}-title`} className={LABEL}>
           Required checks
         </h3>
