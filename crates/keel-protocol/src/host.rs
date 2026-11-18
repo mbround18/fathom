@@ -146,6 +146,13 @@ pub struct HostInfo {
     pub age_recipient: Option<String>,
     /// Whether the primary repository's inventory lists it yet (spec 066).
     pub inventory_status: crate::repository::HostInventoryStatus,
+    /// Its zone; `None` is the implicit `direct` zone (spec 067).
+    #[serde(default)]
+    #[ts(type = "string | null")]
+    pub zone: Option<Uuid>,
+    /// Derived reach (spec 067, data-model.md).
+    #[serde(default)]
+    pub reach: crate::relay::HostReach,
 }
 
 /// One run outside Keel, as the host reported it: the host's claim, not something Keel checked

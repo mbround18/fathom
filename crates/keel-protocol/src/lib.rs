@@ -89,3 +89,10 @@ pub use repository::{
     HostInventoryStatus, MAX_API_BASE_BYTES, MAX_HOST_GROUPS, RepositorySpec, SopsDrift, SopsFile,
     SopsRule,
 };
+
+// Zones, relays, runner paths and host queries (spec 067)
+pub mod relay;
+pub use relay::{
+    HostQuery, HostReach, MAX_ZONE_DESCRIPTION_CHARS, QueryKind, QueryOutcome, RelayInfo,
+    RelayLinkKey, RelayLinkKeyState, RelayState, RunnerPath, ZoneDescription, ZoneInfo, ZoneName,
+};

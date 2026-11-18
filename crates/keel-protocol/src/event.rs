@@ -37,6 +37,8 @@ use crate::run::{
 use crate::update::{KeelBuild, UpdateStatus, UpdateStatusLine};
 // Workspaces, the repository catalog and hosts (spec 066)
 use crate::repository::{CatalogView, ChangeOutcome, EnrollmentIssued, ForgeConnectionInfo};
+// Zones, relays, runner paths and host queries (spec 067)
+use crate::relay::{HostQuery, HostReach, RelayInfo, RelayLinkKey, ZoneInfo};
 
 /// Every frame the server sends, and each element of `POST /api/v1/cmd`'s reply array.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -381,6 +383,25 @@ pub enum Event {
     },
     /// Reply to a confirmed `PreviewSopsRecipient` or `PreviewJobPropose`.
     ChangeProposed(ChangeOutcome),
+
+    // Zones and relays (spec 067)
+    /// Reply to `ListZones` and a confirmed zone change.
+    Zones { items: Vec<ZoneInfo> },
+    /// Reply to `ListRelays` and a confirmed relay change.
+    Relays { items: Vec<RelayInfo> },
+    /// Reply to `GetRelayLinkKeys` and a confirmed link key change.
+    RelayLinkKeys { items: Vec<RelayLinkKey> },
+    /// Pushed on a relay's live state change, registration, edit or revoke; RTT and stream count
+    /// at most every 30 s.
+    RelayChanged(RelayInfo),
+    /// Pushed when a host's derived reach changed.
+    HostReachChanged {
+        #[ts(type = "string")]
+        host: Uuid,
+        reach: HostReach,
+    },
+    /// Pushed on a host query's answer, refusal or timeout.
+    HostQueryAnswered(HostQuery),
 }
 
 impl EventEnvelope {

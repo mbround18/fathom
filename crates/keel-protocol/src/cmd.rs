@@ -28,6 +28,8 @@ use crate::host::{
 };
 // Workspaces, the repository catalog and hosts (spec 066)
 use crate::repository::{ApiBase, ForgeProvider, HostGroups, RepositorySpec};
+// Zones and relays (spec 067)
+use crate::relay::{ZoneDescription, ZoneName};
 // Signed mode: review and signers (US8)
 use crate::governance::Label as SignerLabel;
 use crate::review::{
@@ -800,6 +802,96 @@ pub enum Cmd {
         playbook: RepoPath,
         name: ObjectName,
     },
+
+    // Zones and relays (spec 067)
+    /// `Zones`: the workspace's zones with host and relay counts. View.
+    ListZones {
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// `Preview` (workspace admin); `Confirm` replies `Zones`.
+    PreviewZoneCreate {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        name: ZoneName,
+        description: ZoneDescription,
+    },
+    /// `Preview` (workspace admin); `Confirm` replies `Zones`.
+    PreviewZoneUpdate {
+        #[ts(type = "string")]
+        zone: Uuid,
+        name: ZoneName,
+        description: ZoneDescription,
+    },
+    /// `Preview` (workspace admin) listing the hosts and relays that block removal; `Confirm`
+    /// replies `Zones`, or `OpError { code: "zone_in_use" }` while anything still uses it.
+    PreviewZoneRemove {
+        #[ts(type = "string")]
+        zone: Uuid,
+    },
+    /// `Preview` (workspace admin) of moving a host into `zone` (`None`: direct); `Confirm`
+    /// replies `Hosts`.
+    PreviewHostZone {
+        #[ts(type = "string")]
+        host: Uuid,
+        #[ts(type = "string | null")]
+        zone: Option<Uuid>,
+    },
+    /// `Relays`: the workspace's relays, revoked ones included. View.
+    ListRelays {
+        #[ts(type = "string")]
+        workspace: Uuid,
+    },
+    /// `Preview` (workspace admin, step-up) showing the host key fingerprint and Keel's
+    /// relay-link key line to pin; `Confirm` replies `Relays`.
+    PreviewRelayRegister {
+        #[ts(type = "string")]
+        workspace: Uuid,
+        #[ts(type = "string")]
+        zone: Uuid,
+        name: ZoneName,
+        dial_address: String,
+        /// The relay's `ssh-ed25519` host key line.
+        host_key: String,
+        #[ts(type = "string | null")]
+        host: Option<Uuid>,
+    },
+    /// `Preview` (workspace admin, step-up); `Confirm` replies `Relays`. A new address or host
+    /// key restarts the link.
+    PreviewRelayUpdate {
+        #[ts(type = "string")]
+        relay: Uuid,
+        #[ts(type = "string")]
+        zone: Uuid,
+        name: ZoneName,
+        dial_address: String,
+        host_key: String,
+        #[ts(type = "string | null")]
+        host: Option<Uuid>,
+    },
+    /// `Preview` (workspace admin) listing the hosts connected through it; `Confirm` replies
+    /// `Relays`.
+    PreviewRelayRevoke {
+        #[ts(type = "string")]
+        relay: Uuid,
+    },
+    /// `Preview` (workspace admin, step-up) of clearing a quarantine, with its reason, time and
+    /// the refusals since; `Confirm` replies `Relays`.
+    PreviewRelayRelease {
+        #[ts(type = "string")]
+        relay: Uuid,
+    },
+    /// `RelayLinkKeys`: public lines only. Instance admin.
+    GetRelayLinkKeys,
+    /// `Preview` (instance admin, step-up) of a new pending link key; `Confirm` replies
+    /// `RelayLinkKeys`.
+    PreviewRelayLinkKeyRotate,
+    /// `Preview` (instance admin, step-up) of making a pending key the active one (the active key
+    /// retires); `Confirm` replies `RelayLinkKeys`.
+    PreviewRelayLinkKeyActivate { fingerprint: String },
+    /// `Preview` (instance admin, step-up) of retiring a pending key; `Confirm` replies
+    /// `RelayLinkKeys`.
+    PreviewRelayLinkKeyRetire { fingerprint: String },
 }
 
 /// The commands an API token may be scoped to, by [`Cmd::name`]: reads only, for now. Anything
@@ -841,6 +933,9 @@ pub const TOKEN_ACTIONS: &[&str] = &[
     // Repository catalog (spec 066): reads that store nothing.
     "get_catalog",
     "draft_job",
+    // Zones and relays (spec 067)
+    "list_zones",
+    "list_relays",
 ];
 
 impl Cmd {
@@ -976,6 +1071,21 @@ impl Cmd {
             Cmd::PreviewHostAdd { .. } => "preview_host_add",
             Cmd::PreviewSopsRecipient { .. } => "preview_sops_recipient",
             Cmd::PreviewJobPropose { .. } => "preview_job_propose",
+            // Zones and relays (spec 067)
+            Cmd::ListZones { .. } => "list_zones",
+            Cmd::PreviewZoneCreate { .. } => "preview_zone_create",
+            Cmd::PreviewZoneUpdate { .. } => "preview_zone_update",
+            Cmd::PreviewZoneRemove { .. } => "preview_zone_remove",
+            Cmd::PreviewHostZone { .. } => "preview_host_zone",
+            Cmd::ListRelays { .. } => "list_relays",
+            Cmd::PreviewRelayRegister { .. } => "preview_relay_register",
+            Cmd::PreviewRelayUpdate { .. } => "preview_relay_update",
+            Cmd::PreviewRelayRevoke { .. } => "preview_relay_revoke",
+            Cmd::PreviewRelayRelease { .. } => "preview_relay_release",
+            Cmd::GetRelayLinkKeys => "get_relay_link_keys",
+            Cmd::PreviewRelayLinkKeyRotate => "preview_relay_link_key_rotate",
+            Cmd::PreviewRelayLinkKeyActivate { .. } => "preview_relay_link_key_activate",
+            Cmd::PreviewRelayLinkKeyRetire { .. } => "preview_relay_link_key_retire",
         }
     }
 
@@ -1112,6 +1222,21 @@ impl Cmd {
             | Cmd::PreviewHostAdd { .. }
             | Cmd::PreviewSopsRecipient { .. }
             | Cmd::PreviewJobPropose { .. } => false,
+            // Zones and relays (spec 067)
+            Cmd::ListZones { .. }
+            | Cmd::PreviewZoneCreate { .. }
+            | Cmd::PreviewZoneUpdate { .. }
+            | Cmd::PreviewZoneRemove { .. }
+            | Cmd::PreviewHostZone { .. }
+            | Cmd::ListRelays { .. }
+            | Cmd::PreviewRelayRegister { .. }
+            | Cmd::PreviewRelayUpdate { .. }
+            | Cmd::PreviewRelayRevoke { .. }
+            | Cmd::PreviewRelayRelease { .. }
+            | Cmd::GetRelayLinkKeys
+            | Cmd::PreviewRelayLinkKeyRotate
+            | Cmd::PreviewRelayLinkKeyActivate { .. }
+            | Cmd::PreviewRelayLinkKeyRetire { .. } => false,
         }
     }
 }

@@ -44,6 +44,8 @@ fn host_info() -> HostInfo {
         changed_outside: false,
         age_recipient: None,
         inventory_status: HostInventoryStatus::Unknown,
+        zone: None,
+        reach: HostReach::Disconnected,
     }
 }
 

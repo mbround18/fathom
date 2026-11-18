@@ -43,6 +43,8 @@ import type { Slug } from "./Slug";
 import type { SshCaKind } from "./SshCaKind";
 import type { TeamRole } from "./TeamRole";
 import type { TokenActions } from "./TokenActions";
+import type { ZoneDescription } from "./ZoneDescription";
+import type { ZoneName } from "./ZoneName";
 
 /**
  * Commands. Results arrive as events.
@@ -79,4 +81,8 @@ expires_in_days: number, } } | { "type": "PreviewJoinTokenDisable", "data": { wo
 /**
  * The inventory file to edit; defaults to the manifest's.
  */
-inventory: RepoPath | null, } } | { "type": "PreviewSopsRecipient", "data": { host: string, } } | { "type": "PreviewJobPropose", "data": { workspace: string, playbook: RepoPath, name: ObjectName, } };
+inventory: RepoPath | null, } } | { "type": "PreviewSopsRecipient", "data": { host: string, } } | { "type": "PreviewJobPropose", "data": { workspace: string, playbook: RepoPath, name: ObjectName, } } | { "type": "ListZones", "data": { workspace: string, } } | { "type": "PreviewZoneCreate", "data": { workspace: string, name: ZoneName, description: ZoneDescription, } } | { "type": "PreviewZoneUpdate", "data": { zone: string, name: ZoneName, description: ZoneDescription, } } | { "type": "PreviewZoneRemove", "data": { zone: string, } } | { "type": "PreviewHostZone", "data": { host: string, zone: string | null, } } | { "type": "ListRelays", "data": { workspace: string, } } | { "type": "PreviewRelayRegister", "data": { workspace: string, zone: string, name: ZoneName, dial_address: string, 
+/**
+ * The relay's `ssh-ed25519` host key line.
+ */
+host_key: string, host: string | null, } } | { "type": "PreviewRelayUpdate", "data": { relay: string, zone: string, name: ZoneName, dial_address: string, host_key: string, host: string | null, } } | { "type": "PreviewRelayRevoke", "data": { relay: string, } } | { "type": "PreviewRelayRelease", "data": { relay: string, } } | { "type": "GetRelayLinkKeys" } | { "type": "PreviewRelayLinkKeyRotate" } | { "type": "PreviewRelayLinkKeyActivate", "data": { fingerprint: string, } } | { "type": "PreviewRelayLinkKeyRetire", "data": { fingerprint: string, } };

@@ -14,6 +14,8 @@ import type { EnrollmentIssued } from "./EnrollmentIssued";
 import type { ForgeConnectionInfo } from "./ForgeConnectionInfo";
 import type { HostDetail } from "./HostDetail";
 import type { HostInfo } from "./HostInfo";
+import type { HostQuery } from "./HostQuery";
+import type { HostReach } from "./HostReach";
 import type { HostStatus } from "./HostStatus";
 import type { InventoryChange } from "./InventoryChange";
 import type { InventoryHostInfo } from "./InventoryHostInfo";
@@ -38,6 +40,8 @@ import type { PolicyInfo } from "./PolicyInfo";
 import type { Preview } from "./Preview";
 import type { PreviewId } from "./PreviewId";
 import type { ReceiverInfo } from "./ReceiverInfo";
+import type { RelayInfo } from "./RelayInfo";
+import type { RelayLinkKey } from "./RelayLinkKey";
 import type { ReviewCommit } from "./ReviewCommit";
 import type { ReviewDecision } from "./ReviewDecision";
 import type { ReviewFlag } from "./ReviewFlag";
@@ -57,6 +61,7 @@ import type { UserInfo } from "./UserInfo";
 import type { Verification } from "./Verification";
 import type { WorkspaceCount } from "./WorkspaceCount";
 import type { WorkspaceInfo } from "./WorkspaceInfo";
+import type { ZoneInfo } from "./ZoneInfo";
 
 /**
  * Events.
@@ -121,4 +126,4 @@ configured: boolean, workspace: string | null, allowed_profiles: Array<string>,
 /**
  * 0 while not configured.
  */
-version: number, bindings: Array<string>, hosts: Array<string>, } } | { "type": "KeelBuild", "data": KeelBuild } | { "type": "UpdateStatus", "data": UpdateStatus } | { "type": "UpdateStatusLine", "data": UpdateStatusLine } | { "type": "Catalog", "data": CatalogView } | { "type": "JobDraft", "data": { yaml: string, notes: Array<string>, } } | { "type": "ForgeConnection", "data": ForgeConnectionInfo | null } | { "type": "ForgeProbe", "data": { ok: boolean, can_push: boolean, message: string | null, } } | { "type": "HostAdded", "data": { enrollment: EnrollmentIssued, change: ChangeOutcome, } } | { "type": "ChangeProposed", "data": ChangeOutcome };
+version: number, bindings: Array<string>, hosts: Array<string>, } } | { "type": "KeelBuild", "data": KeelBuild } | { "type": "UpdateStatus", "data": UpdateStatus } | { "type": "UpdateStatusLine", "data": UpdateStatusLine } | { "type": "Catalog", "data": CatalogView } | { "type": "JobDraft", "data": { yaml: string, notes: Array<string>, } } | { "type": "ForgeConnection", "data": ForgeConnectionInfo | null } | { "type": "ForgeProbe", "data": { ok: boolean, can_push: boolean, message: string | null, } } | { "type": "HostAdded", "data": { enrollment: EnrollmentIssued, change: ChangeOutcome, } } | { "type": "ChangeProposed", "data": ChangeOutcome } | { "type": "Zones", "data": { items: Array<ZoneInfo>, } } | { "type": "Relays", "data": { items: Array<RelayInfo>, } } | { "type": "RelayLinkKeys", "data": { items: Array<RelayLinkKey>, } } | { "type": "RelayChanged", "data": RelayInfo } | { "type": "HostReachChanged", "data": { host: string, reach: HostReach, } } | { "type": "HostQueryAnswered", "data": HostQuery };

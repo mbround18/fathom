@@ -31,6 +31,8 @@ const host = (over: Partial<HostInfo> = {}): HostInfo => ({
   changed_outside: false,
   age_recipient: null,
   inventory_status: 'unknown',
+  zone: null,
+  reach: { kind: 'disconnected' },
   ...over,
 })
 
